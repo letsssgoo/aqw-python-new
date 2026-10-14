@@ -15,6 +15,15 @@
         el.className = 'cfg-msg' + (text ? (ok ? ' ok' : ' err') : '');
     }
 
+    function needApi() {
+        var a = api();
+        if (!a) {
+            msg('Not connected to the bot backend. Reload the page.', false);
+            return null;
+        }
+        return a;
+    }
+
     function render(players) {
         var rows = document.getElementById('rows');
         rows.innerHTML = '';
@@ -30,11 +39,13 @@
                     '<td><button class="cfg-btn small save">Save</button>' +
                     '<button class="cfg-btn small ghost cancel">Cancel</button></td>';
                 tr.querySelector('.save').onclick = function () {
-                    api().update_player(i, tr.querySelector('.edit-user').value,
-                                         tr.querySelector('.edit-pass').value).then(function (res) {
+                    var a = needApi();
+                    if (!a) { return; }
+                    a.update_player(i, tr.querySelector('.edit-user').value,
+                                     tr.querySelector('.edit-pass').value).then(function (res) {
                         if (!res || !res.success) { msg((res && res.error) || 'Failed', false); return; }
                         editing = -1; msg('Saved.', true); refresh();
-                    });
+                    }).catch(function () { msg('Failed to save.', false); });
                 };
                 tr.querySelector('.cancel').onclick = function () { editing = -1; refresh(); };
             } else {
@@ -46,10 +57,12 @@
                     '<button class="cfg-btn small danger del">Delete</button></td>';
                 tr.querySelector('.edit').onclick = function () { editing = i; refresh(); };
                 tr.querySelector('.del').onclick = function () {
-                    api().delete_player(i).then(function (res) {
+                    var a = needApi();
+                    if (!a) { return; }
+                    a.delete_player(i).then(function (res) {
                         if (!res || !res.success) { msg((res && res.error) || 'Failed', false); return; }
                         editing = -1; msg('Deleted.', true); refresh();
-                    });
+                    }).catch(function () { msg('Failed to delete.', false); });
                 };
             }
             rows.appendChild(tr);
@@ -57,7 +70,9 @@
     }
 
     function refresh() {
-        api().list_players().then(function (players) {
+        var a = api();
+        if (!a) { return; }
+        a.list_players().then(function (players) {
             render(players || []);
             // Other menus cache the list when they load; ask the hub to refresh
             // their dropdowns so a saved player appears without a reload.
@@ -77,14 +92,20 @@
             refresh();
         };
         document.getElementById('btn-add').onclick = function () {
+            var a = needApi();
+            if (!a) { return; }
             var u = document.getElementById('new-user').value;
             var p = document.getElementById('new-pass').value;
-            api().add_player(u, p).then(function (res) {
+            var btn = document.getElementById('btn-add');
+            btn.disabled = true;
+            a.add_player(u, p).then(function (res) {
                 if (!res || !res.success) { msg((res && res.error) || 'Failed', false); return; }
                 document.getElementById('new-user').value = '';
                 document.getElementById('new-pass').value = '';
                 msg('Added.', true); refresh();
-            });
+            }).catch(function () {
+                msg('Failed to add. Is the backend reachable?', false);
+            }).then(function () { btn.disabled = false; });
         };
         refresh();
     });
