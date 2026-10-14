@@ -57,7 +57,17 @@
     }
 
     function refresh() {
-        api().list_players().then(function (players) { render(players || []); });
+        api().list_players().then(function (players) {
+            render(players || []);
+            // Other menus cache the list when they load; ask the hub to refresh
+            // their dropdowns so a saved player appears without a reload.
+            try {
+                if (window.parent && window.parent !== window &&
+                    window.parent.refreshAllPlayersDropdowns) {
+                    window.parent.refreshAllPlayersDropdowns();
+                }
+            } catch (e) { /* not embedded */ }
+        });
     }
 
     window.whenApiReady(function () {

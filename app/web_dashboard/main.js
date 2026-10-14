@@ -139,6 +139,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         console.log(`[Hub] Feature loaded successfully: ${tabId}`);
                         iframe.setAttribute('data-loaded', 'true');
                         applyThemeToIframe(iframe, currentTheme);
+                        window.refreshAllPlayersDropdowns();
                         
                         // Smoothly transition from loader to iframe
                         if (loader) {
@@ -166,6 +167,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         loader.style.display = 'none';
                     }
                     iframe.classList.add('loaded');
+                    window.refreshAllPlayersDropdowns();
                 }
             }
         }
@@ -560,6 +562,17 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) {
             console.error("Error forwarding forwardBotLog:", e);
         }
+    };
+
+    // Re-read players.json in every loaded menu, so a player saved in Config
+    // Player shows up in the other dropdowns without a page reload.
+    window.refreshAllPlayersDropdowns = function () {
+        document.querySelectorAll('iframe').forEach(iframe => {
+            try {
+                const w = iframe.contentWindow;
+                if (w && w.refreshPlayersDropdowns) w.refreshPlayersDropdowns();
+            } catch (e) { /* iframe not ready */ }
+        });
     };
 
     // Web mode: no pywebview bridge, so pull log lines from the backend and

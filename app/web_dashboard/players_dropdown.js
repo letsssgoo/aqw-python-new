@@ -22,9 +22,10 @@
 
   // Fill `select` with a "manual" option plus one option per saved player.
   // `onPick(user, pass)` fires when a saved player is chosen.
-  window.attachPlayersDropdown = function (select, onPick) {
-    if (!select) return;
-    window.loadPlayers().then(function (players) {
+  var wiredSelects = [];
+
+  function fillSelect(select, onPick) {
+    return window.loadPlayers().then(function (players) {
       var prev = select.value;
       select.innerHTML = '<option value="">— manual —</option>';
       (players || []).forEach(function (p, i) {
@@ -42,6 +43,23 @@
         if (onPick) onPick(opt.dataset.user || '', opt.dataset.pass || '');
       };
     });
+  }
+
+  window.attachPlayersDropdown = function (select, onPick) {
+    if (!select) return;
+    var known = wiredSelects.some(function (w) { return w.select === select; });
+    if (!known) wiredSelects.push({ select: select, onPick: onPick });
+    fillSelect(select, onPick);
+  };
+
+  // Re-read players.json into every dropdown already on the page.  The hub calls
+  // this when a menu is shown, so a player saved in Config Player appears without
+  // a full page reload.
+  window.refreshPlayersDropdowns = function () {
+    wiredSelects = wiredSelects.filter(function (w) {
+      return w.select && document.body.contains(w.select);
+    });
+    wiredSelects.forEach(function (w) { fillSelect(w.select, w.onPick); });
   };
 
   // Best-effort wiring for the existing menus (temple/eclipse/slavery): insert a
