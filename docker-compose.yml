@@ -23,6 +23,19 @@ services:
     volumes:
       # players.json / *_config.json live here and survive rebuilds.
       - aqw-hub-data:/data
+    # --- resource guardrails (override via .env, see Dockerfile header) -----
+    # The bot is network-bound, so these are a ceiling to protect the VPS, not
+    # a target.  cpu_shares only matters when the host is busy (it never
+    # throttles); cpus is the hard CFS quota.
+    # IMPORTANT: `cpus` is measured in CORES, not in % of the machine.
+    #   0.1  = 10% of one core   (on an 8-core VPS that is only 1.25% of it)
+    #   0.8  = 80% of one core   (= 10% of an 8-core VPS)
+    #   4    = four full cores
+    cpus: "${CPU_LIMIT:-0.8}"
+    cpu_shares: ${CPU_SHARES:-1024}
+    mem_limit: "${MEM_LIMIT:-1g}"
+    mem_reservation: "${MEM_RESERVE:-512m}"
+    pids_limit: ${PIDS_LIMIT:-512}
 
 volumes:
   aqw-hub-data:

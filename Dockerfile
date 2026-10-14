@@ -80,8 +80,10 @@ RUN python docker/scrub_credentials.py /app
 VOLUME ["/data"]
 EXPOSE 8080
 
-# Server is healthy when the authenticated log endpoint answers 200.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+# Server is healthy when the authenticated log endpoint answers 200.  The
+# start period is generous because a low CPU_LIMIT stretches the boot: at
+# cpus=0.1 the engine import alone can take ~30s.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
     CMD python -c "import os,base64,urllib.request; r=urllib.request.Request('http://127.0.0.1:'+os.environ.get('HUB_WEB_PORT','8080')+'/api/logs'); r.add_header('Authorization','Basic '+base64.b64encode(('hub:'+os.environ.get('HUB_WEB_PASSWORD','tikuslu')).encode()).decode()); urllib.request.urlopen(r,timeout=4)" || exit 1
 
 CMD ["python", "app/build_hub_app.py", "web"]
