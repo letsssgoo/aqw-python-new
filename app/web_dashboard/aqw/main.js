@@ -360,6 +360,17 @@
             });
         };
 
+        // Web mode has no file dialog: let the user type a module path instead.
+        if (window.pywebview && window.pywebview.__web) {
+            var scriptEl = el('f-script');
+            if (scriptEl) {
+                scriptEl.removeAttribute('readonly');
+                scriptEl.placeholder = 'module path, e.g. bot.scion_flame.0_all_flames';
+            }
+            var browseBtn = el('btn-browse');
+            if (browseBtn) { browseBtn.style.display = 'none'; }
+        }
+
         el('btn-add').onclick = function () { addAccount(); };
 
         el('btn-account-toggle').onclick = function () {
