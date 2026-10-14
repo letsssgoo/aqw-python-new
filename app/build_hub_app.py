@@ -3025,6 +3025,21 @@ def serve_injected_html(filepath, bot_type):
             </script>
             """
 
+        # Web mode: the parent hub runs without a pywebview bridge, so mark the
+        # sub-app api as "web" too.  Pages use this flag to swap the native file
+        # dialog for a typeable path field (a browser cannot return a real path).
+        if bridge_js:
+            bridge_js += """
+            <script>
+            (function () {
+                var p = window.parent && window.parent.pywebview;
+                if (p && p.__web && window.pywebview) {
+                    window.pywebview.__web = true;
+                }
+            })();
+            </script>
+            """
+
         if "<head>" in html_content:
             html_content = html_content.replace("<head>", f"<head>\n{bridge_js}")
         else:

@@ -360,12 +360,15 @@
             });
         };
 
-        // Web mode has no file dialog: let the user type a module path instead.
+        // Web mode has no file dialog: the field is typed by hand, and the full
+        // module path is required (e.g. bot.darkon_mats.0_all_darkon_mats).
         if (window.pywebview && window.pywebview.__web) {
             var scriptEl = el('f-script');
             if (scriptEl) {
                 scriptEl.removeAttribute('readonly');
-                scriptEl.placeholder = 'module path, e.g. bot.scion_flame.0_all_flames';
+                scriptEl.placeholder = 'full module path, e.g. bot.darkon_mats.0_all_darkon_mats';
+                scriptEl.title = 'Full Python module path (dot-separated), ' +
+                    'e.g. bot.darkon_mats.0_all_darkon_mats';
             }
             var browseBtn = el('btn-browse');
             if (browseBtn) { browseBtn.style.display = 'none'; }
