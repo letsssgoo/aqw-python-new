@@ -12,8 +12,14 @@ import platform
 import subprocess
 import shutil
 import hashlib
-import webview
-from bottle import Bottle, static_file, request
+try:
+    import webview  # only needed for the desktop window; absent on headless servers
+except Exception:
+    webview = None
+from bottle import Bottle, static_file, request, response, HTTPResponse
+
+# Password used when the web dashboard runs without HUB_WEB_PASSWORD set.
+DEFAULT_WEB_PASSWORD = "tikuslu"
 
 # Determine project root path
 def get_project_root():
@@ -30,6 +36,22 @@ def get_project_root():
         return os.path.abspath(grandparent_dir)
     else:
         return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+def get_data_dir():
+    """Directory holding runtime config files (players.json, *_config.json).
+
+    Defaults to the project root.  ``HUB_DATA_DIR`` overrides it so a container
+    can keep credentials/config on a mounted volume instead of inside the image.
+    """
+    override = os.environ.get("HUB_DATA_DIR")
+    if override:
+        try:
+            os.makedirs(override, exist_ok=True)
+        except Exception:
+            pass
+        return override
+    return get_project_root()
+
 
 project_root = get_project_root()
 if project_root not in sys.path:
@@ -262,6 +284,49 @@ class _LogFlusher:
 
 
 _log_flusher = _LogFlusher()
+
+
+class _WebLogs:
+    """Ring buffer of log lines for browser (HTTP) clients.
+
+    In the desktop app logs are pushed into the DOM via ``evaluate_js``; a plain
+    browser has no bridge, so it polls ``GET /api/logs`` instead.
+    """
+
+    def __init__(self):
+        self._lines = []
+        self._seq = 0
+        self._lock = threading.Lock()
+
+    def add(self, tab, user, html):
+        with self._lock:
+            self._seq += 1
+            self._lines.append((self._seq, tab, user, html))
+            if len(self._lines) > 4000:
+                del self._lines[:2000]
+
+    def since(self, seq):
+        with self._lock:
+            return {
+                "seq": self._seq,
+                "lines": [{"tab": t, "user": u, "html": h}
+                          for (s, t, u, h) in self._lines if s > seq],
+            }
+
+
+_web_logs = _WebLogs()
+
+
+def _push_log(tab, user, html):
+    """Send one log line to the app window and queue it for web clients."""
+    try:
+        _log_flusher.push(
+            f"if(window.addSlaveLog) window.addSlaveLog({json.dumps(user or 'System')}, "
+            f"{json.dumps(html)}, {json.dumps(tab)});"
+        )
+    except Exception:
+        pass
+    _web_logs.add(tab, user or "System", html)
 
 
 def _drain_loop(loop):
@@ -658,7 +723,7 @@ class PlayersApi:
             os.makedirs(config_dir, exist_ok=True)
             self.config_path = os.path.join(config_dir, "players.json")
         else:
-            self.config_path = os.path.join(get_project_root(), "players.json")
+            self.config_path = os.path.join(get_data_dir(), "players.json")
 
     def set_window(self, window):
         self._window = window
@@ -738,24 +803,17 @@ class AqwSoloApi:
             os.makedirs(config_dir, exist_ok=True)
             self.config_path = os.path.join(config_dir, "gui_config.json")
         else:
-            self.config_path = os.path.join(get_project_root(), "gui_config.json")
+            self.config_path = os.path.join(get_data_dir(), "gui_config.json")
 
     def set_window(self, window):
         self._window = window
 
     def handle_log(self, message):
-        html_msg = ansi_to_html(message)
-        _log_flusher.push(
-            f"if(window.addSlaveLog) window.addSlaveLog('System', {json.dumps(html_msg)}, 'aqw');"
-        )
+        _push_log("aqw", "System", ansi_to_html(message))
 
     def handle_account_log(self, key, message):
         """Route one line to a single account's log panel in the solo menu."""
-        html_msg = ansi_to_html(message)
-        _log_flusher.push(
-            f"if(window.addSlaveLog) window.addSlaveLog({json.dumps(key)}, "
-            f"{json.dumps(html_msg)}, 'aqw');"
-        )
+        _push_log("aqw", key, ansi_to_html(message))
 
     @staticmethod
     def _default_account():
@@ -841,7 +899,7 @@ class AqwSoloApi:
             }
 
     def select_script(self):
-        if not self._window:
+        if webview is None or not self._window:
             return None
         file_types = ('Python files (*.py)', 'All files (*.*)')
         result = self._window.create_file_dialog(
@@ -1067,7 +1125,7 @@ class SlaveryApi:
             os.makedirs(config_dir, exist_ok=True)
             self.config_path = os.path.join(config_dir, "slavery_config.json")
         else:
-            self.config_path = os.path.join(get_project_root(), "slavery_config.json")
+            self.config_path = os.path.join(get_data_dir(), "slavery_config.json")
         self.active_threads = {}
         self.taunt_coordinator = TauntCoordinator()
 
@@ -1075,14 +1133,7 @@ class SlaveryApi:
         self._window = window
 
     def handle_slave_log(self, username, message):
-        html_msg = ansi_to_html(message)
-        if self._window:
-            try:
-                self._window.evaluate_js(
-                    f"if(window.addSlaveLog) window.addSlaveLog({json.dumps(username)}, {json.dumps(html_msg)}, 'slavery');"
-                )
-            except Exception:
-                pass
+        _push_log("slavery", username, ansi_to_html(message))
 
     def load_config(self):
         default_config = {
@@ -1313,7 +1364,7 @@ class TempleApi:
             os.makedirs(config_dir, exist_ok=True)
             self.config_path = os.path.join(config_dir, "temple_config.json")
         else:
-            self.config_path = os.path.join(get_project_root(), "temple_config.json")
+            self.config_path = os.path.join(get_data_dir(), "temple_config.json")
         self.active_threads = {}
         self.start_time = None
         self.cleared_count = 0
@@ -1337,20 +1388,10 @@ class TempleApi:
             if m:
                 self.cleared_count = int(m.group(1))
 
-        if self._window:
-            try:
-                self._window.evaluate_js(
-                    f"if(window.addSlaveLog) window.addSlaveLog({json.dumps(username)}, {json.dumps(html_msg)}, 'temple');"
-                )
-                # Duplicate cleared logs (clear time, clear count, total time running) to System logs tab
-                if "Finished in" in message or "Total time taken" in message or "Clear time" in message or "Dungeon cleared" in message or "Total time running" in message:
-                    sys_msg = f"[{username}] {message}"
-                    html_sys_msg = ansi_to_html(sys_msg)
-                    self._window.evaluate_js(
-                        f"if(window.addSlaveLog) window.addSlaveLog('System', {json.dumps(html_sys_msg)}, 'temple');"
-                    )
-            except Exception:
-                pass
+        _push_log("temple", username, html_msg)
+        # Duplicate cleared logs (clear time, clear count, total time running) to System logs tab
+        if "Finished in" in message or "Total time taken" in message or "Clear time" in message or "Dungeon cleared" in message or "Total time running" in message:
+            _push_log("temple", "System", ansi_to_html(f"[{username}] {message}"))
 
     def load_config(self):
         default_config = {
@@ -1611,7 +1652,7 @@ class EclipseApi:
             os.makedirs(config_dir, exist_ok=True)
             self.config_path = os.path.join(config_dir, "eclipse_config.json")
         else:
-            self.config_path = os.path.join(get_project_root(), "eclipse_config.json")
+            self.config_path = os.path.join(get_data_dir(), "eclipse_config.json")
             
         self.active_threads = {}
         self.start_time = None
@@ -1640,19 +1681,9 @@ class EclipseApi:
             if m:
                 self.cleared_count = int(m.group(1))
 
-        if self._window:
-            try:
-                self._window.evaluate_js(
-                    f"if(window.addSlaveLog) window.addSlaveLog({json.dumps(username)}, {json.dumps(html_msg)}, 'eclipse');"
-                )
-                if "Finished in" in message or "Total time taken" in message or "Clear time" in message or "Dungeon cleared" in message or "Total time running" in message:
-                    sys_msg = f"[{username}] {message}"
-                    html_sys_msg = ansi_to_html(sys_msg)
-                    self._window.evaluate_js(
-                        f"if(window.addSlaveLog) window.addSlaveLog('System', {json.dumps(html_sys_msg)}, 'eclipse');"
-                    )
-            except Exception:
-                pass
+        _push_log("eclipse", username, html_msg)
+        if "Finished in" in message or "Total time taken" in message or "Clear time" in message or "Dungeon cleared" in message or "Total time running" in message:
+            _push_log("eclipse", "System", ansi_to_html(f"[{username}] {message}"))
 
     def load_config(self):
         default_config = {
@@ -1997,7 +2028,7 @@ class UltraApi:
             os.makedirs(config_dir, exist_ok=True)
             self.config_path = os.path.join(config_dir, config_name)
         else:
-            self.config_path = os.path.join(get_project_root(), config_name)
+            self.config_path = os.path.join(get_data_dir(), config_name)
 
     def set_window(self, window):
         self._window = window
@@ -2071,11 +2102,7 @@ class UltraApi:
             time.sleep(1.0)
 
     def handle_log(self, username, message):
-        html_msg = ansi_to_html(message)
-        _log_flusher.push(
-            f"if(window.addSlaveLog) window.addSlaveLog({json.dumps(username or 'System')}, "
-            f"{json.dumps(html_msg)}, {json.dumps(self.tab_id())});"
-        )
+        _push_log(self.tab_id(), username, ansi_to_html(message))
 
     def tab_id(self):
         """Hub iframe id for this menu. ``kind`` is 'daily'/'speaker', the tab is
@@ -2315,17 +2342,13 @@ class WeeklyDoomApi:
             os.makedirs(config_dir, exist_ok=True)
             self.config_path = os.path.join(config_dir, "weekly_doom_config.json")
         else:
-            self.config_path = os.path.join(get_project_root(), "weekly_doom_config.json")
+            self.config_path = os.path.join(get_data_dir(), "weekly_doom_config.json")
 
     def set_window(self, window):
         self._window = window
 
     def handle_log(self, username, message):
-        html_msg = ansi_to_html(message)
-        _log_flusher.push(
-            f"if(window.addSlaveLog) window.addSlaveLog({json.dumps(username or 'System')}, "
-            f"{json.dumps(html_msg)}, 'weekly_doom');"
-        )
+        _push_log("weekly_doom", username, ansi_to_html(message))
 
     def load_config(self):
         default_config = {"server": "Swordhaven (EU)", "room_number": 9099}
@@ -3012,8 +3035,56 @@ def serve_injected_html(filepath, bot_type):
         print(f"Failed to inject HTML for {filepath}: {e}")
         return static_file(os.path.basename(filepath), root=os.path.dirname(filepath))
 
-def start_local_server(web_dashboard_dir, sub_apps):
+def start_local_server(web_dashboard_dir, sub_apps, combined_api=None,
+                       host='127.0.0.1', port=None, password=None):
     app = Bottle()
+
+    if password:
+        @app.hook('before_request')
+        def _basic_auth():
+            auth = request.auth or ('', '')
+            if auth[1] != password:
+                raise HTTPResponse(
+                    status=401, body='Unauthorized',
+                    headers={'WWW-Authenticate': 'Basic realm="AQW Bot Hub"'})
+
+    # HTTP API for browser clients (no pywebview bridge).  The desktop window
+    # uses window.pywebview and never calls these.  Register /api/logs BEFORE
+    # the /api/<method> wildcard so it is not matched as a method named "logs".
+    @app.route('/api/logs')
+    def api_logs():
+        response.content_type = 'application/json'
+        try:
+            since = int(request.query.get('since', 0) or 0)
+        except Exception:
+            since = 0
+        return json.dumps(_web_logs.since(since))
+
+    @app.route('/api/<method>', method=['POST', 'GET', 'OPTIONS'])
+    def api_call(method):
+        response.content_type = 'application/json'
+        if combined_api is None or method.startswith('_'):
+            return json.dumps({"success": False, "error": "api unavailable"})
+        fn = getattr(combined_api, method, None)
+        if not callable(fn):
+            return json.dumps({"success": False, "error": f"unknown method {method}"})
+        try:
+            payload = request.json or {}
+        except Exception:
+            payload = {}
+        try:
+            if isinstance(payload, list):
+                result = fn(*payload)
+            elif isinstance(payload, dict):
+                result = fn(*payload.get("args", []), **payload.get("kwargs", {}))
+            else:
+                result = fn()
+        except Exception as e:
+            result = {"success": False, "error": str(e)}
+        try:
+            return json.dumps(result, default=str)
+        except Exception:
+            return json.dumps({"success": False, "error": "unserialisable result"})
 
     # Dashboard routes
     @app.route('/')
@@ -3041,6 +3112,10 @@ def start_local_server(web_dashboard_dir, sub_apps):
     def serve_cfg_css():
         return static_file('cfg.css', root=web_dashboard_dir)
 
+    @app.route('/web_api.js')
+    def serve_web_api():
+        return static_file('web_api.js', root=web_dashboard_dir)
+
     @app.route(r'/<filename:re:[^/]+\.(png|jpg|jpeg|gif|ico|svg)>')
     def serve_dashboard_images(filename):
         return static_file(filename, root=web_dashboard_dir)
@@ -3061,11 +3136,11 @@ def start_local_server(web_dashboard_dir, sub_apps):
     for _name, _root in sub_apps.items():
         _register(_name, _root)
 
-    port = find_free_port()
-    t = threading.Thread(target=lambda: app.run(host='127.0.0.1', port=port, quiet=True))
+    port = port or find_free_port()
+    t = threading.Thread(target=lambda: app.run(host=host, port=port, quiet=True))
     t.daemon = True
     t.start()
-    return f"http://127.0.0.1:{port}"
+    return f"http://{host}:{port}"
 
 def cleanup_orphaned_processes():
     """
@@ -3115,6 +3190,10 @@ def cleanup_orphaned_processes():
 
 # --- Launcher (Run) ---
 def run_gui():
+    if webview is None:
+        print("pywebview is not available (no GUI toolkit here). "
+              "Use `python app/build_hub_app.py web` for the browser dashboard.")
+        return
     # Clean up any leftover zombie processes from previous sessions
     cleanup_orphaned_processes()
 
@@ -3167,7 +3246,7 @@ def run_gui():
     }
 
     print(f"Loading GUI assets from: {web_dashboard_dir}")
-    url = start_local_server(web_dashboard_dir, sub_apps)
+    url = start_local_server(web_dashboard_dir, sub_apps, combined_api=combined_api)
     print(f"Combined Bot Hub server running at: {url}")
 
     window = webview.create_window(
@@ -3213,6 +3292,87 @@ def run_gui():
         webview.start(debug=True, private_mode=False, storage_path=storage_path)
     finally:
         on_closed()
+
+def run_web(host=None, port=None, password=None):
+    """Run the hub as a plain web server and open a browser (no pywebview).
+
+    The frontend talks to the backend over ``/api/<method>`` -- the page
+    installs a fetch-backed ``window.pywebview.api`` shim when there is no
+    pywebview bridge, so the same UI works in a normal browser.
+
+    Env fallbacks: ``HUB_WEB_HOST`` (default 127.0.0.1), ``HUB_WEB_PORT``
+    (default 8080), ``HUB_WEB_PASSWORD`` (Basic Auth; always required, defaults
+    to ``DEFAULT_WEB_PASSWORD``), ``HUB_DATA_DIR`` (runtime config location).
+    """
+    host = host or os.environ.get("HUB_WEB_HOST", "127.0.0.1")
+    try:
+        port = int(port or os.environ.get("HUB_WEB_PORT", "8080"))
+    except Exception:
+        port = 8080
+    if password is None:
+        password = os.environ.get("HUB_WEB_PASSWORD", "")
+    password = password or DEFAULT_WEB_PASSWORD  # the dashboard always needs a password
+
+    aqw_api = AqwSoloApi()
+    slavery_api = SlaveryApi()
+    temple_api = TempleApi()
+    eclipse_api = EclipseApi()
+    players_api = PlayersApi()
+    ultra_daily_api = UltraDailyApi()
+    ultra_speaker_api = UltraSpeakerApi()
+    weekly_doom_api = WeeklyDoomApi()
+
+    combined_api = CombinedApi(aqw_api, slavery_api, temple_api, eclipse_api,
+                               players_api, ultra_daily_api, ultra_speaker_api,
+                               weekly_doom_api)
+    unified_redirector_out.combined_api = combined_api
+    unified_redirector_err.combined_api = combined_api
+
+    if getattr(sys, 'frozen', False):
+        base_path = getattr(sys, '_MEIPASS', '')
+        web_dashboard_dir = os.path.join(base_path, 'web_dashboard')
+    else:
+        web_dashboard_dir = os.path.join(project_root, 'app', 'web_dashboard')
+
+    sub_apps = {
+        name: os.path.join(web_dashboard_dir, name)
+        for name in ('aqw', 'slavery', 'temple', 'eclipse',
+                     'players', 'ultra_daily', 'ultra_speaker', 'weekly_doom')
+    }
+
+    if host not in ("127.0.0.1", "localhost"):
+        print("Basic Auth is required from any address on the network.")
+
+    # If the port is taken, fall back to any free port.
+    try:
+        _probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        _probe.bind((host, port))
+        _probe.close()
+    except OSError:
+        port = find_free_port()
+
+    url = start_local_server(web_dashboard_dir, sub_apps,
+                             combined_api=combined_api, host=host, port=port,
+                             password=password)
+    print(f"Combined Bot Hub web server running at: {url}")
+    print("Basic Auth enabled (any username, password = HUB_WEB_PASSWORD).")
+    print("Open that URL in a browser. Press Ctrl+C to stop.")
+    try:
+        import webbrowser
+        browse_host = "127.0.0.1" if host in ("0.0.0.0", "") else host
+        webbrowser.open(f"http://{browse_host}:{port}")
+    except Exception:
+        pass
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        try:
+            combined_api.stop_all()
+        except Exception:
+            pass
 
 # --- Icon Generator ---
 def generate_icons():
@@ -3338,8 +3498,11 @@ def build_app():
 # --- Main Routing Entrypoint ---
 def main():
     try:
-        if len(sys.argv) > 1 and sys.argv[1] in ("build", "--build"):
+        arg = sys.argv[1] if len(sys.argv) > 1 else ""
+        if arg in ("build", "--build"):
             build_app()
+        elif arg in ("web", "--web"):
+            run_web()
         else:
             run_gui()
     except Exception as e:

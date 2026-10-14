@@ -561,4 +561,19 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error("Error forwarding forwardBotLog:", e);
         }
     };
+
+    // Web mode: no pywebview bridge, so pull log lines from the backend and
+    // forward them to the matching iframe (same path as app mode).
+    if (window.pywebview && window.pywebview.__web) {
+        let webLogSeq = 0;
+        setInterval(() => {
+            fetch('/api/logs?since=' + webLogSeq).then(r => r.json()).then(data => {
+                if (!data) return;
+                webLogSeq = data.seq || webLogSeq;
+                (data.lines || []).forEach(l => {
+                    if (window.addSlaveLog) window.addSlaveLog(l.user, l.html, l.tab);
+                });
+            }).catch(() => {});
+        }, 800);
+    }
 });
