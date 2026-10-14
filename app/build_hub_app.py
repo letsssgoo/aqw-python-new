@@ -2878,8 +2878,9 @@ def serve_injected_html(filepath, bot_type):
             bridge_js = """
             <script>
             (function() {
-                if (window.parent && window.parent.pywebview) {
-                    const topApi = window.parent.pywebview.api;
+                var topApi = (window.parent && window.parent.pywebview && window.parent.pywebview.api)
+                    || window.__AQW_WEB_API__;
+                if (topApi) {
                     window.pywebview = {
                         api: {
                             load_config: () => topApi.aqw_load_config(),
@@ -2903,8 +2904,9 @@ def serve_injected_html(filepath, bot_type):
             bridge_js = """
             <script>
             (function() {
-                if (window.parent && window.parent.pywebview) {
-                    const topApi = window.parent.pywebview.api;
+                var topApi = (window.parent && window.parent.pywebview && window.parent.pywebview.api)
+                    || window.__AQW_WEB_API__;
+                if (topApi) {
                     window.pywebview = {
                         api: {
                             load_config: () => topApi.slavery_load_config(),
@@ -2926,8 +2928,9 @@ def serve_injected_html(filepath, bot_type):
             bridge_js = """
             <script>
             (function() {
-                if (window.parent && window.parent.pywebview) {
-                    const topApi = window.parent.pywebview.api;
+                var topApi = (window.parent && window.parent.pywebview && window.parent.pywebview.api)
+                    || window.__AQW_WEB_API__;
+                if (topApi) {
                     window.pywebview = {
                         api: {
                             load_config: () => topApi.temple_load_config(),
@@ -2947,8 +2950,9 @@ def serve_injected_html(filepath, bot_type):
             bridge_js = """
             <script>
             (function() {
-                if (window.parent && window.parent.pywebview) {
-                    const topApi = window.parent.pywebview.api;
+                var topApi = (window.parent && window.parent.pywebview && window.parent.pywebview.api)
+                    || window.__AQW_WEB_API__;
+                if (topApi) {
                     window.pywebview = {
                         api: {
                             load_config: () => topApi.eclipse_load_config(),
@@ -2971,8 +2975,9 @@ def serve_injected_html(filepath, bot_type):
             bridge_js = """
             <script>
             (function() {
-                if (window.parent && window.parent.pywebview) {
-                    const topApi = window.parent.pywebview.api;
+                var topApi = (window.parent && window.parent.pywebview && window.parent.pywebview.api)
+                    || window.__AQW_WEB_API__;
+                if (topApi) {
                     window.pywebview = {
                         api: {
                             list_players: () => topApi.players_list(),
@@ -2989,8 +2994,9 @@ def serve_injected_html(filepath, bot_type):
             bridge_js = """
             <script>
             (function() {
-                if (window.parent && window.parent.pywebview) {
-                    const topApi = window.parent.pywebview.api;
+                var topApi = (window.parent && window.parent.pywebview && window.parent.pywebview.api)
+                    || window.__AQW_WEB_API__;
+                if (topApi) {
                     window.pywebview = {
                         api: {
                             load_config: () => topApi.ultra_daily_load_config(),
@@ -3011,8 +3017,9 @@ def serve_injected_html(filepath, bot_type):
             bridge_js = """
             <script>
             (function() {
-                if (window.parent && window.parent.pywebview) {
-                    const topApi = window.parent.pywebview.api;
+                var topApi = (window.parent && window.parent.pywebview && window.parent.pywebview.api)
+                    || window.__AQW_WEB_API__;
+                if (topApi) {
                     window.pywebview = {
                         api: {
                             load_config: () => topApi.ultra_speaker_load_config(),
@@ -3034,8 +3041,9 @@ def serve_injected_html(filepath, bot_type):
             bridge_js = """
             <script>
             (function() {
-                if (window.parent && window.parent.pywebview) {
-                    const topApi = window.parent.pywebview.api;
+                var topApi = (window.parent && window.parent.pywebview && window.parent.pywebview.api)
+                    || window.__AQW_WEB_API__;
+                if (topApi) {
                     window.pywebview = {
                         api: {
                             load_config: () => topApi.weekly_doom_load_config(),
@@ -3051,20 +3059,47 @@ def serve_injected_html(filepath, bot_type):
             </script>
             """
 
+        # A menu opened outside the hub (or whose parent bridge is missing) still
+        # has to work: fall back to calling the backend over HTTP, so a click
+        # does something instead of silently failing.  Skipped inside the desktop
+        # app, where the parent carries the real pywebview bridge.
+        shim_js = """
+            <script>
+            if (!(window.parent && window.parent.pywebview)) {
+                window.__AQW_WEB_API__ = new Proxy({}, {
+                    get: function (_target, name) {
+                        return function () {
+                            var args = Array.prototype.slice.call(arguments);
+                            return fetch('/api/' + encodeURIComponent(String(name)), {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ args: args })
+                            }).then(function (r) { return r.json(); })
+                              .catch(function () { return null; });
+                        };
+                    }
+                });
+                window.__AQW_WEB_STANDALONE__ = true;
+            }
+            </script>
+            """
+
         # Web mode: the parent hub runs without a pywebview bridge, so mark the
         # sub-app api as "web" too.  Pages use this flag to swap the native file
         # dialog for a typeable path field (a browser cannot return a real path).
-        if bridge_js:
-            bridge_js += """
+        flag_js = """
             <script>
             (function () {
                 var p = window.parent && window.parent.pywebview;
-                if (p && p.__web && window.pywebview) {
-                    window.pywebview.__web = true;
+                if ((p && p.__web) || window.__AQW_WEB_STANDALONE__) {
+                    if (window.pywebview) { window.pywebview.__web = true; }
                 }
             })();
             </script>
             """
+
+        if bridge_js:
+            bridge_js = shim_js + bridge_js + flag_js
 
         if "<head>" in html_content:
             html_content = html_content.replace("<head>", f"<head>\n{bridge_js}")
