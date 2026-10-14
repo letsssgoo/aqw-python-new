@@ -380,34 +380,47 @@
             syncFromEditor();
             var acc = current() || {};
             var user = (acc.username || '').trim();
+            var btn = el('btn-account-toggle');
             if (runningNames[user]) {
                 msg('');
+                btn.disabled = true;
                 a.stop_one(user).then(function (res) {
                     if (!res || !res.success) { msg((res && res.error) || 'Failed to stop', false); return; }
                     msg('Stopped ' + user + '.', true);
                     a.get_statuses().then(setStatuses);
-                });
+                }).catch(function () {
+                    msg('Failed to stop.', false);
+                }).then(function () { btn.disabled = false; });
             } else {
                 if (!user) { msg('Username is required.', false); return; }
                 msg('');
+                // Disable while the request is in flight: Bottle is threaded, so
+                // a second click could otherwise start the same account again.
+                btn.disabled = true;
                 a.save_config({ accounts: accounts.map(function (x) { return accountPayload(x); }) });
                 a.start_one(accountPayload(acc)).then(function (res) {
                     if (!res || !res.success) { msg((res && res.error) || 'Failed to start', false); return; }
                     msg('Started ' + user + '.', true);
                     a.get_statuses().then(setStatuses);
-                });
+                }).catch(function () {
+                    msg('Failed to start.', false);
+                }).then(function () { btn.disabled = false; });
             }
         };
         el('btn-start').onclick = function () {
             syncFromEditor();
             var payload = accounts.map(function (acc) { return accountPayload(acc); });
+            var btn = el('btn-start');
             msg('');
+            btn.disabled = true;
             a.start_bots({ accounts: payload }).then(function (res) {
                 if (!res || !res.success) { msg((res && res.error) || 'Failed to start', false); return; }
                 var extra = (res.errors && res.errors.length) ? (' (' + res.errors.join('; ') + ')') : '';
                 msg('Started ' + (res.started || 0) + ' account(s).' + extra, true);
                 a.get_statuses().then(setStatuses);
-            });
+            }).catch(function () {
+                msg('Failed to start.', false);
+            }).then(function () { btn.disabled = false; });
         };
         el('btn-stop').onclick = function () {
             a.stop_bots().then(function () {

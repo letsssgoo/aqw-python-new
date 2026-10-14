@@ -817,6 +817,11 @@ window.addSlaveLog = function(username, htmlMsg) {
         line.className = "log-line";
         line.innerHTML = htmlMsg;
         consoleViewport.appendChild(line);
+        // Keep only the newest 500 lines in the DOM too (the buffer above is
+        // capped, but the visible console would otherwise grow without bound).
+        while (consoleViewport.childNodes.length > 500) {
+            consoleViewport.removeChild(consoleViewport.firstChild);
+        }
         
         // Auto scroll
         if (chkAutoScroll.checked) {

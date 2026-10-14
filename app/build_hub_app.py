@@ -267,8 +267,12 @@ class _LogFlusher:
     def push(self, script):
         with self._lock:
             self._queue.append(script)
-            if len(self._queue) > 3000:
-                del self._queue[:1000]
+            # With a window the desktop app drains this every 0.25s.  In web
+            # mode nothing ever drains it (logs go over GET /api/logs), so keep
+            # that queue small instead of letting it sit at its full size.
+            limit = 3000 if self._window is not None else 200
+            if len(self._queue) > limit:
+                del self._queue[:limit // 2]
 
     def _run(self):
         while True:
@@ -797,6 +801,11 @@ class AqwSoloApi:
     def __init__(self):
         #: username -> {"thread", "instance", "config"}; one bot per account.
         self.bots = {}
+        #: Bottle serves requests on several threads, so a double click (or a
+        #: retried request) could otherwise pass the "already running?" check
+        #: twice and start the same account twice.  Every start/stop goes
+        #: through this lock, and the slot is claimed before the thread starts.
+        self._start_lock = threading.Lock()
         self._window = None
         if getattr(sys, 'frozen', False):
             config_dir = os.path.expanduser("~/.aqw_bot")
@@ -938,33 +947,53 @@ class AqwSoloApi:
         bot.set_login_info(acc.get("username"), acc.get("password"), acc.get("server", "Artix"))
         return bot, BotThread(bot, acc.get("bot_path"))
 
+    def _spawn(self, acc, key):
+        """Claim ``key`` and start its bot.  Caller holds ``_start_lock``.
+
+        The slot is filled *before* ``thread.start()`` so a second request sees
+        an entry and refuses, instead of starting the same account again.
+        """
+        bot, thread = self._build_bot_and_thread(acc)
+        self.bots[key] = {"thread": thread, "instance": bot, "config": acc}
+        try:
+            thread.start()
+        except Exception:
+            self.bots.pop(key, None)
+            raise
+        tid = thread.ident
+        if tid:
+            unified_redirector_out.register_thread(
+                tid, key, lambda name, msg, k=key: self.handle_account_log(k, msg))
+            unified_redirector_err.register_thread(
+                tid, key, lambda name, msg, k=key: self.handle_account_log(k, msg))
+        return bot, thread
+
     def start_bots(self, config):
         """Start one bot per account, all in parallel."""
         self.save_config(config)
         accounts = config.get("accounts", [])
         started = 0
         errors = []
-        for acc in accounts:
-            username = (acc.get("username") or "").strip()
-            if not username or not acc.get("bot_path"):
-                continue
-            key = username
-            entry = self.bots.get(key)
-            if entry and entry["thread"].is_alive():
-                continue
-            try:
-                bot, thread = self._build_bot_and_thread(acc)
-                thread.start()
-                tid = thread.ident
-                if tid:
-                    unified_redirector_out.register_thread(
-                        tid, key, lambda name, msg, k=key: self.handle_account_log(k, msg))
-                    unified_redirector_err.register_thread(
-                        tid, key, lambda name, msg, k=key: self.handle_account_log(k, msg))
-                self.bots[key] = {"thread": thread, "instance": bot, "config": acc}
-                started += 1
-            except Exception as e:
-                errors.append(f"{username}: {e}")
+        # One account may be listed twice in the config; start it once, and keep
+        # concurrent Start All requests from double-starting the same account.
+        with self._start_lock:
+            seen = set()
+            for acc in accounts:
+                username = (acc.get("username") or "").strip()
+                if not username or not acc.get("bot_path"):
+                    continue
+                if username in seen:
+                    continue
+                seen.add(username)
+                key = username
+                entry = self.bots.get(key)
+                if entry and entry["thread"].is_alive():
+                    continue
+                try:
+                    self._spawn(acc, key)
+                    started += 1
+                except Exception as e:
+                    errors.append(f"{username}: {e}")
         if started == 0 and not errors:
             return {"success": False, "error": "Fill at least one account (username + script)."}
         return {"success": True, "started": started, "errors": errors}
@@ -976,43 +1005,40 @@ class AqwSoloApi:
             return {"success": False, "error": "Username is required."}
         if not acc.get("bot_path"):
             return {"success": False, "error": "Pick a script first."}
-        entry = self.bots.get(username)
-        if entry and entry["thread"].is_alive():
-            return {"success": False, "error": f"{username} is already running."}
-        try:
-            bot, thread = self._build_bot_and_thread(acc)
-            thread.start()
-            tid = thread.ident
-            if tid:
-                unified_redirector_out.register_thread(
-                    tid, username, lambda name, msg, k=username: self.handle_account_log(k, msg))
-                unified_redirector_err.register_thread(
-                    tid, username, lambda name, msg, k=username: self.handle_account_log(k, msg))
-            self.bots[username] = {"thread": thread, "instance": bot, "config": acc}
+        with self._start_lock:
+            entry = self.bots.get(username)
+            if entry and entry["thread"].is_alive():
+                return {"success": False, "error": f"{username} is already running."}
+            if entry:
+                self.bots.pop(username, None)   # stale entry, thread is gone
+            try:
+                self._spawn(acc, username)
+            except Exception as e:
+                return {"success": False, "error": str(e)}
             return {"success": True}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
 
     def stop_one(self, key):
         """Stop a single account (the per-tab STOP button)."""
-        entry = self.bots.pop(key, None)
-        if not entry:
-            return {"success": False, "error": f"{key} is not running."}
-        try:
-            tid = entry["thread"].ident
-            if tid:
-                unified_redirector_out.unregister_thread(tid)
-                unified_redirector_err.unregister_thread(tid)
-            instance = entry.get("instance")
-            if instance:
-                instance.stop_bot(user_triggered=True)
-            return {"success": True}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
+        with self._start_lock:
+            entry = self.bots.pop(key, None)
+            if not entry:
+                return {"success": False, "error": f"{key} is not running."}
+            try:
+                tid = entry["thread"].ident
+                if tid:
+                    unified_redirector_out.unregister_thread(tid)
+                    unified_redirector_err.unregister_thread(tid)
+                instance = entry.get("instance")
+                if instance:
+                    instance.stop_bot(user_triggered=True)
+                return {"success": True}
+            except Exception as e:
+                return {"success": False, "error": str(e)}
 
     def stop_bots(self):
-        entries = list(self.bots.items())
-        self.bots = {}
+        with self._start_lock:
+            entries = list(self.bots.items())
+            self.bots = {}
         for key, entry in entries:
             try:
                 tid = entry["thread"].ident
