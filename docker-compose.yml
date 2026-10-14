@@ -1,0 +1,28 @@
+# AQW Bot Hub -- web dashboard.  Deploy with compose only:
+#
+#   docker compose up -d --build     # build + start (background)
+#   docker compose logs -f           # follow logs
+#   docker compose down              # stop (data stays in the volume)
+#
+# See the Dockerfile header for what each variable means.
+services:
+  aqw-hub:
+    build: .
+    image: aqw-hub:latest
+    container_name: aqw-hub
+    restart: unless-stopped
+    ports:
+      # host port : container port (the app always listens on 8080 inside).
+      - "${HOST_PORT:-8080}:8080"
+    environment:
+      HUB_WEB_HOST: "0.0.0.0"
+      HUB_WEB_PORT: "8080"
+      HUB_WEB_PASSWORD: "${HUB_WEB_PASSWORD:-tikuslu}"
+      HUB_DATA_DIR: "/data"
+      TZ: "${TZ:-Asia/Jakarta}"
+    volumes:
+      # players.json / *_config.json live here and survive rebuilds.
+      - aqw-hub-data:/data
+
+volumes:
+  aqw-hub-data:

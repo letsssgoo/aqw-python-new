@@ -41,3 +41,27 @@ dist/
 *.hypothesis/
 *.pytest_cache/
 *.mypy_cache/
+
+# Runtime credentials/config: must NEVER end up inside the image.
+# They are injected at runtime through the HUB_DATA_DIR volume instead.
+players.json
+*_config.json
+CharSelect.cfg
+.env
+.env.*
+*.bak
+capture_logs/
+logs/
+
+# NOTE: do not ignore *.jsonl here -- basic_enhancement.jsonl and
+# forge_enhancement.jsonl are engine data read by model/enhancement.py.
+
+# Not needed inside the image (docs / capture tooling / local state)
+tools/
+docs/
+.opencode/
+.github/
+mkdocs.yml
+*.md
+update5.0.txt
+*.bat
