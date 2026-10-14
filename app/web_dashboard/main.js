@@ -579,14 +579,20 @@ document.addEventListener('DOMContentLoaded', () => {
     // forward them to the matching iframe (same path as app mode).
     if (window.pywebview && window.pywebview.__web) {
         let webLogSeq = 0;
+        let webLogBusy = false;
         setInterval(() => {
+            // Never overlap polls: a slow response would otherwise be replayed by
+            // the next tick and every line would appear twice.
+            if (webLogBusy) return;
+            webLogBusy = true;
             fetch('/api/logs?since=' + webLogSeq).then(r => r.json()).then(data => {
                 if (!data) return;
                 webLogSeq = data.seq || webLogSeq;
                 (data.lines || []).forEach(l => {
                     if (window.addSlaveLog) window.addSlaveLog(l.user, l.html, l.tab);
                 });
-            }).catch(() => {});
+            }).catch(() => {})
+              .then(() => { webLogBusy = false; });
         }, 800);
     }
 });

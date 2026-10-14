@@ -672,8 +672,8 @@ window.addSlaveLog = function(username, htmlMsg) {
     // Append to array
     logStreams[targetStream].push(htmlMsg);
     
-    // Cap log lines to 200 to save memory
-    if (logStreams[targetStream].length > 200) {
+    // Cap log lines to 500 to save memory (same as the other menus)
+    if (logStreams[targetStream].length > 500) {
         logStreams[targetStream].shift();
     }
     
@@ -683,6 +683,11 @@ window.addSlaveLog = function(username, htmlMsg) {
         line.className = "log-line";
         line.innerHTML = htmlMsg;
         consoleViewport.appendChild(line);
+        // Keep only the newest 500 lines in the DOM too, otherwise the visible
+        // console grows without bound while you stay on this tab.
+        while (consoleViewport.childNodes.length > 500) {
+            consoleViewport.removeChild(consoleViewport.firstChild);
+        }
         
         if (chkAutoScroll && chkAutoScroll.checked) {
             consoleViewport.scrollTop = consoleViewport.scrollHeight;
