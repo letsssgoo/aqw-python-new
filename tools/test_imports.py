@@ -57,6 +57,18 @@ ENTRY_MODULES = [
     "bot.nation.unidentified_13",
     "bot.nation.voucher_of_nulgath",
     "bot.nation.voucher_of_nulgath_non_member",
+    "bot.nation.contract_exchange",
+    "bot.nation.dirty_deeds_done_dirt_cheap",
+    "bot.nation.dragon_slayer_reward",
+    "bot.nation.dreadrock_gem_exchange",
+    "bot.nation.emblem_of_nulgath",
+    "bot.nation.essence_of_defeat_reagent",
+    "bot.nation.kissthe_void",
+    "bot.nation.new_worlds_new_opportunities",
+    "bot.nation.nulgath_larvae",
+    "bot.nation.supplies_to_spin_the_wheel_of_chance",
+    "bot.nation.swindle_return_policy",
+    "bot.nation.void_knight_sword_quest",
 ]
 
 #: Modules that deliberately define no class -- they re-export one from

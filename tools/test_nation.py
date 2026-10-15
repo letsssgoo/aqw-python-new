@@ -21,15 +21,17 @@ from bot.nation.core_nation import (  # noqa: E402
     approval_and_favor, assistant_during_supplies, assisting_drudgen,
     bamboozle_vs_drudge, bloody_chaos, blood_from_the_void, can_we_aggro,
     contract_exchange, crags_thirst, dark_makai_item, deal, diamond_exchange,
-    do_swindles_return_area, dragon_slayer_reward, equip_class,
-    essence_of_defeat_reagent, essence_of_nulgath, farm_blood_gem,
+    dirty_deeds_done_dirt_cheap, do_swindles_return_area,
+    dragon_slayer_reward, dreadrock_gem_exchange, emblem_of_nulgath,
+    equip_class, essence_of_defeat_reagent, essence_of_nulgath, farm_blood_gem,
     farm_contract_exchage, farm_dark_crystal_shard, farm_diamond_of_nulgath,
     farm_fiend_token, farm_gem_of_nulgath, farm_tainted_gem,
     farm_totem_of_nulgath, farm_uni10, farm_uni13_quest, farm_voucher,
     feed_the_fiend, fiend_emblem, get_pcod, handle_voucher_conversions,
     has_any_item, has_any_item_id, has_item_id, kill_escherion, kill_vath,
-    kissthe_void, new_worlds_new_opportunities, sell_voucher_of_nulgath,
-    supplies, totems_via_taros, uni, void_knight_sword_quest)
+    kissthe_void, nation_round_4_medal, new_worlds_new_opportunities,
+    nulgath_larvae, nulgaths_roulette_of_misfortune, sell_voucher_of_nulgath,
+    supplies, swindle_bulk, totems_via_taros, uni, void_knight_sword_quest)
 
 
 class _Other:
@@ -87,6 +89,15 @@ class Stub:
     def is_not_in_cell(self, cell):
         return False
 
+    def is_in_bank(self, name, qty=1, operator=">="):
+        return False
+
+    def get_equipped_class(self):
+        return None
+
+    def get_monster(self, name):
+        return None
+
     def get_farm_class(self):
         return "Farm Class"
 
@@ -125,6 +136,18 @@ class Stub:
     async def jump_cell(self, cell, pad):
         self.calls.append(("jump_cell", cell, pad))
 
+    async def jump_to_monster(self, *args, **kwargs):
+        self.calls.append(("jump_to_monster",))
+
+    async def leave_combat(self, safe_leave=True):
+        self.calls.append(("leave_combat",))
+
+    async def bank_to_inv(self, names):
+        self.calls.append(("bank_to_inv",))
+
+    async def sleep(self, ms):
+        pass
+
     async def use_next_skill(self, *args, **kwargs):
         self.calls.append(("use_next_skill",))
         if self.fill_inventory_on_skill:
@@ -149,6 +172,12 @@ class Stub:
     def add_quest_rewards(self, quest_id):
         self.calls.append(("add_quest_rewards", quest_id))
         return []
+
+    def get_quest_rewards(self, quest_id):
+        return []
+
+    def remove_drop(self, names):
+        self.calls.append(("remove_drop", names))
 
     def get_loaded_quest(self, quest_id):
         self.calls.append(("get_loaded_quest", quest_id))
@@ -418,6 +447,37 @@ def main() -> None:
     assert dsr.kinds() == ["is_completed_before"], dsr.kinds()
     print("dragonslay : quest 169 done -> only looked, sent nothing")
 
+    # --- the medallion / larvae set ------------------------------------
+    nr4 = Stub({"Nation Round 4 Medal": 1})
+    asyncio.run(nation_round_4_medal(nr4))
+    assert nr4.calls == [], nr4.calls
+    print("medals     : medal 4 owned -> returns without a single call")
+
+    emb = Stub({"Emblem of Nulgath": 500})
+    asyncio.run(emblem_of_nulgath(emb, 500))
+    assert emb.calls == [], emb.calls
+    print("emblem     : already full -> returns without a single call")
+
+    bulk = Stub({"Tainted Gem": 1000})
+    asyncio.run(swindle_bulk(bulk, 1000))
+    assert bulk.calls == [], bulk.calls
+    print("bulk       : already full -> returns without a single call")
+
+    drk = Stub({"Tainted Gem": 1000})
+    asyncio.run(dreadrock_gem_exchange(drk, 1000))
+    assert drk.calls == [], drk.calls
+    print("dreadrock  : already full -> returns without a single call")
+
+    lar = Stub({"Unidentified 10": 1})
+    asyncio.run(nulgath_larvae(lar, "Unidentified 10", 1))
+    assert lar.kinds() == ["ensure_accept_quest", "get_loaded_quest"], lar.kinds()
+    print("larvae     : quest not loaded -> accepted, looked, then stopped")
+
+    rou = Stub()
+    asyncio.run(nulgaths_roulette_of_misfortune(rou, None, 1))
+    assert rou.calls == [], rou.calls
+    print("roulette   : no item given -> returns without a single call")
+
     # --- every wrapper is runnable, and no-ops when all is banked -----
     WRAPPERS = [
         "0_max_bags", "approval_and_favor", "blood_from_the_void",
@@ -425,6 +485,12 @@ def main() -> None:
         "fiend_emblem", "fiend_token", "gem_of_nulgath", "tainted_gem",
         "totem_of_nulgath", "unidentified_10", "unidentified_13",
         "voucher_of_nulgath", "voucher_of_nulgath_non_member",
+        "contract_exchange", "dirty_deeds_done_dirt_cheap",
+        "dragon_slayer_reward", "dreadrock_gem_exchange",
+        "emblem_of_nulgath", "essence_of_defeat_reagent", "kissthe_void",
+        "new_worlds_new_opportunities", "nulgath_larvae",
+        "supplies_to_spin_the_wheel_of_chance", "swindle_return_policy",
+        "void_knight_sword_quest",
     ]
     from importlib import import_module
     for name in WRAPPERS:

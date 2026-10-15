@@ -179,6 +179,34 @@ DRAGON_SLAYER_QUESTS: Tuple[Tuple[int, str, bool], ...] = (
     (169, "Water Draconian", False),
 )
 
+#: The four Shadow Blast Arena medals: ``(medal, quest, ((monster, item, qty), ...))``.
+NATION_MEDALS: Tuple[Tuple[str, int, Tuple[Tuple[str, str, int], ...]], ...] = (
+    ("Nation Round 1 Medal", 4744,
+     (("Legion AirStrike", "Legion Rookie Defeated", 5),
+      ("Shadowrise Guard", "Shadowscythe Rookie Defeated", 5))),
+    ("Nation Round 2 Medal", 4745,
+     (("Legion Fenrir", "Legion Veteran Defeated", 7),
+      ("Doombringer", "Shadowscythe Veteran Defeated", 7))),
+    ("Nation Round 3 Medal", 4746,
+     (("Legion Cannon", "Legion Elite Defeated", 10),
+      ("Draconic Doomknight", "Shadowscythe Elite Defeated", 10))),
+    ("Nation Round 4 Medal", 4747,
+     (("Grimlord Boss", "Grimlord Vanquished", 1),)),
+)
+
+#: What quest 7551 eats, plus the extras it pays out.
+RECEIPT_DROPS: Tuple[str, ...] = (
+    "Unidentified 1", "Unidentified 6", "Unidentified 9",
+    "Unidentified 16", "Unidentified 20", "Receipt of Swindle",
+    "Dark Crystal Shard", "Diamond of Nulgath", "Gem of Nulgath",
+    "Blood Gem of the Archfiend",
+)
+
+#: The Larvae / Roulette quest and the two energy items it runs on.
+LARVAE_QUEST = 2566
+MANA_ENERGY = "Mana Energy for Nulgath"
+CHARGED_MANA_ENERGY = "Charged Mana Energy for Nulgath"
+
 
 def uni(nr: int) -> str:
     """``Unidentified {nr}`` -- the reference bot's ``CoreNation.Uni``.
@@ -1643,3 +1671,217 @@ async def kissthe_void(cmd: Command, quant: int = 100,
 
         if betrayal_blade is None:
             cmd.farming_logger(watching, quant)
+
+
+async def nation_round_4_medal(cmd: Command) -> None:
+    """Clear the four Shadow Blast Arena medals (quests 4744-4747).
+
+    Each medal is dropped from the pickup whitelist once earned, which is what
+    the C# does with ``Bot.Drops.Remove``.
+    """
+    if cmd.is_in_inventory("Nation Round 4 Medal"):
+        print("[nation] medal 4 owned, no need to farm it")
+        return
+
+    for medal, quest_id, steps in NATION_MEDALS:
+        if not cmd.is_still_connected():
+            return
+        cmd.add_drop(medal)
+        if cmd.is_in_inventory(medal):
+            print(f'[nation] "{medal}" owned.')
+            continue
+        await cmd.ensure_accept_quest(quest_id)
+        for monster, item, qty in steps:
+            await hunt_item(cmd, item, qty, "shadowblast",
+                            monster_name=monster, is_temp=True)
+        await cmd.ensure_turn_in_quest(quest_id)
+        print(f"[nation] medal {medal} acquired")
+        cmd.remove_drop(medal)
+
+
+async def emblem_of_nulgath(cmd: Command, quant: int = 500) -> None:
+    """Quest 4748, after the four medals are done.
+
+    Note:
+        The C# never cancels the registered quest here, and neither does this:
+        the auto-quest task re-accepting 4748 is what keeps the loop fed.  The
+        loop ends when the emblem hits ``quant``, not when the task stops.
+    """
+    if cmd.is_in_inventory("Emblem of Nulgath", quant):
+        return
+    await nation_round_4_medal(cmd)
+
+    cmd.add_drop(["Fiend Seal", "Gem of Domination", "Emblem of Nulgath"])
+    cmd.add_drop(BAG_DROPS)
+    await equip_class(cmd)
+    cmd.farming_logger("Emblem of Nulgath", quant)
+    await cmd.register_quest(4748)
+
+    while (cmd.is_still_connected()
+           and not cmd.is_in_inventory("Emblem of Nulgath", quant)):
+        await hunt_item(cmd, "Gem of Domination", 1, "shadowblast",
+                        monster_name="Shadowrise Guard", is_temp=False)
+        await hunt_item(cmd, "Fiend Seal", 25, "shadowblast",
+                        monster_name="Legion Fenrir", is_temp=False)
+
+
+async def swindle_return(cmd: Command, item: Optional[str] = None,
+                         quant: int = 1000) -> None:
+    """Quest 7551 (Swindle's Return Policy) for one of its rewards.
+
+    Each pass feeds the quest five Unidentifieds through the Supplies route,
+    then the Dark Makai Rune, then turns it in for ``item``.
+    """
+    await cmd.ensure_accept_quest(7551)
+    quest = cmd.get_loaded_quest(7551)
+    if quest is None:
+        print("[nation] quest 7551 did not load.")
+        return
+
+    entry = next((e for e in quest.reward_entries if e[1] == item), None)
+    if entry is None or cmd.is_in_inventory(entry[1], quant):
+        return
+    _, item_name, _ = entry
+
+    cmd.add_drop(RECEIPT_DROPS)
+    if item:
+        cmd.add_drop(item)
+    cmd.farming_logger(item_name, quant)
+
+    while cmd.is_still_connected() and not cmd.is_in_inventory(item_name, quant):
+        await cmd.ensure_accept_quest(7551)
+        for uni_nr in (1, 6, 9, 16, 20):
+            await supplies(cmd, uni(uni_nr), return_item=item)
+        await dark_makai_item(cmd, "Dark Makai Rune")
+        await cmd.ensure_turn_in_quest(7551, entry[0])
+        await sell_voucher_of_nulgath(cmd, False, item)
+        cmd.farming_logger(item_name, quant)
+
+
+async def swindle_bulk(cmd: Command, quant: int = 1000) -> None:
+    """Tainted Gem through Swindle's Bulk Deal.
+
+    Which quest it uses depends on the target: a multiple of 25 buys the big
+    quest (7817) and its 500-cube run, anything else the small one (569).
+    """
+    if cmd.is_in_inventory("Tainted Gem", quant):
+        return
+
+    await equip_class(cmd)
+    cmd.farming_logger("Tainted Gem", quant)
+
+    bulk = quant % 25 == 0
+    quest_id = 7817 if bulk else 569
+    cube_count = 500 if bulk else 25
+    snow_count = 6 if bulk else 1
+
+    cmd.add_drop(["Cubes", "Tainted Gem"])
+    cmd.add_drop(BAG_DROPS)
+
+    attempt = 0
+    while cmd.is_still_connected() and not cmd.is_in_inventory("Tainted Gem", quant):
+        await cmd.ensure_accept_quest(quest_id)
+        await hunt_item(cmd, "Cubes", cube_count, "boxes",
+                        cell="Fort2", pad="Left", monster_name="*",
+                        is_temp=False)
+        await hunt_item(cmd, "Ice Cubes", snow_count, "mountfrost",
+                        cell="War", pad="Left", monster_name="Snow Golem",
+                        is_temp=True)
+        await cmd.ensure_turn_in_quest(quest_id)
+        attempt += 1
+        print(f"[nation] completed x{attempt}")
+
+
+async def dreadrock_gem_exchange(cmd: Command, quant: int = 1000) -> None:
+    """Quest 4853: Tainted Gems from the dreadrock mobs."""
+    if cmd.is_in_inventory("Tainted Gem", quant):
+        return
+    await farm_uni13_quest(cmd, 1)
+    cmd.add_drop("Tainted Gem")
+    await equip_class(cmd)
+    cmd.farming_logger("Tainted Gem", quant)
+    await cmd.register_quest(4853)
+    await hunt_item(cmd, "Tainted Gem", quant, "dreadrock",
+                    cell="r3", pad="Bottom", monster_name="*", is_temp=True)
+    cmd.cancel_registered_quests()
+
+
+async def _larvae_step(cmd: Command, item: str, quant: int) -> None:
+    """One Larvae turn-in cycle, plus the voucher quest when it applies."""
+    await cmd.ensure_accept_quest(LARVAE_QUEST)
+    await equip_class(cmd, solo=True)
+    await hunt_item(cmd, MANA_ENERGY, 10, "elemental",
+                    monster_name="Mana Golem", is_temp=False)
+    await equip_class(cmd)
+
+    while (cmd.is_still_connected()
+           and not cmd.is_in_inventory(item, quant)
+           and cmd.is_in_inventory(MANA_ENERGY)):
+        await cmd.ensure_accept_quest(LARVAE_QUEST)
+        await hunt_item(cmd, CHARGED_MANA_ENERGY, 5, "elemental",
+                        monster_name="Mana Falcon", is_temp=True)
+        await cmd.ensure_turn_in_quest(LARVAE_QUEST)
+
+        if (cmd.is_in_inventory("Voucher of Nulgath (non-mem)")
+                and cmd.is_in_inventory("Essence of Nulgath", 60)):
+            await cmd.ensure_accept_quest(VOUCHER_CONVERSION_QUEST)
+            reward_id = _reward_id(cmd, VOUCHER_CONVERSION_QUEST, item)
+            if reward_id >= 0:
+                await cmd.ensure_turn_in_quest(VOUCHER_CONVERSION_QUEST,
+                                               reward_id)
+
+
+async def nulgath_larvae(cmd: Command, item: Optional[str] = None,
+                         quant: int = 1) -> None:
+    """Quest 2566 (Nulgath Larvae): Mana Energy in, its rewards out.
+
+    With ``item`` it farms that one reward; without it, every reward that is
+    not maxed yet.
+    """
+    await cmd.ensure_accept_quest(LARVAE_QUEST)
+    larvae = cmd.get_loaded_quest(LARVAE_QUEST)
+    if larvae is None:
+        print("[nation] quest 2566 (Nulgath Larvae) did not load.")
+        return
+    if item and cmd.is_in_inventory(item, quant):
+        return
+
+    known = [name for _, name, _ in larvae.reward_entries]
+    if item is not None:
+        if item not in known:
+            print(f"[nation] {item!r} is not a Nulgath Larvae reward.")
+            return
+        targets = [(item, quant)]
+    else:
+        targets = [(name, stack) for _, name, stack in larvae.reward_entries
+                   if not cmd.is_in_inventory(name, stack)]
+
+    for name, target in targets:
+        cmd.add_drop([MANA_ENERGY, name])
+        cmd.farming_logger(name, target)
+        while cmd.is_still_connected() and not cmd.is_in_inventory(name, target):
+            await _larvae_step(cmd, name, target)
+
+
+async def nulgaths_roulette_of_misfortune(cmd: Command, item: Optional[str],
+                                          quant: int) -> None:
+    """The same Larvae loop, without the voucher-quest side trip."""
+    if item is None or cmd.is_in_inventory(item, quant):
+        return
+    cmd.farming_logger(item, quant)
+    cmd.add_drop(item)
+
+    while cmd.is_still_connected() and not cmd.is_in_inventory(item, quant):
+        await cmd.ensure_accept_quest(LARVAE_QUEST)
+        await equip_class(cmd, solo=True)
+        await hunt_item(cmd, MANA_ENERGY, 10, "elemental",
+                        monster_name="Mana Golem", is_temp=False)
+        await equip_class(cmd)
+
+        while (cmd.is_still_connected()
+               and not cmd.is_in_inventory(item, quant)
+               and cmd.is_in_inventory(MANA_ENERGY)):
+            await cmd.ensure_accept_quest(LARVAE_QUEST)
+            await hunt_item(cmd, CHARGED_MANA_ENERGY, 5, "elemental",
+                            monster_name="Mana Falcon", is_temp=True)
+            await cmd.ensure_turn_in_quest(LARVAE_QUEST)

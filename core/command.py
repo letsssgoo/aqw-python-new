@@ -830,6 +830,26 @@ class Command:
             if item not in self.bot.items_drop_whitelist:
                 self.bot.items_drop_whitelist.append(item)
 
+    def remove_drop(self, itemName: Union[str, List[str]]) -> None:
+        """Take items back off the drop whitelist.
+
+        The counterpart of :meth:`add_drop`, and the port of the reference
+        bot's ``Bot.Drops.Remove``.  Used after a farm whose by-products should
+        stop being auto-picked.
+
+        Args:
+            itemName (Union[str, List[str]]): Single name or list of names.
+
+        Returns:
+            None: Shortens the whitelist in place.
+        """
+        if isinstance(itemName, str):
+            itemName = [itemName]
+
+        for item in itemName:
+            if item in self.bot.items_drop_whitelist:
+                self.bot.items_drop_whitelist.remove(item)
+
     @check_alive
     async def get_map_item(self, map_item_id: int, qty: int = 1) -> None:
         """Collect a map item multiple times.
