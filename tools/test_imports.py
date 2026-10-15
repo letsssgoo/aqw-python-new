@@ -121,6 +121,7 @@ ENTRY_MODULES = [
     "bot.story.nation.deleuze_tundra",
     "bot.story.nation.oblivion_tundra",
     "bot.story.nation.terces_archive",
+    "bot.story.nation.terces_invasion",
     "bot.farm.leveling",
     "bot.farm.gold_farm",
     "bot.farm.dark_war_legion_gold",

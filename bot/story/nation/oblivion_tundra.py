@@ -4,10 +4,11 @@ Port of ``Story/Nation/OblivionTundra.cs``, which runs the Deleuze Tundra
 questline first and then its own ten quests.
 
 Note:
-    Two of the monsters come straight out of the reference's own list, trailing
-    space included: its array spells ``"Oblivion Magus "`` with one.  That is kept
-    as written, so if the hunt never finds the monster, this is the line to look
-    at -- say the word and the space goes.
+    Two of the reference's monster names carry a trailing space, and the engine's
+    target filter compares names exactly (``use_skill`` matches
+    ``mon.mon_name.lower()``), so a name like ``"Oblivion Magus "`` would never
+    match and the hunt would fall back to "anything in the cell".  The space is
+    trimmed here, the same way the reference's escaped Crag name was.
 """
 from core.command import Command
 from bot.core_bots import equip_class
@@ -18,11 +19,11 @@ from bot.story.nation.deleuze_tundra import main as deleuze_tundra
 MAP_NAME = "obliviontundra"
 LAST_QUEST = 10045
 
-#: The reference's own monster list, spelled as it spells them.
+#: The reference's own monster list, with its trailing spaces trimmed.
 EMPTY_CREATURE = "Empty Creature"
 HUSHED = "Hushed"
 WITHERED_ARCHFIEND = "Withered Archfiend"
-OBLIVION_MAGUS = "Oblivion Magus "          # its trailing space is the reference's
+OBLIVION_MAGUS = "Oblivion Magus"           # the reference spells it with a space
 ETTIN_FIEND = "Ettin Fiend"
 ARCHFIEND_OBLIVION = "Archfiend Oblivion"
 
