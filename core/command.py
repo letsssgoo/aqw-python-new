@@ -473,6 +473,8 @@ class Command:
         if not isTemp and self.is_in_bank(itemName):
             # any banked stock, not just enough of it: withdraw first, then let
             # the inventory answer for itself
+            print(Fore.CYAN + f"[bank] {itemName}: pulling the banked stock "
+                  f"into the inventory." + Fore.RESET)
             await self.bank_to_inv(itemName)
         return self.is_in_inventory(itemName, itemQty, operator, isTemp)
 
@@ -484,6 +486,8 @@ class Command:
         """
         banked = self.bot.player.get_item_bank_by_id(itemId)
         if banked is not None:
+            print(Fore.CYAN + f"[bank] {banked.item_name}: pulling the banked "
+                  f"stock into the inventory." + Fore.RESET)
             await self.bank_to_inv(banked.item_name)
         return self.bot.player.get_item_inventory_by_id(itemId) is not None
 
