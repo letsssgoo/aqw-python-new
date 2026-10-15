@@ -31,7 +31,8 @@ from bot.nation.core_nation import (  # noqa: E402
     has_any_item, has_any_item_id, has_item_id, kill_escherion, kill_vath,
     kissthe_void, nation_round_4_medal, new_worlds_new_opportunities,
     nulgath_larvae, nulgaths_roulette_of_misfortune, sell_voucher_of_nulgath,
-    supplies, swindle_bulk, totems_via_taros, uni, void_knight_sword_quest)
+    supplies, swindle_bulk, the_assistant, totems_via_taros, uni,
+    void_knight_sword_quest)
 
 
 class _Other:
@@ -478,6 +479,16 @@ def main() -> None:
     assert rou.calls == [], rou.calls
     print("roulette   : no item given -> returns without a single call")
 
+    asst = Stub({"Diamond of Nulgath": 1000})
+    asyncio.run(the_assistant(asst, "Diamond of Nulgath", 1000))
+    assert asst.calls == [], asst.calls
+    print("assistant  : item already full -> returns without a single call")
+
+    asst2 = Stub()
+    asyncio.run(the_assistant(asst2))
+    assert asst2.kinds() == ["ensure_accept_quest", "get_loaded_quest"], asst2.kinds()
+    print("assistant  : quest not loaded -> accepted, looked, then stopped")
+
     # --- every wrapper is runnable, and no-ops when all is banked -----
     WRAPPERS = [
         "materials.0_max_bags", "materials.approval_and_favor",
@@ -493,7 +504,7 @@ def main() -> None:
         "emblem_of_nulgath", "essence_of_defeat_reagent", "kissthe_void",
         "new_worlds_new_opportunities", "nulgath_larvae",
         "supplies_to_spin_the_wheel_of_chance", "swindle_return_policy",
-        "void_knight_sword_quest",
+        "the_assistant", "void_knight_sword_quest",
     ]
     from importlib import import_module
     for name in WRAPPERS:

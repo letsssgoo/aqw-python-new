@@ -68,6 +68,7 @@ ENTRY_MODULES = [
     "bot.nation.nulgath_larvae",
     "bot.nation.supplies_to_spin_the_wheel_of_chance",
     "bot.nation.swindle_return_policy",
+    "bot.nation.the_assistant",
     "bot.nation.void_knight_sword_quest",
 ]
 

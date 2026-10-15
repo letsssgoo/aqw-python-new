@@ -36,18 +36,22 @@ rather than all at once.
 ``farm_tainted_gem`` / ``farm_totem_of_nulgath`` / ``farm_voucher``
 ``farm_fiend_token`` / ``assisting_drudgen`` / ``feed_the_fiend``
 ``essence_of_nulgath`` / ``totems_via_taros`` / ``kissthe_void``
+``nation_round_4_medal`` / ``emblem_of_nulgath``
+``swindle_return`` / ``swindle_bulk`` / ``dreadrock_gem_exchange``
+``nulgath_larvae`` / ``nulgaths_roulette_of_misfortune``
+``the_assistant``       quest 2859, fed with War-Torn Memorabilia
 ========================  ====================================================
 
 **Not ported yet:**
 
 * The member Forge stack -- ``GemStoneReceiptOfNulgath``, ``DwoboCoin``,
   ``GemStonesOfnulgath``, ``ForgeTaintedGems`` / ``ForgeDarkCrystalShards`` /
-  ``ForgeDiamondsOfNulgath`` / ``ForgeBloodGems``, ``CarveUniGemStone``.  They
-  route through the Vampire rep and gold farms, which are CoreFarms work that
-  has not started.  ``farm_tainted_gem`` says so rather than skipping silently.
-* ``EmblemofNulgath`` / ``NationRound4Medal``, ``SwindleReturn`` / ``SwindleBulk``,
-  ``NulgathLarvae``, ``NulgathsRouletteofMisfortune``.
+  ``ForgeDiamondsOfNulgath`` / ``ForgeBloodGems``, ``CarveUniGemStone`` and
+  ``VoucherItemTotemofNulgath``.  They route through the Vampire rep and gold
+  farms, which are CoreFarms work that has not started.  ``farm_tainted_gem``
+  says so rather than skipping silently.
 * The CoreFarms rep / gold / experience farms (a separate data-heavy pass).
+* The remaining Nation-root script methods, which have not been read yet.
 
 Folder layout mirrors the reference tree: the ``Nation/`` root wrappers and
 this file sit in ``bot/nation/``, and each subfolder that exists so far --
@@ -1891,3 +1895,94 @@ async def nulgaths_roulette_of_misfortune(cmd: Command, item: Optional[str],
             await hunt_item(cmd, CHARGED_MANA_ENERGY, 5, "elemental",
                             monster_name="Mana Falcon", is_temp=True)
             await cmd.ensure_turn_in_quest(LARVAE_QUEST)
+
+
+async def _assistant_step(cmd: Command, item: Optional[str],
+                          reward: Optional[str], return_policy: bool) -> None:
+    """One Assistant turn-in: buy 10 memorabilia, hand them over, then tidy up."""
+    await cmd.ensure_accept_quest(2859)
+    await cmd.buy_item(41, "War-Torn Memorabilia", 10)
+    await cmd.ensure_turn_in_quest(2859)
+    await do_swindles_return_area(cmd, return_policy, reward)
+    await handle_voucher_conversions(cmd, item or "")
+
+
+async def the_assistant(cmd: Command, item: Optional[str] = None,
+                        quant: int = 1000, farm_gold: bool = True,
+                        reward: Optional[str] = None,
+                        return_policy: bool = False) -> None:
+    """Quest 2859 (The Assistant), fed with War-Torn Memorabilia.
+
+    With ``item`` it farms that reward up to ``quant``; without it, every
+    principal drop the quest offers.
+
+    Args:
+        item: Reward to farm, or ``None`` for all of them.
+        quant: Target quantity; clamped to the reward's max stack.
+        farm_gold: Whether to keep a Gold farm topped up first.
+        reward: Which quest 7551 reward to take, by name.  The valid names are
+            Tainted Gem, Dark Crystal Shard, Diamond of Nulgath, Gem of
+            Nulgath and Blood Gem of the Archfiend.  ``None`` leaves the
+            Swindle's Return step out entirely, as the C# ``None`` enum does.
+        return_policy: Run the Swindle's Return step on each pass.
+
+    Note:
+        ``Farm.Gold(1000000)`` is not ported, so the memorabilia buy runs on
+        whatever the account already holds -- announced once rather than
+        silently skipped.  The C#'s ``LogMobItemQuant`` helpers are skipped
+        too: they only log, and each costs a 1.5 s sleep.
+    """
+    if item and cmd.is_in_inventory(item, quant):
+        return
+
+    await cmd.ensure_accept_quest(7551)
+    if cmd.get_loaded_quest(7551) is None:
+        print("[nation] quest 7551 (Swindle's Return Policy) did not load.")
+        return
+    await cmd.ensure_accept_quest(2859)
+    assistant = cmd.get_loaded_quest(2859)
+    if assistant is None:
+        print("[nation] quest 2859 (The Assistant) did not load.")
+        return
+
+    cmd.add_drop([item] if item else list(BAG_DROPS_PRINCIPAL))
+    cmd.add_drop("Receipt of Swindle")
+    if reward:
+        cmd.add_drop(reward)
+    if return_policy:
+        cmd.add_drop([uni(1), uni(6), uni(9), uni(16), uni(20)])
+        cmd.add_drop("Blood Gem of the Archfiend")
+
+    if item and quant > 0:
+        entry = next((e for e in assistant.reward_entries if e[1] == item), None)
+        if entry is None:
+            print(f"[nation] {item!r} is not one of quest 2859's rewards.")
+        else:
+            quant = min(quant, entry[2])
+
+    if return_policy and reward:
+        await do_swindles_return_area(cmd, return_policy, reward)
+
+    if farm_gold and cmd.get_player().GOLD < 1_000_000:
+        print("[nation] the gold farm is not ported; the War-Torn Memorabilia "
+              "buy runs on whatever gold the account already has.")
+
+    if item is None:
+        for thing in BAG_DROPS_PRINCIPAL:
+            entry = next((e for e in assistant.reward_entries if e[1] == thing),
+                         None)
+            if entry is None:
+                continue
+            _, name, max_stack = entry
+            cmd.farming_logger(name, max_stack)
+            while (cmd.is_still_connected()
+                   and not cmd.is_in_inventory(name, max_stack)):
+                await _assistant_step(cmd, None, reward, return_policy)
+        cmd.cancel_registered_quests()
+    else:
+        cmd.farming_logger(item, quant)
+        while cmd.is_still_connected() and not cmd.is_in_inventory(item, quant):
+            await _assistant_step(cmd, item, reward, return_policy)
+
+    if return_policy and reward:
+        cmd.unregister_quest(7551)
