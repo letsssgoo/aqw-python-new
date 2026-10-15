@@ -207,13 +207,34 @@ async def buy_item(cmd: Command, shop_id: int, item: Union[int, str],
     wanted = _resolve_shop_item(cmd, _find_shop(cmd, shop_id), item, shop_item_id)
     if wanted is None:
         return False
-    # CoreAdvanced._BuyItem runs GetItemReq before the purchase: a shop entry can
-    # ask for a faction rank, a player level or gold, and the reference farms all
-    # three first.  CoreBots.BuyItem -- the plain one -- does not.
-    await _meet_shop_requirements(cmd, wanted, qty)
     await cmd.buy_item(shop_id, wanted.item_name, qty,
                        shop_item_id=wanted.shop_item_id)
     return True
+
+
+async def load_shop_entry(cmd: Command, shop_id: int, item: Union[int, str],
+                          map_name: Optional[str] = None,
+                          shop_item_id: int = 0):
+    """Stand in the shop's map, load it, and resolve ``item`` in it.
+
+    The step ``CoreBots.BuyItem`` and ``CoreAdvanced.BuyItem`` share -- the server
+    only sends a shop in the map it lives in -- which leaves each of them only
+    what its own purchase does.  Reports and returns None on any failure.
+    """
+    if map_name:
+        while cmd.is_still_connected() and cmd.is_not_in_map(map_name):
+            await cmd.join_map(map_name)
+            await cmd.sleep(1000)
+        if not cmd.is_still_connected():
+            cmd.bot.log(f"[core] disconnected while joining {map_name}; {item!r} "
+                        f"was not bought.")
+            return None
+
+    if not await cmd.ensure_load_shop(shop_id):
+        cmd.bot.log(f"[core] shop {shop_id} never loaded; {item!r} was not "
+                    f"bought.")
+        return None
+    return _resolve_shop_item(cmd, _find_shop(cmd, shop_id), item, shop_item_id)
 
 
 def _resolve_shop_item(cmd: Command, shop, item: Union[int, str],
@@ -286,9 +307,6 @@ REP_THRESHOLDS = (
     (6, 44100), (7, 78400), (8, 129600), (9, 202500), (10, 302500),
 )
 
-#: ``GetItemReq`` caps its gold farm here (``Math.Min(cost * quant, 100000000)``).
-GOLD_FARM_CAP = 100_000_000
-
 
 def points_to_level(points: int) -> int:
     """``CoreBots.PointsToLevel``: the rank a reputation total earns.
@@ -301,39 +319,6 @@ def points_to_level(points: int) -> int:
         if points <= required:
             return rank
     return 10
-
-
-async def _meet_shop_requirements(cmd: Command, entry, qty: int = 1) -> None:
-    """``CoreAdvanced.GetItemReq``: farm what a shop entry needs before buying.
-
-    The reference runs this inside ``_BuyItem`` and it is what makes a plain
-    ``Adv.BuyItem`` work at all for an item behind a faction: reputation first,
-    then player level, then gold.  Its Gold Voucher and merge-item steps belong
-    to ``StartBuyAllMerge``'s dependency walk, which is not ported.
-
-    A faction this engine has no farm for is reported by ``farm_faction`` rather
-    than quietly skipped -- the purchase would fail at the server either way.
-    """
-    # imported here, not at the top: this core is what Farm's imports come from
-    from bot.core_farms import farm_experience, farm_faction, farm_gold
-
-    faction = str(getattr(entry, "required_faction", "None") or "None").strip()
-    required_rep = int(getattr(entry, "required_rep", 0) or 0)
-    if faction and faction.lower() != "none" and required_rep > 0:
-        rank = points_to_level(required_rep)
-        if rank > cmd.get_faction_rank(faction):
-            cmd.bot.log(f"Farming reputation for {faction} "
-                        f"(Required: {required_rep})")
-            await farm_faction(cmd, faction, rank)
-
-    required_level = int(getattr(entry, "level", 0) or 0)
-    if required_level > (cmd.get_player().LEVEL or 0):
-        cmd.bot.log(f"Farming experience to reach level {required_level}")
-        await farm_experience(cmd, min(required_level, 100))
-
-    cost = int(getattr(entry, "cost", 0) or 0)
-    if cost > 0 and not getattr(entry, "is_acs", False):
-        await farm_gold(cmd, min(cost * qty, GOLD_FARM_CAP))
 
 
 async def wait_for_item(cmd: Command, item_name: str, quant: int = 1,

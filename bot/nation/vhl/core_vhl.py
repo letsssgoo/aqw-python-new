@@ -19,7 +19,8 @@ guessed at:
 """
 from typing import Optional
 
-from bot.core_bots import buy_item, dynamic_quant, wait_for_item
+from bot.core_advanced import buy_item
+from bot.core_bots import dynamic_quant, wait_for_item
 from bot.core_dailies import elders_blood
 from bot.core_farms import black_knight_orb, farm_experience
 from bot.nation.core_nation import (BAG_DROPS, CRAG_PET, all_owned,

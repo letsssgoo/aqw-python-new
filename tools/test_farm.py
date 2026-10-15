@@ -692,11 +692,14 @@ def main() -> None:
     finally:
         asyncio.sleep = real_sleep
 
-    # --- buy_item: the entry's own requirements (CoreAdvanced.GetItemReq) ---
-    # the reference's RepThresholds, verbatim: points -> rank
+    # --- Adv.BuyItem (CoreAdvanced) vs Core.BuyItem (CoreBots) -----------
+    # the reference's cores do not inherit: Adv.BuyItem and Core.BuyItem are two
+    # different methods, and only the CoreAdvanced one runs GetItemReq
+    from bot.core_advanced import buy_item as adv_buy_item
     from bot.core_bots import points_to_level
-    import bot.core_farms as core_farms
+    import bot.core_advanced as core_advanced
 
+    # the reference's RepThresholds, verbatim: points -> rank
     assert [points_to_level(p) for p in (0, 900, 3600, 10000, 22500, 44100,
                                          78400, 129600, 202500, 302500)] == \
         list(range(1, 11)), [points_to_level(p) for p in
@@ -710,7 +713,9 @@ def main() -> None:
         _Shop(1129, [_ShopItem("Cape of Awe", faction="Sandsea",
                                required_rep=44100, level=35, cost=1000)]))
     done = []
-    real_farm = {n: getattr(core_farms, n) for n in
+    # core_advanced holds its own references to the farm functions, so those
+    # are what the purchase reaches for
+    real_farm = {n: getattr(core_advanced, n) for n in
                  ("farm_faction", "farm_experience", "farm_gold")}
 
     async def fake_faction(cmd, faction, rank=10):
@@ -723,15 +728,15 @@ def main() -> None:
     async def fake_gold(cmd, quant=0):
         done.append(("gold", quant))
 
-    core_farms.farm_faction = fake_faction
-    core_farms.farm_experience = fake_exp
-    core_farms.farm_gold = fake_gold
+    core_advanced.farm_faction = fake_faction
+    core_advanced.farm_experience = fake_exp
+    core_advanced.farm_gold = fake_gold
     try:
-        assert asyncio.run(buy_item(needs, 1129, "Cape of Awe",
-                                    map_name="museum")) is True
+        assert asyncio.run(adv_buy_item(needs, 1129, "Cape of Awe",
+                                        map_name="museum")) is True
     finally:
         for name, fn in real_farm.items():
-            setattr(core_farms, name, fn)
+            setattr(core_advanced, name, fn)
 
     assert done == [("faction", "Sandsea", 6), ("exp", 35), ("gold", 1000)], done
     assert any(line.startswith("Farming reputation for Sandsea (Required: 44100)")
@@ -739,13 +744,26 @@ def main() -> None:
     assert "Farming experience to reach level 35" in needs.bot.logs, \
         needs.bot.logs
     assert ("buy_item", 1129, "cape of awe", 1, 0) in needs.calls, needs.calls
-    print("buy_item   : rep, level and gold are farmed before the purchase")
+    print("advbuy     : rep, level and gold are farmed before the purchase")
+
+    # the plain CoreBots one buys straight away -- that is the difference, and
+    # the reason a kit's Adv.BuyItem call must not be mapped onto it
+    plain_needs = Stub(level=1)
+    plain_needs.bot.loaded_shop_datas.append(
+        _Shop(1129, [_ShopItem("Cape of Awe", faction="Sandsea",
+                               required_rep=44100, level=35, cost=1000)]))
+    assert asyncio.run(buy_item(plain_needs, 1129, "Cape of Awe",
+                                map_name="museum")) is True
+    assert "register_quest" not in plain_needs.kinds(), plain_needs.calls
+    assert not any(line.startswith("Farming")
+                   for line in plain_needs.bot.logs), plain_needs.bot.logs
+    print("corebuy    : the plain CoreBots purchase farms none of the three")
 
     plain = Stub()
     plain.bot.loaded_shop_datas.append(_Shop(68, ["Blade of Affliction"]))
-    assert asyncio.run(buy_item(plain, 68, "Blade of Affliction")) is True
+    assert asyncio.run(adv_buy_item(plain, 68, "Blade of Affliction")) is True
     assert "register_quest" not in plain.kinds(), plain.calls
-    print("buy_item   : an entry with no requirements farms none of the three")
+    print("advbuy     : an entry with no requirements farms nothing")
 
     # --- SandseaREP: the farm Adv.BuyItem reaches for --------------------
     from bot.core_farms import sandsea_rep

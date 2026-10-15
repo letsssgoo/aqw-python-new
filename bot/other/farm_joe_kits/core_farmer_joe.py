@@ -29,6 +29,7 @@ so a run of this can be read next to a run of the reference bot.
 """
 from typing import Optional, Sequence
 
+from bot.core_advanced import buy_item as adv_buy_item
 from bot.core_bots import buy_item, equip_class
 from bot.core_dailies import elders_blood
 from bot.core_farms import farm_experience
@@ -258,7 +259,7 @@ async def shirt_and_hat(cmd: Command) -> None:
                 "ShirtAndHat's \"NO BOTS Armor\" comes from SynderesMerge "
                 "(the merge framework), which is not ported.")
     cmd.farming_logger("Scarecrow Hat", 1)
-    await buy_item(cmd, 16, "Scarecrow Hat", map_name="yulgar")
+    await adv_buy_item(cmd, 16, "Scarecrow Hat", map_name="yulgar")
 
 
 async def pets(cmd: Command, choice: Optional[str] = None) -> None:
@@ -394,7 +395,7 @@ async def beginner_items(cmd: Command) -> None:
     if not await cmd.has_any_item(list(ROGUE_NAMES)):
         cmd.bot.log("Getting rogue.. so we can get ninja (there's a 10k hp "
                     "\"boss\" to kill during the \"Hit Job\" quest.)")
-        await buy_item(cmd, ROGUE_SHOP, "Rogue", map_name=CLASSHALLA)
+        await adv_buy_item(cmd, ROGUE_SHOP, "Rogue", map_name=CLASSHALLA)
 
     if not await cmd.has_any_item(list(NINJA_NAMES)):
         cmd.bot.log("Getting starter Dodge class (Ninja)")
@@ -412,8 +413,8 @@ async def beginner_items(cmd: Command) -> None:
 
     if not await cmd.has_any_item(list(MAGE_NAMES)):
         cmd.bot.log("Getting Starter Farm class (Mage)")
-        await buy_item(cmd, MAGE_SHOP, MAGE_ITEM_ID, map_name=CLASSHALLA,
-                       shop_item_id=MAGE_SHOP_ITEM_ID)
+        await adv_buy_item(cmd, MAGE_SHOP, MAGE_ITEM_ID, map_name=CLASSHALLA,
+                           shop_item_id=MAGE_SHOP_ITEM_ID)
 
     await set_class(cmd)
 
@@ -526,7 +527,7 @@ async def _handle_level_30(cmd: Command) -> None:
     report_once(cmd, "blade_of_awe_rep",
                 "CoreFarms.BladeofAweREP is not ported; the Blade of Awe rep is "
                 "not farmed.")
-    await buy_item(cmd, MUSEUM_SHOP, AWETHUR_ITEM, map_name="museum")
+    await adv_buy_item(cmd, MUSEUM_SHOP, AWETHUR_ITEM, map_name="museum")
     report_once(cmd, "forge_helm",
                 "UnlockForgeEnhancements.ForgeHelmEnhancement is not ported.")
 
@@ -598,7 +599,7 @@ async def _handle_level_70(cmd: Command) -> None:
             and any_rank10(cmd, [HORC_EVADER])):
         cmd.bot.log("Geting Horc Evader so we can attemp to kill Ultra Chaos "
                     "Alteon during the story to get AP")
-        await buy_item(cmd, BLOODTUSK_SHOP, HORC_EVADER, map_name="bloodtusk")
+        await adv_buy_item(cmd, BLOODTUSK_SHOP, HORC_EVADER, map_name="bloodtusk")
         await set_class(cmd)
 
     cmd.bot.log("unlocking the easy lvl 70 forge enhs")

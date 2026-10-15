@@ -8,7 +8,7 @@ for its own ``rank_up_class`` argument.
 The C# also calls ``Core.SetOptions`` around its entry point, which this port
 replaces with the constants the launcher is given.
 """
-from bot.core_bots import buy_item
+from bot.core_advanced import buy_item
 from core.command import Command
 
 MASTER_RANGER = "Master Ranger"
