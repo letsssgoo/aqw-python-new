@@ -4,7 +4,7 @@ import time
 from datetime import datetime
 from functools import wraps
 from inspect import iscoroutinefunction
-from typing import List, Optional, Union
+from typing import List, Optional, Tuple, Union
 from colorama import Fore
 from enum import Enum
 
@@ -204,6 +204,27 @@ class Command:
         """
         quest = self.bot.get_loaded_quest(quest_id)
         return quest.reward_names if quest else []
+
+    def get_quest_reward_entries(self, quest_id: int
+                                 ) -> List[Tuple[int, str, int]]:
+        """A quest's rewards as ``(item_id, name, max_stack)``.
+
+        What a "farm this until it is full" loop actually needs: the item id the
+        turn-in packet wants, the name to match the inventory on, and the cap to
+        stop at.  Reading it here keeps callers out of ``Quest`` internals.
+
+        Args:
+            quest_id (int): Identifier of an in-progress quest.
+
+        Returns:
+            List[Tuple[int, str, int]]: One entry per reward, in payload order.
+            Empty when the quest is not loaded, or when the payload sent no
+            reward *names* -- the ``getQuests`` payload nests them differently
+            from quest to quest, and some send none at all.  ``Quest.reward_ids``
+            tells the two cases apart.
+        """
+        quest = self.bot.get_loaded_quest(quest_id)
+        return quest.reward_entries if quest else []
 
     def add_quest_rewards(self, quest_id: int) -> List[str]:
         """Whitelist a quest's reward items (the reference bot's ``AddDrop(QuestRewards(id))``).

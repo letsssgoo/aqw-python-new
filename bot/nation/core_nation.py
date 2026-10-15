@@ -1337,8 +1337,7 @@ async def contract_exchange(cmd: Command, reward_name: str, quant: int,
 
 def _reward_id(cmd: Command, quest_id: int, name: str) -> int:
     """Item id of a quest reward by name, or -1 when the quest is not loaded."""
-    quest = cmd.get_loaded_quest(quest_id)
-    for item_id, reward_name, _ in (quest.reward_entries if quest else []):
+    for item_id, reward_name, _ in cmd.get_quest_reward_entries(quest_id):
         if reward_name == name:
             return item_id
     return -1
