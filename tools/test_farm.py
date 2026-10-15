@@ -716,6 +716,45 @@ def main() -> None:
     assert ("join_map", "battleon") in died.calls, died.calls
     print("brawl      : a death leaves for /battleon and reports the stop")
 
+    # --- BattleUnderB and TheSecret4 ------------------------------------
+    from bot.core_farms import (battle_under_b, bone_some_dust, the_secret4)
+
+    have_dust = Stub(inventory={"Bone Dust": 10000})
+    asyncio.run(battle_under_b(have_dust, "Bone Dust", 10000))
+    # the reference logs the line and returns, so only the log is expected
+    assert [c for c in have_dust.calls if c[0] != "farming_logger"] == [], \
+        have_dust.calls
+    print("battleund  : already at the target -> only the logger line")
+
+    dust = Stub(connect_after=0)
+    dust.player.CELL = "r1"
+    dust.player.PAD = "Left"
+    _drop_gain(dust, "Bone Dust", 10000)
+    asyncio.run(battle_under_b(dust, "Bone Dust", 10000))
+    assert ("join_map", "battleunderb") in dust.calls, dust.calls
+    assert ("jump_cell", "Enter", "Spawn") in dust.calls, dust.calls
+    assert ("add_drop", "Bone Dust") in dust.calls, dust.calls
+    print("battleund  : kills in battleunderb Enter/Spawn for the item")
+
+    orb = Stub(connect_after=0)
+    _drop_gain(orb, "Spirit Orb", 65000)
+    asyncio.run(bone_some_dust(orb, 65000))
+    assert ("register_quest", 2082) in orb.calls, orb.calls
+    assert ("register_quest", 2083) in orb.calls, orb.calls
+    assert ("cancel_registered_quests",) in orb.calls, orb.calls
+    print("bonesome   : quests 2082/2083 until the Spirit Orbs are full")
+
+    secret = Stub(connect_after=0)
+    secret.cell_ok = True
+    _drop_gain(secret, "The Secret 4", 1)
+    asyncio.run(the_secret4(secret))
+    assert ("jump_cell", "Enter0", "Spawn") in secret.calls, secret.calls
+    assert ("walk_to", 528, 255) in secret.calls, secret.calls
+    assert any(f"%xt%zm%mtcid%{secret.bot.areaId}%20%" == m
+               for m in secret.bot.sent), secret.bot.sent
+    assert ("join_map", "battleon") in secret.calls, secret.calls
+    print("secret4    : the brawl route, one walk, both restorers, then out")
+
     print("\nfarm tests OK")
 
 

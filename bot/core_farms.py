@@ -24,7 +24,7 @@ noted where it happens:
 import random
 from typing import Awaitable, Callable, Optional, Sequence, Tuple
 
-from bot.core_bots import (Alignment, can_we_aggro, change_alignment,
+from bot.core_bots import (Alignment, buy_item, can_we_aggro, change_alignment,
                            equip_class)
 from core.command import Command
 from templates.hunt import DEFAULT_SKILL_LIST, hunt_item
@@ -73,6 +73,36 @@ PVP_BOSS_STEPS = (
 
 #: What ``BludrutBrawlBoss`` banks when it is after something else.
 PVP_OTHER_REWARDS: Tuple[str, ...] = ("Yoshino's Citrine", "The Secret 4")
+
+#: ``TheSecret4``'s own route: the same map, five cell selections (only the last
+#: of which walks anywhere) and two restorers to kill by name.
+PVP_SECRET_MOVES = (
+    (5, "Morale0C", 0, 0),
+    (4, "Morale0B", 0, 0),
+    (7, "Morale0A", 0, 0),
+    (9, "Crosslower", 0, 0),
+    (14, "Crossupper", 528, 255),
+)
+PVP_SECRET_KILLS = ((18, "Resource1A"), (20, "Resource1B"))
+PVP_SECRET_TARGET = "(B) Defensive Restorer"
+PVP_SECRET_ITEM = "The Secret 4"
+
+#: The Undead Energy unlock chain (quests 2066-2084) and what it buys.
+UNDEAD_ENERGY = "Undead Energy"
+UNDEAD_ENERGY_UNLOCK = 2084
+DOOMWOOD_SHOP_ID = 276
+DOOMWOOD_MAP = "doomwood"
+UNDEAD_UNLOCK_QUESTS: Tuple[Tuple[int, str], ...] = (
+    (2066, "Blinding Light of Destiny Handle"),
+    (2067, "Bonegrinder Medal"),
+)
+UNDEAD_UNLOCK_HUNTS: Tuple[Tuple[int, str, str, int], ...] = (
+    (2082, "Undead Essence", "Skeleton Warrior", 25),
+    (2083, "Bone Dust", "Skeleton Warrior", 40),
+)
+CELESTIAL_COMPASS = ("Celestial Compass", "timevoid", "Ephemerite")
+SPIRIT_ORB = "Spirit Orb"
+BATTLE_UNDER_B = ("battleunderb", "Enter", "Spawn")
 
 
 async def farm_until(
@@ -169,6 +199,102 @@ async def farm_until(
     return True
 
 
+async def the_secret4(cmd: Command) -> None:
+    """``CoreFarms.TheSecret4``: the Secret 4 off the brawl's restorers.
+
+    The same PvP map as :func:`bludrut_brawl_boss`, walked differently: five cell
+    selections, only the last of which moves anywhere, then two restorers killed
+    by name for the drop.
+    """
+    if await cmd.has_item(PVP_SECRET_ITEM):
+        return
+
+    print(f"[farm] {PVP_SECRET_ITEM}: running the brawl route")
+    await equip_class(cmd, solo=True)
+
+    while cmd.is_still_connected() and not await cmd.has_item(PVP_SECRET_ITEM):
+        while cmd.is_still_connected() and cmd.is_not_in_map("bludrutbrawl"):
+            await cmd.sleep(5000)
+            await cmd.join_map("bludrutbrawl", 999999)
+            await cmd.jump_cell("Enter0", "Spawn")
+
+        for mtcid, cell, x, y in PVP_SECRET_MOVES:
+            if not await _pvp_move(cmd, mtcid, cell, x, y):
+                return
+        for mtcid, cell in PVP_SECRET_KILLS:
+            if not await _pvp_move(cmd, mtcid, cell, 0, 0):
+                return
+            await _pvp_killing(cmd, PVP_SECRET_TARGET)
+
+        while cmd.is_still_connected() and cmd.is_not_in_map("battleon"):
+            await cmd.sleep(5000)
+            await cmd.join_map("battleon", 999999)
+
+
+async def battle_under_b(cmd: Command, item: str = "Bone Dust",
+                         quant: int = 10000, is_temp: bool = False) -> None:
+    """``CoreFarms.BattleUnderB``: kill everything in /battleunderb for ``item``.
+
+    For ``Undead Energy`` the reference first runs quests 2066-2084, without
+    which the energy does not drop from there at all.
+    """
+    if await cmd.has_item(item, quant, isTemp=is_temp):
+        cmd.farming_logger(item, quant)
+        return
+
+    if item == UNDEAD_ENERGY and not await cmd.is_completed_before(
+            UNDEAD_ENERGY_UNLOCK):
+        print("[farm] unlocking the /battleunderb Undead Energy drops (quests "
+              "2066-2084)")
+        await _undead_energy_unlock(cmd)
+
+    cmd.add_drop(item)
+    cmd.farming_logger(item, quant)
+    await equip_class(cmd)
+    await hunt_item(cmd, item, quant, BATTLE_UNDER_B[0], cell=BATTLE_UNDER_B[1],
+                    pad=BATTLE_UNDER_B[2], monster_name="*", is_temp=is_temp)
+
+
+async def _undead_energy_unlock(cmd: Command) -> None:
+    """The four prerequisite quests for /battleunderb's Undead Energy."""
+    for quest_id, purchase in UNDEAD_UNLOCK_QUESTS:
+        if await cmd.is_completed_before(quest_id):
+            continue
+        await cmd.ensure_accept_quest(quest_id)
+        await buy_item(cmd, DOOMWOOD_SHOP_ID, purchase, map_name=DOOMWOOD_MAP)
+        await cmd.ensure_turn_in_quest(quest_id)
+
+    for quest_id, drop, monster, qty in UNDEAD_UNLOCK_HUNTS:
+        if await cmd.is_completed_before(quest_id):
+            continue
+        await cmd.ensure_accept_quest(quest_id)
+        await hunt_item(cmd, drop, qty, BATTLE_UNDER_B[0], monster_name=monster,
+                        is_temp=False)
+        await cmd.ensure_turn_in_quest(quest_id)
+
+    if await cmd.is_completed_before(UNDEAD_ENERGY_UNLOCK):
+        return
+    await cmd.ensure_accept_quest(UNDEAD_ENERGY_UNLOCK)
+    await bone_some_dust(cmd, 100)
+    await hunt_item(cmd, CELESTIAL_COMPASS[0], 1, CELESTIAL_COMPASS[1],
+                    monster_name=CELESTIAL_COMPASS[2], is_temp=False)
+    await cmd.ensure_turn_in_quest(UNDEAD_ENERGY_UNLOCK)
+
+
+async def bone_some_dust(cmd: Command, quant: int = 65000) -> None:
+    """``CoreFarms.BoneSomeDust``: quests 2082+2083 until Spirit Orbs are full."""
+    if await cmd.has_item(SPIRIT_ORB, quant):
+        return
+
+    cmd.add_drop(["Bone Dust", "Undead Essence", UNDEAD_ENERGY, SPIRIT_ORB])
+    cmd.farming_logger(SPIRIT_ORB, quant)
+    await farm_until(
+        cmd, lambda: cmd.get_quant_item(SPIRIT_ORB) >= quant, BATTLE_UNDER_B[0],
+        cell=BATTLE_UNDER_B[1], pad=BATTLE_UNDER_B[2], monster="*",
+        quests=(2082, 2083),
+        drops=("Bone Dust", "Undead Essence", UNDEAD_ENERGY, SPIRIT_ORB))
+
+
 async def _sell_all(cmd: Command, item_name: str) -> None:
     """Sell every copy held (the reference's ``Core.SellItem(name, all: true)``)."""
     have = cmd.get_quant_item(item_name)
@@ -180,19 +306,27 @@ async def _sell_all(cmd: Command, item_name: str) -> None:
 # PvP: the Bludrut Brawl boss
 # ----------------------------------------------------------------------------
 
-async def _pvp_move(cmd: Command, mtcid: int, cell: str, x_range, y_range) -> bool:
+async def _pvp_move(cmd: Command, mtcid: int, cell: str, x=0, y=0) -> bool:
     """``CoreBots.PvPMove``: walk to a coordinate, then select the cell's id.
 
     The reference sends the move packet and then a ``mtcid`` packet, waits, and
-    repeats the pair until the cell it asked for is the cell it is in.  The
-    coordinates are drawn from a range each time, exactly as it draws them.
+    repeats the pair until the cell it asked for is the cell it is in.  Its call
+    sites pass either a fixed coordinate or a random one drawn from a range -- and
+    draw it **once**, retrying with the same numbers, which is how this does it
+    too.  ``0, 0`` means "do not walk", as it does there.
 
     Returns:
         bool: True once the cell is reached, False when the client dropped first
         -- which the reference cannot notice, having no ``ShouldExit`` here.
     """
+    if isinstance(x, tuple):
+        x = random.randint(*x)
+    if isinstance(y, tuple):
+        y = random.randint(*y)
+
     while cmd.is_still_connected():
-        await cmd.walk_to(random.randint(*x_range), random.randint(*y_range))
+        if x or y:
+            await cmd.walk_to(x, y)
         cmd.bot.write_message(f"%xt%zm%mtcid%{cmd.bot.areaId}%{mtcid}%")
         await cmd.sleep(2500)
         if cmd.is_in_cell(cell):
