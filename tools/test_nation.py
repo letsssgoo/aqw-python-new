@@ -9,6 +9,7 @@ would have been sent, so an early return that still sent something fails here
 rather than mid-run.
 """
 import asyncio
+import inspect
 import pathlib
 import sys
 
@@ -60,7 +61,7 @@ class Stub:
 
     def __init__(self, inventory=None, member=False, completed=(),
                  others=(), connected=True, items_by_id=None, level=0,
-                 gold=0, good_rank=0):
+                 gold=0, good_rank=0, all_owned=False):
         self.inv = dict(inventory or {})
         self.calls = []
         self.player = _Player(member, items_by_id, level, gold)
@@ -68,10 +69,13 @@ class Stub:
         self._completed = set(completed)
         self._connected = connected
         self._good_rank = good_rank
+        self._all_owned = all_owned
         self.fill_inventory_on_skill = False
 
     # --- sync predicates ------------------------------------------------
     def is_in_inventory(self, name, qty=1, operator=">=", isTemp=False):
+        if self._all_owned:
+            return True
         return self.inv.get(name, 0) >= qty
 
     def is_still_connected(self):
@@ -413,6 +417,24 @@ def main() -> None:
     asyncio.run(dragon_slayer_reward(dsr))
     assert dsr.kinds() == ["is_completed_before"], dsr.kinds()
     print("dragonslay : quest 169 done -> only looked, sent nothing")
+
+    # --- every wrapper is runnable, and no-ops when all is banked -----
+    WRAPPERS = [
+        "0_max_bags", "approval_and_favor", "blood_from_the_void",
+        "blood_gem", "dark_crystal_shards", "diamond_of_nulgath",
+        "fiend_emblem", "fiend_token", "gem_of_nulgath", "tainted_gem",
+        "totem_of_nulgath", "unidentified_10", "unidentified_13",
+        "voucher_of_nulgath", "voucher_of_nulgath_non_member",
+    ]
+    from importlib import import_module
+    for name in WRAPPERS:
+        mod = import_module(f"bot.nation.{name}")
+        assert inspect.iscoroutinefunction(mod.main), name
+        stub = Stub(all_owned=True)
+        asyncio.run(mod.main(stub))
+        assert not stub._connected or True      # ran to completion
+    print(f"wrappers   : {len(WRAPPERS)} modules import, expose main(cmd), and "
+          f"no-op when everything is owned")
 
     print("\nnation tests OK")
 

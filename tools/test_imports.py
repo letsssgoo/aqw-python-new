@@ -45,6 +45,18 @@ ENTRY_MODULES = [
     "bot.nation.approval_and_favor",
     "bot.nation.blood_from_the_void",
     "bot.nation.fiend_emblem",
+    "bot.nation.0_max_bags",
+    "bot.nation.blood_gem",
+    "bot.nation.dark_crystal_shards",
+    "bot.nation.diamond_of_nulgath",
+    "bot.nation.fiend_token",
+    "bot.nation.gem_of_nulgath",
+    "bot.nation.tainted_gem",
+    "bot.nation.totem_of_nulgath",
+    "bot.nation.unidentified_10",
+    "bot.nation.unidentified_13",
+    "bot.nation.voucher_of_nulgath",
+    "bot.nation.voucher_of_nulgath_non_member",
 ]
 
 #: Modules that deliberately define no class -- they re-export one from
