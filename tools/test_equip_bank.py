@@ -206,6 +206,58 @@ def main() -> int:
     check("moved to inventory", names(bot.player.INVENTORY),
           ["scroll of enrage"])
 
+    # --- 7. loadBank: the flag reports the attempt, not the items -----
+    # A script start waits for ``bank_load_finished``, so the bank load must
+    # finish even when it fails or the bank is genuinely empty -- otherwise a
+    # script would either hang or start with an empty bank and farm what is
+    # already banked.
+    print("\n-- loadBank has to finish even when it fails --")
+    import core.player as player_mod
+    from core.player import Player
+
+    class _FakeResponse:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    def request_ok(*args, **kwargs):
+        return _FakeResponse([{"ItemID": 11, "sName": "Cubes", "iQty": 500}])
+
+    def request_fails(*args, **kwargs):
+        raise player_mod.requests.exceptions.RequestException("reset")
+
+    real_request = player_mod.requests.request
+    real_sleep = player_mod.time.sleep
+    try:
+        player_mod.requests.request = request_ok
+        loaded = Player()
+        check("a fresh player has not asked for the bank yet",
+              loaded.bank_load_finished, False)
+        check("loadBank returns True", loaded.loadBank(), True)
+        check("flag set after a successful load", loaded.bank_load_finished,
+              True)
+        check("bank filled", [i.item_name for i in loaded.BANK], ["cubes"])
+
+        # the retry backoff is 2 s + 4 s; not the point of this test
+        player_mod.time.sleep = lambda *_a: None
+        player_mod.requests.request = request_fails
+        failed = Player()
+        check("loadBank returns False", failed.loadBank(), False)
+        check("flag set after three failed tries too",
+              failed.bank_load_finished, True)
+        check("bank left empty", failed.BANK, [])
+
+        player_mod.requests.request = lambda *a, **k: _FakeResponse([])
+        empty = Player()
+        empty.loadBank()
+        check("an empty bank still counts as asked",
+              empty.bank_load_finished, True)
+    finally:
+        player_mod.requests.request = real_request
+        player_mod.time.sleep = real_sleep
+
     print()
     print("=" * 74)
     print(f"passed {PASS}   failed {FAIL}")

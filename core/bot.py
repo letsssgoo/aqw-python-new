@@ -21,7 +21,14 @@ from model import Quest, normalize_quest_id
 from handlers import register_quest_task, death_handler_task, aggro_handler_task
 import time
 import traceback
-    
+
+#: Seconds to wait for the bank before a script starts anyway.  The bank load is
+#: a single HTTP POST fired from the login packet that carries CHARID; it lands
+#: within a second in practice.  The bound exists only so a session that never
+#: sends that packet still runs, with a warning.
+BANK_WAIT_TIMEOUT_S = 10
+
+
 class Bot:
 
     def __init__(
@@ -157,7 +164,23 @@ class Bot:
                 while self.is_client_connected:
                     while self.is_char_load_complete is False:
                         await asyncio.sleep(0.01)
-                    
+
+                    # The bank arrives on its own login packet -- the one that
+                    # fills in CHARID -- and not on the packet that marks the
+                    # character loaded.  Without this wait a script can start
+                    # with an empty BANK and farm what is already banked.  It
+                    # waits for the load to have been *attempted*, bounded, so a
+                    # session that never sends the packet still runs -- loudly.
+                    bank_deadline = time.time() + BANK_WAIT_TIMEOUT_S
+                    while (not self.player.bank_load_finished
+                           and self.is_client_connected
+                           and time.time() < bank_deadline):
+                        await asyncio.sleep(0.05)
+                    if not self.player.bank_load_finished:
+                        print(Fore.YELLOW + "[bank] not loaded yet; checks that "
+                              "consult the bank may farm what is already "
+                              "banked." + Fore.RESET)
+
                     if not self.is_register_quest_task_running:
                         self.run_register_quest_task()
                         self.is_register_quest_task_running = True
