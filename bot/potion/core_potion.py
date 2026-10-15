@@ -1,3 +1,4 @@
+from bot.core_bots import buy_item
 from core.command import Command
 
 """
@@ -233,7 +234,7 @@ async def get_gold_voucher_100k(cmd: Command, qty: int = 1):
         return
     await cmd.join_map("alchemyacademy", 9999999)
     await cmd.ensure_load_shop(2114)
-    await cmd.buy_item(2114, "Gold Voucher 100k", qty)
+    await buy_item(cmd, 2114, "Gold Voucher 100k", qty)
     cmd.farming_logger("Gold Voucher 100k")
     
 async def buy_from_swindle(cmd: Command, itemName: str, qty: int = 10):
@@ -243,7 +244,7 @@ async def buy_from_swindle(cmd: Command, itemName: str, qty: int = 10):
     await cmd.join_map("tercessuinotlim", 9999999)
     await cmd.jump_cell("Swindle", "Left")
     await cmd.ensure_load_shop(1951)
-    await cmd.buy_item(1951, itemName, qty)
+    await buy_item(cmd, 1951, itemName, qty)
 
 async def buy_from_jera_shop(cmd: Command, itemName: str, qty: int = 10):
     await cmd.bank_to_inv(itemName)
@@ -251,7 +252,7 @@ async def buy_from_jera_shop(cmd: Command, itemName: str, qty: int = 10):
         return
     await cmd.join_map("alchemyacademy", 9999999)
     await cmd.ensure_load_shop(2114)
-    await cmd.buy_item(2114, itemName, qty)
+    await buy_item(cmd, 2114, itemName, qty)
 
 async def buy_dragon_runestone(cmd: Command, qty: int = 1):
     await cmd.bank_to_inv("Dragon Runestone")
@@ -260,7 +261,7 @@ async def buy_dragon_runestone(cmd: Command, qty: int = 1):
     await get_gold_voucher_100k(cmd, qty)
     await cmd.join_map("alchemyacademy", 9999999)
     await cmd.ensure_load_shop(395)
-    await cmd.buy_item(395, "Dragon Runestone", qty)
+    await buy_item(cmd, 395, "Dragon Runestone", qty)
     cmd.farming_logger("Gold Voucher 100k")
 
 async def buy_alchemy_item(cmd: Command, itemName: str, qty: int = 10):
@@ -269,4 +270,4 @@ async def buy_alchemy_item(cmd: Command, itemName: str, qty: int = 10):
         return
     await cmd.join_map("alchemyacademy", 9999999)
     await cmd.ensure_load_shop(397)
-    await cmd.buy_item(397, itemName, qty)
+    await buy_item(cmd, 397, itemName, qty)

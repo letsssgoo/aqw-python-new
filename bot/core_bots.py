@@ -54,36 +54,32 @@ def _find_shop(cmd: Command, shop_id: int):
 
 
 async def buy_item(cmd: Command, shop_id: int, item_name: str,
-                   qty: int = 1, attempts: int = 3) -> bool:
-    """Buy an item from a shop, waiting for the shop to load first.
+                   qty: int = 1) -> bool:
+    """Buy an item from a shop, once the shop is loaded and carries it.
 
-    ``CoreBots.BuyItem`` waits for the shop and then buys.  This engine's
-    ``Command.buy_item`` does neither on fits own: on a shop it has not seen it
-    only *asks* the server for it and returns, so the first call buys nothing --
-    silently.  This wraps that: ask, wait, then buy.
+    ``CoreBots.BuyItem`` waits for the shop and then buys.  This engine splits
+    that in two -- ``Command.ensure_load_shop`` for the wait and
+    ``Command.buy_item`` for the buy -- and ``Command.buy_item`` on its own does
+    the *first* half when it has not seen the shop: it asks the server for it and
+    returns, so that call buys nothing, silently.  This is the whole of it, plus
+    the check the engine does without: whether the shop carries the name at all.
 
     Args:
         cmd (Command): Facade to act through.
         shop_id (int): Shop to buy from.
         item_name (str): Item to buy; must be in the shop.
         qty (int): How many to buy.
-        attempts (int): How many times to wait for the shop to load.
 
     Returns:
         bool: True when the buy packet was sent.  False is reported, with the
         reason: a shop that never loaded, or an item the shop does not carry.
     """
-    shop = _find_shop(cmd, shop_id)
-    for _ in range(attempts):
-        if shop is not None:
-            break
-        await cmd.buy_item(shop_id, item_name, qty)      # requests the shop
-        await cmd.sleep(1000)
-        shop = _find_shop(cmd, shop_id)
-    if shop is None:
+    if not await cmd.ensure_load_shop(shop_id):
         print(f"[core] shop {shop_id} never loaded; {item_name!r} was not bought.")
         return False
-    if not any(i.item_name == item_name.lower() for i in shop.items):
+    shop = _find_shop(cmd, shop_id)
+    if shop is None or not any(i.item_name == item_name.lower()
+                               for i in shop.items):
         print(f"[core] shop {shop_id} does not carry {item_name!r}; nothing "
               f"bought.")
         return False

@@ -35,6 +35,7 @@ class _Player:
         self.LEVEL = level
         self.GOLD = gold
         self.is_member = member
+        self.ISDEAD = False
 
 
 class _Bot:
@@ -62,6 +63,37 @@ class _Shop:
         self.items = [_ShopItem(n) for n in items]
 
 
+class _ShopBot:
+    """A client whose shop cache is filled by the read loop, not by the call.
+
+    ``answers`` makes it behave like a live server: the next ``loadShop`` request
+    is what puts the shop in the cache.
+    """
+
+    def __init__(self, answers=False):
+        self.player = _Player()
+        self.loaded_shop_datas = []
+        self.answers = answers
+        self.sent = []
+        self.areaId = "alchemyacademy-1"
+        self.is_client_connected = True
+        self.accept_quest = None            # only touched by is_still_connected
+        self.is_aggro_handler_task_running = False
+        self.aggro_mons_id = []
+
+    def write_message(self, msg):
+        self.sent.append(msg)
+        if self.answers and "loadShop" in msg:
+            shop_id = msg.split("%")[-2]
+            self.loaded_shop_datas.append(_Shop(shop_id, ["Gold Voucher 100k"]))
+
+    async def ensure_leave_from_combat(self, always=False):
+        return None
+
+    def jump_cell(self, cell, pad):
+        return None
+
+
 class Stub:
     """Duck-typed Command: records calls, never touches the network."""
 
@@ -79,6 +111,8 @@ class Stub:
         self._vampire_rank = vampire_rank
         #: how many skill casts it takes to end the run (0 = never disconnects)
         self._casts_left = connect_after
+        #: False makes ensure_load_shop report a shop that never arrives
+        self.shop_loads = True
 
     # --- sync -----------------------------------------------------------
     def kinds(self):
@@ -178,6 +212,10 @@ class Stub:
 
     async def buy_item(self, shop_id, item_name, qty=1):
         self.calls.append(("buy_item", shop_id, item_name, qty))
+
+    async def ensure_load_shop(self, shop_id):
+        self.calls.append(("ensure_load_shop", shop_id))
+        return self.shop_loads
 
     async def wait_use_skill(self, slot, target_monsters="*"):
         self.calls.append(("wait_use_skill", slot))
@@ -432,29 +470,58 @@ def main() -> None:
     assert asyncio.run(farm_faction(known, "Vampire", 10)) is True
     print("dispatch   : ported factions run, the rest are named and refused")
 
-    # --- buy_item waits for the shop, then buys -------------------------
-    # Command.buy_item only *asks* for an unseen shop; buying on that first
-    # call would look like a purchase that never happened
+    # --- buy_item: wait for the shop, and check it carries the item -----
+    # Command.buy_item only *asks* for an unseen shop, so buying on that first
+    # call looks like a purchase that never happened
     from bot.core_bots import buy_item
 
     never = Stub()
+    never.shop_loads = False
     assert asyncio.run(buy_item(never, 1212, "Receipt of Nulgath")) is False
-    assert never.calls == [("buy_item", 1212, "Receipt of Nulgath", 1)] * 3, \
-        never.calls
-    print("buy_item   : shop never loads -> reported, asked 3 times")
+    assert ("ensure_load_shop", 1212) in never.calls, never.calls
+    assert "buy_item" not in never.kinds(), never.calls
+    print("buy_item   : shop never loads -> reported, nothing bought")
 
     lacking = Stub()
     lacking.bot.loaded_shop_datas.append(_Shop(1212, ["Something Else"]))
     assert asyncio.run(buy_item(lacking, 1212, "Receipt of Nulgath")) is False
-    assert lacking.calls == [], lacking.calls
+    assert "buy_item" not in lacking.kinds(), lacking.calls
     print("buy_item   : shop lacks the item -> reported, nothing bought")
 
     stocked = Stub()
     stocked.bot.loaded_shop_datas.append(_Shop(68, ["Blade of Affliction"]))
     assert asyncio.run(buy_item(stocked, 68, "Blade of Affliction")) is True
-    assert stocked.calls == [("buy_item", 68, "Blade of Affliction", 1)], \
+    assert ("buy_item", 68, "Blade of Affliction", 1) in stocked.calls, \
         stocked.calls
-    print("buy_item   : shop loaded -> bought once")
+    print("buy_item   : shop loaded and stocked -> bought once")
+
+    # --- ensure_load_shop is bounded ------------------------------------
+    # it used to be `while True`, so a shop the server never sends hung the bot
+    # with no message at all
+    from core.command import Command
+
+    real_sleep = asyncio.sleep
+    try:
+        async def instant(_seconds):
+            return None
+
+        asyncio.sleep = instant
+
+        silent = _ShopBot()
+        cmd = Command(silent)
+        cmd.SHOP_LOAD_MAX_ATTEMPTS = 3
+        assert asyncio.run(cmd.ensure_load_shop(2114)) is False
+        assert len(silent.sent) == 3, silent.sent    # one ask per attempt
+        print("shop       : never arrives -> gives up after the bound")
+
+        answering = _ShopBot(answers=True)
+        cmd = Command(answering)
+        assert asyncio.run(cmd.ensure_load_shop(2114)) is True
+        assert len(answering.sent) == 1, answering.sent
+        assert [s.shop_id for s in answering.loaded_shop_datas] == ["2114"]
+        print("shop       : one request, then the reply is in the cache")
+    finally:
+        asyncio.sleep = real_sleep
 
     print("\nfarm tests OK")
 

@@ -104,6 +104,10 @@ class Command:
     #: answers.
     MAP_JOIN_TIMEOUT_MS: int = 10000
 
+    #: How many times ``ensure_load_shop`` asks for a shop before giving up and
+    #: saying so.  One second per pass; a shop packet normally lands at once.
+    SHOP_LOAD_MAX_ATTEMPTS: int = 10
+
     def __init__(self, bot, init_handler = False):
         from core.bot import Bot
         self.bot: Bot = bot
@@ -1074,21 +1078,34 @@ class Command:
             # await self.buy_item(shop_id, item_name, qty)
 
     @check_alive
-    async def ensure_load_shop(self, shop_id: int) -> None:
-        """Keep loading a shop until it is present in the cache.
+    async def ensure_load_shop(self, shop_id: int) -> bool:
+        """Keep loading a shop until it is present in the cache, bounded.
 
         Args:
             shop_id (int): Identifier of the shop to ensure.
+
+        Returns:
+            bool: True once the shop is cached.  False when the client dropped
+            or the shop never arrived within
+            :data:`SHOP_LOAD_MAX_ATTEMPTS` tries -- reported, because a caller
+            that goes on to buy would otherwise look like it had.
         """
         await self.leave_combat()
-        while True:
+        attempts = 0
+        while self.is_still_connected():
             for loaded_shop in self.bot.loaded_shop_datas:
-                if str(loaded_shop.shop_id) == str(shop_id): 
+                if str(loaded_shop.shop_id) == str(shop_id):
                     print("loaded_Shop", loaded_shop.shop_id)
-                    return
+                    return True
+            attempts += 1
+            if attempts > self.SHOP_LOAD_MAX_ATTEMPTS:
+                print(Fore.YELLOW + f"[shop] {shop_id} never loaded after "
+                      f"{self.SHOP_LOAD_MAX_ATTEMPTS} tries." + Fore.RESET)
+                return False
             packet = f"%xt%zm%loadShop%{self.bot.areaId}%{shop_id}%"
             self.bot.write_message(packet)
             await asyncio.sleep(1)
+        return False
 
     def wait_count_player(self, player_count: int) -> bool:
         """Check if the current map has at least the requested player count."""
