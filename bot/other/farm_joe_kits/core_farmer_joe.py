@@ -33,6 +33,7 @@ from bot.core_bots import buy_item, equip_class
 from bot.core_dailies import elders_blood
 from bot.core_farms import farm_experience
 from bot.nation.vhl.core_vhl import get_vhl
+from bot.other.classes.rep_based.master_ranger import get_mr
 from core.command import Command
 from model.inventory import ItemType
 from templates.hunt import hunt_item
@@ -510,8 +511,7 @@ async def _handle_level_30(cmd: Command) -> None:
             await cmd.sell_item("Venom Head")
         cmd.bot.log("Level 30: Acquiring Master Ranger")
         await set_class(cmd)
-        report_once(cmd, "master_ranger",
-                    "MasterRanger.GetMR is not ported; Master Ranger is not farmed.")
+        await get_mr(cmd)
 
     if not (await cmd.has_item("Dragonslayer")
             and any_rank10(cmd, ["Dragonslayer"])):

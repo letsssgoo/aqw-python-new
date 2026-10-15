@@ -454,6 +454,34 @@ def main() -> None:
     assert not any(c[0] == "ensure_accept_quest" for c in h80.calls), h80.calls
     print("bracket80  : VHL held -> the class line only, nothing farmed")
 
+    # --- MasterRanger: the first kit bracket 30 needs --------------------
+    from bot.other.classes.rep_based import master_ranger
+
+    have_mr = Stub(inventory={"Master Ranger": 1})
+    asyncio.run(master_ranger.get_mr(have_mr, rank_up_class=False))
+    assert have_mr.calls == [], have_mr.calls
+    print("masterrng  : held and no rank-up asked for -> no calls")
+
+    missing_mr = Stub(shops=[_Shop(242, [_ShopItem("Master Ranger", 7260, 5682)])])
+    asyncio.run(master_ranger.get_mr(missing_mr, rank_up_class=False))
+    assert ("buy_item", 242, "master ranger", 1, 5682) in missing_mr.calls, \
+        missing_mr.calls
+    assert ("join_map", "sandsea") in missing_mr.calls, missing_mr.calls
+    print("masterrng  : bought from sandsea 242 by item id and shop entry")
+
+    ranked_mr = Stub(inventory={"Master Ranger": 1})
+    asyncio.run(master_ranger.get_mr(ranked_mr))
+    assert any("would be ranked up here" in line for line in ranked_mr.bot.logs), \
+        ranked_mr.bot.logs
+    print("masterrng  : the rank-up is reported, never guessed")
+
+    h30b = Stub(solo="King's Echo", classes_held=["King's Echo"],
+                shops=[_Shop(242, [_ShopItem("Master Ranger", 7260, 5682)]),
+                       _Shop(631, ["Awethur's Accoutrements"])])
+    asyncio.run(joe._handle_level_30(h30b))
+    assert ("buy_item", 242, "master ranger", 1, 5682) in h30b.calls, h30b.calls
+    print("bracket30  : Master Ranger comes from the ported kit now")
+
     # --- the two later steps are loud, not silent ------------------------
     later = Stub()
     asyncio.run(joe.level_75_to_100(later))
