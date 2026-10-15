@@ -310,8 +310,9 @@ def main() -> None:
     # to check is the ladder itself: order, the daily, and the handlers
     ladder = Stub(level=30, solo="King's Echo",
                   classes_held=["King's Echo", "Ninja"])
-    levels, dailies = [], []
+    levels, dailies, vhl = [], [], []
     real_exp, real_daily = joe.farm_experience, joe.elders_blood
+    real_vhl = joe.get_vhl
 
     async def fake_exp(cmd, level=100, rank_up_class=False):
         levels.append(level)
@@ -319,21 +320,30 @@ def main() -> None:
     async def fake_daily(cmd):
         dailies.append("elders")
 
+    async def fake_vhl(cmd, rank_up_class=True):
+        vhl.append("get_vhl")
+
     joe.farm_experience, joe.elders_blood = fake_exp, fake_daily
+    joe.get_vhl = fake_vhl
     try:
         asyncio.run(joe.level_30_to_75(ladder))
     finally:
         joe.farm_experience, joe.elders_blood = real_exp, real_daily
+        joe.get_vhl = real_vhl
 
     assert levels == list(joe.LEVEL_BRACKETS), levels
     assert dailies == ["elders"], dailies
+    assert vhl == ["get_vhl"], vhl          # bracket 80 is the ported CoreVHL
     assert [c[1] for c in ladder.calls if c[0] == "inv_to_bank"], ladder.calls
     for level in joe.LEVEL_BRACKETS:
         assert f"Level Handler: {level} bracket" in ladder.bot.logs, ladder.bot.logs
     # the reference's own bracket line, word for word
     assert any(line.startswith("Joe will handle each level bracket (0-30")
                for line in ladder.bot.logs), ladder.bot.logs
-    print("ladder     : brackets 30..80, the daily first, every handler called")
+    # and the bracket 80 log line, including the reference's own slip in it
+    assert any(line.startswith("Bracket level [80]; Attemping to aquire VHL")
+               for line in ladder.bot.logs), ladder.bot.logs
+    print("ladder     : brackets 30..80, the daily first, VHL at 80")
 
     # --- BeginnerItems: the guard, and a fresh account -------------------
     def fresh_run():
@@ -414,6 +424,35 @@ def main() -> None:
                  "Getting Starter Farm class (Mage)"):
         assert line in fresh.bot.logs, fresh.bot.logs
     print("beginner   : fresh account -> Oracle slots, Rogue, Mage; Ninja reported")
+
+    # --- bracket handlers: what runs, what is reported -------------------
+    h70 = Stub(solo="King's Echo", classes_held=["King's Echo"],
+               shops=[_Shop(308, ["Horc Evader"])])
+    asyncio.run(joe._handle_level_70(h70))
+    assert ("buy_item", 308, "horc evader", 1, 0) in h70.calls, h70.calls
+    assert "unlocking the easy lvl 70 forge enhs" in h70.bot.logs, h70.bot.logs
+    assert any(line.startswith("Geting Horc Evader")
+               for line in h70.bot.logs), h70.bot.logs
+    print("bracket70  : buys the Horc Evader, reports the forge enhancements")
+
+    h30 = Stub(solo="King's Echo", classes_held=["King's Echo"],
+               inventory={"Venom Head": 1},
+               shops=[_Shop(631, ["Awethur's Accoutrements"])])
+    asyncio.run(joe._handle_level_30(h30))
+    assert ("sell_item", "Venom Head") in h30.calls, h30.calls
+    assert ("buy_item", 631, "awethur's accoutrements", 1, 0) in h30.calls, \
+        h30.calls
+    assert any(line.startswith("Level 30: Farming Blade of Awe Rep")
+               for line in h30.bot.logs), h30.bot.logs
+    print("bracket30  : sells the Venom Head, buys Awethur's Accoutrements")
+
+    h80 = Stub(solo="King's Echo", classes_held=["King's Echo"],
+               inventory={"Void Highlord": 1})
+    asyncio.run(joe._handle_level_80(h80))
+    assert any(line.startswith("Dragon of Time found but not rank 10")
+               for line in h80.bot.logs), h80.bot.logs
+    assert not any(c[0] == "ensure_accept_quest" for c in h80.calls), h80.calls
+    print("bracket80  : VHL held -> the class line only, nothing farmed")
 
     # --- the two later steps are loud, not silent ------------------------
     later = Stub()

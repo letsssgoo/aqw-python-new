@@ -11,6 +11,9 @@ Port of ``Other/FarmJoeKits/CoreFarmerJoe.cs``.  The kit is what
   and Mage, with the tutorial badges reported;
 * ``level_30_to_75`` -- the level ladder (30, 50, 55, 60, 65, 70, 75, 80), the
   one-a-day Elders' Blood, and banking the classes that are not in use;
+* the eight bracket handlers -- step 3 -- with their own log lines, each one
+  running what this engine can and reporting what it cannot (bracket 80 is
+  ``CoreVHL.GetVHL``, which is ported);
 * the small extras ``shirt_and_hat``, ``servers_are_down``, ``pets``, ``outfit``.
 
 What the reference reaches but this engine cannot do yet is reported, once per
@@ -18,8 +21,8 @@ run and by name, with a ``[joe]`` tag -- never skipped quietly:
 
 * ``Adv.GearStore`` / ``Adv.SmartEnhance`` / ``Adv.RankUpClass`` (gear snapshots,
   enhancement profiles, class ranks: none of them exist here),
-* the eight per-bracket handlers, ``level_75_to_100`` and ``end_game``, which are
-  the later steps of this port (3, 4 and 5).
+* the class and item kits the bracket handlers farm, ``level_75_to_100`` and
+  ``end_game``, which are the later steps of this port (4 and 5).
 
 Log lines are the reference's own text, word for word, through ``cmd.bot.log`` --
 so a run of this can be read next to a run of the reference bot.
@@ -29,6 +32,7 @@ from typing import Optional, Sequence
 from bot.core_bots import buy_item, equip_class
 from bot.core_dailies import elders_blood
 from bot.core_farms import farm_experience
+from bot.nation.vhl.core_vhl import get_vhl
 from core.command import Command
 from model.inventory import ItemType
 from templates.hunt import hunt_item
@@ -488,50 +492,162 @@ async def do_all(cmd: Command) -> None:
                 "skipped for the same reason.")
 
 
+#: The two purchases inside the bracket handlers that need no other kit.
+MUSEUM_SHOP = 631
+AWETHUR_ITEM = "Awethur's Accoutrements"
+BLOODTUSK_SHOP = 308
+HORC_EVADER = "Horc Evader"
+
+#: ``Handlelevel80`` checks for either spelling, and stops if it finds one.
+VOID_HIGHLORD_NAMES = ("Void Highlord", "Void Highlord (IoDA)")
+
+
 async def _handle_level_30(cmd: Command) -> None:
-    report_once(cmd, "lvl30",
-                "bracket 30 needs MasterRanger, Dragonslayer, "
-                "CoreFarms.BladeofAweREP and UnlockForgeEnhancements (step 3).")
+    """``HandleLevel30``: Master Ranger, Dragonslayer and the Blade of Awe rep."""
+    if not (await cmd.has_item("Master Ranger")
+            and any_rank10(cmd, ["Master Ranger"])):
+        if await cmd.has_item("Venom Head"):
+            await cmd.sell_item("Venom Head")
+        cmd.bot.log("Level 30: Acquiring Master Ranger")
+        await set_class(cmd)
+        report_once(cmd, "master_ranger",
+                    "MasterRanger.GetMR is not ported; Master Ranger is not farmed.")
+
+    if not (await cmd.has_item("Dragonslayer")
+            and any_rank10(cmd, ["Dragonslayer"])):
+        cmd.bot.log("Level 30: Acquiring Dragonslayer")
+        await set_class(cmd)
+        report_once(cmd, "dragonslayer",
+                    "Dragonslayer.GetDragonslayer is not ported; Dragonslayer is "
+                    "not farmed.")
+
+    cmd.bot.log("Level 30: Farming Blade of Awe Rep for enhancements & sword")
+    await set_class(cmd)
+    report_once(cmd, "blade_of_awe_rep",
+                "CoreFarms.BladeofAweREP is not ported; the Blade of Awe rep is "
+                "not farmed.")
+    await buy_item(cmd, MUSEUM_SHOP, AWETHUR_ITEM, map_name="museum")
+    report_once(cmd, "forge_helm",
+                "UnlockForgeEnhancements.ForgeHelmEnhancement is not ported.")
 
 
 async def _handle_level_50(cmd: Command) -> None:
-    report_once(cmd, "lvl50",
-                "bracket 50 needs ScarletSorceress, DragonslayerGeneral and "
-                "BurningBlade (step 3).")
+    """``HandleLevel50``: Scarlet Sorceress, Dragonslayer General, Burning Blade."""
+    if not (await cmd.has_item("Scarlet Sorceress")
+            and any_rank10(cmd, ["Scarlet Sorceress"])):
+        cmd.bot.log("Level 50: Acquiring Scarlet Sorceress")
+        await set_class(cmd)
+        report_once(cmd, "scarlet_sorceress",
+                    "ScarletSorceress.GetSSorc is not ported.")
+
+    if not (await cmd.has_item("Dragonslayer General")
+            and any_rank10(cmd, ["Dragonslayer General"])):
+        cmd.bot.log("Level 50: Acquiring Dragonslayer General")
+        await set_class(cmd)
+        report_once(cmd, "dragonslayer_general",
+                    "DragonslayerGeneral.GetDSGeneral is not ported.")
+
+    cmd.bot.log("Level 50: Acquiring Burning Blade")
+    await set_class(cmd)
+    report_once(cmd, "burning_blade",
+                "BurningBlade.GetBurningBlade is not ported.")
 
 
 async def _handle_level_55(cmd: Command) -> None:
-    report_once(cmd, "lvl55",
-                "bracket 55 needs BlazeBinder and Cryomancer (step 3).")
+    """``HandleLevel55``: Blaze Binder and Cryomancer."""
+    if not (await cmd.has_item("Blaze Binder")
+            and any_rank10(cmd, ["Blaze Binder"])):
+        cmd.bot.log("Level 55: Acquiring Blaze Binder")
+        await set_class(cmd)
+        report_once(cmd, "blaze_binder",
+                    "BlazeBinder.GetClass is not ported.")
+
+    if not (await cmd.has_item("Cryomancer")
+            and any_rank10(cmd, ["Cryomancer"])):
+        cmd.bot.log("Level 55: Acquiring Cryomancer")
+        await set_class(cmd)
+        report_once(cmd, "cryomancer", "Cryomancer.DoCryomancer is not ported.")
 
 
 async def _handle_level_60(cmd: Command) -> None:
-    report_once(cmd, "lvl60",
-                "bracket 60 needs DragonShinobi and "
-                "UnlockForgeEnhancements.Lacerate (step 3).")
+    """``HandleLevel60``: DragonSoul Shinobi, then the Lacerate enhancement."""
+    if not (await cmd.has_item("DragonSoul Shinobi")
+            and any_rank10(cmd, ["DragonSoul Shinobi"])):
+        cmd.bot.log("Level 60: Acquiring DragonSoul Shinobi")
+        await set_class(cmd)
+        report_once(cmd, "dragonsoul_shinobi",
+                    "DragonShinobi.GetDSS is not ported.")
+
+    report_once(cmd, "forge_lacerate",
+                "UnlockForgeEnhancements.Lacerate is not ported.")
 
 
 async def _handle_level_65(cmd: Command) -> None:
-    report_once(cmd, "lvl65",
-                "bracket 65 needs GlacialBerserker (step 3).")
+    """``HandleLevel65``: Glacial Berserker."""
+    if not (await cmd.has_item("Glacial Berserker")
+            and any_rank10(cmd, ["Glacial Berserker"])):
+        cmd.bot.log("Level 65: Acquiring Glacial Berserker")
+        await set_class(cmd)
+        report_once(cmd, "glacial_berserker",
+                    "GlacialBerserker.GetGB is not ported.")
 
 
 async def _handle_level_70(cmd: Command) -> None:
-    report_once(cmd, "lvl70",
-                "bracket 70 needs UnlockForgeEnhancements (Smite, Vim, Pneuma, "
-                "Examen, Anima), Horc Evader and ArchPaladin (step 3).")
+    """``HandleLevel70``: Horc Evader, the easy forge enhancements, ArchPaladin."""
+    if not (await cmd.has_item(HORC_EVADER)
+            and any_rank10(cmd, [HORC_EVADER])):
+        cmd.bot.log("Geting Horc Evader so we can attemp to kill Ultra Chaos "
+                    "Alteon during the story to get AP")
+        await buy_item(cmd, BLOODTUSK_SHOP, HORC_EVADER, map_name="bloodtusk")
+        await set_class(cmd)
+
+    cmd.bot.log("unlocking the easy lvl 70 forge enhs")
+    report_once(cmd, "forge_easy",
+                "UnlockForgeEnhancements Smite/Vim/Pneuma/Examen/Anima are not "
+                "ported.")
+
+    if not (await cmd.has_item("ArchPaladin")
+            and any_rank10(cmd, ["ArchPaladin"])):
+        cmd.bot.log("Level 70: Acquiring ArchPaladin")
+        await set_class(cmd)
+        report_once(cmd, "archpaladin", "ArchPaladin.GetAP is not ported.")
 
 
 async def _handle_level_75(cmd: Command) -> None:
-    report_once(cmd, "lvl75_bracket",
-                "bracket 75 needs EnoughDOOMforanArchfiend and Archfiend, plus "
-                "Adv.HasMinimalBoost (step 3).")
+    """``HandleLevel75``: Archfiend DoomLord and Archfiend itself."""
+    if not (await cmd.has_item("Archfiend DoomLord")
+            and any_rank10(cmd, ["Archfiend"])):
+        cmd.bot.log("Level 75: Acquiring Archfiend DoomLord for 35% more damage "
+                    "to any monster, and gives 25% more class points, XP, gold, "
+                    "and rep when equipped")
+        await set_class(cmd)
+        report_once(cmd, "afdl",
+                    "EnoughDOOMforanArchfiend.AFDL is not ported; its gear boost "
+                    "(Adv.HasMinimalBoost) does not exist here either.")
+
+    if not (await cmd.has_item("Archfiend")
+            and any_rank10(cmd, ["Archfiend"])):
+        cmd.bot.log("Level 75: Acquiring Archfiend")
+        await set_class(cmd)
+        report_once(cmd, "archfiend", "Archfiend.GetArchfiend is not ported.")
 
 
 async def _handle_level_80(cmd: Command) -> None:
-    report_once(cmd, "lvl80",
-                "bracket 80 acquires Void Highlord through CoreVHL.GetVHL, which "
-                "is ported; wiring it here is step 3.")
+    """``Handlelevel80``: Void Highlord, through the ported ``CoreVHL``.
+
+    The reference's log line here says "Dragon of Time found but not rank 10" --
+    in a branch that is about Void Highlord.  It is copied as it stands, the way
+    every other source line is.
+    """
+    if await cmd.has_any_item(list(VOID_HIGHLORD_NAMES)):
+        cmd.bot.log("Dragon of Time found but not rank 10 - ranking up")
+        await set_class(cmd)
+        return
+
+    cmd.bot.log("Bracket level [80]; Attemping to aquire VHL (Elders' bloods are "
+                "a daily, this will take a total of 17 days ( minus your current "
+                "roents/elders' quantity))")
+    await get_vhl(cmd)
 
 
 #: Bracket -> the handler the reference runs after leveling to it.
