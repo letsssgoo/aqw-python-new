@@ -11,6 +11,7 @@ engine cannot do what the reference does (boosts, class ranks).
 Every routine is driven against a stub Command, so nothing touches the network.
 """
 import asyncio
+import json
 import pathlib
 import sys
 
@@ -757,6 +758,25 @@ def main() -> None:
                for m in secret.bot.sent), secret.bot.sent
     assert ("join_map", "battleon") in secret.calls, secret.calls
     print("secret4    : the brawl route, one walk, both restorers, then out")
+
+    # --- the Kitsune listener's rule, as a pure function ----------------
+    from bot.core_bots import kitsune_shifted, parse_message
+
+    def _ct(aura, action):
+        return json.dumps({"t": "xt", "b": {"o": {"cmd": "ct", "a": [
+            {"cmd": action, "aura": {"nam": aura}}]}}})
+
+    assert kitsune_shifted(_ct("Shapeshifted", "aura+")) is True
+    assert kitsune_shifted(_ct("Shapeshifted", "aura-")) is False
+    # anything else must leave the caller's state alone, not clear it
+    assert kitsune_shifted(_ct("Something Else", "aura+")) is None
+    assert kitsune_shifted(json.dumps({"t": "xt",
+                                       "b": {"o": {"cmd": "ccqr"}}})) is None
+    assert kitsune_shifted("%xt%zm%anything%") is None
+    assert parse_message(json.dumps({"t": "xt", "b": {"o": {"cmd": "ct"}}})) \
+        == {"cmd": "ct"}
+    assert parse_message("not json") is None
+    print("kitsune    : the Shapeshifted rule reads on/off, nothing else")
 
     print("\nfarm tests OK")
 

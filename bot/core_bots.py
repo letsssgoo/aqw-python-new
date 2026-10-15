@@ -14,14 +14,58 @@ call live here so far:
 ``bot.nation.core_nation`` re-exports ``equip_class`` and ``can_we_aggro`` from
 here, so its call sites and tests keep the names they had.
 """
+import json
 from enum import Enum
 from typing import Optional
 
 from core.command import Command
+from core.utils import is_valid_json
 from templates.hunt import DEFAULT_SKILL_LIST
 
 #: Kitsune's own name -- ``KillKitsune`` attacks it by name.
 KITSUNE = "Kitsune"
+
+#: The aura Kitsune takes on when it shapeshifts; it cannot be hurt while it is up.
+KITSUNE_SHIFT_AURA = "Shapeshifted"
+
+
+def parse_message(message) -> Optional[dict]:
+    """Unwrap a server payload's ``b.o``, or return ``None``.
+
+    Subscribers get the raw message, and the useful part is one level down.  Kept
+    here because a core needs it too -- ``bot/ultra/core_ultra`` has its own copy
+    of the same three lines, which is left alone.
+    """
+    if not message or not is_valid_json(message):
+        return None
+    try:
+        data = json.loads(message)["b"]["o"]
+    except Exception:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def kitsune_shifted(message) -> Optional[bool]:
+    """Whether Kitsune's ``Shapeshifted`` aura just went on or off.
+
+    The reference's ``KitsuneListener``: on a ``ct`` payload, for the action whose
+    aura is exactly ``Shapeshifted``, its ``cmd``'s last character says which way
+    it went (``aura+`` on, ``aura-`` off).
+
+    Returns:
+        bool | None: True when the aura came up, False when it dropped, and None
+        when this message says nothing about it -- so a caller leaves its state
+        alone rather than clearing it on every unrelated packet.
+    """
+    data = parse_message(message)
+    if not data or data.get("cmd") != "ct":
+        return None
+    for action in data.get("a") or []:
+        aura = (action.get("aura") or {}).get("nam", "")
+        if aura != KITSUNE_SHIFT_AURA:
+            continue
+        return str(action.get("cmd", ""))[-1:] == "+"
+    return None
 
 
 class Alignment(Enum):
@@ -61,10 +105,10 @@ async def kill_kitsune(cmd: Command, item: Optional[str] = None, quant: int = 1,
                        is_temp: bool = False) -> None:
     """``CoreBots.KillKitsune``: kill Kitsune in /kitsune, optionally for an item.
 
-    The reference hooks the combat packet that adds and removes Kitsune's
-    ``Shapeshifted`` aura and stops attacking while it is up -- the boss cannot be
-    hurt then.  This engine carries the auras on the monster, so the same decision
-    is read from there instead of from the packet.
+    Kitsune cannot be hurt while its ``Shapeshifted`` aura is up, so the reference
+    subscribes a packet listener for the combat payload that turns it on and off
+    and stops attacking meanwhile.  The same listener is used here; what it decides
+    is :func:`kitsune_shifted`, so the rule can be read and tested on its own.
 
     Args:
         cmd (Command): Facade to act through.
@@ -78,25 +122,36 @@ async def kill_kitsune(cmd: Command, item: Optional[str] = None, quant: int = 1,
     if item and not is_temp:
         cmd.add_drop(item)
 
-    while cmd.is_still_connected():
-        while cmd.is_still_connected() and cmd.is_not_in_map("kitsune"):
-            await cmd.join_map("kitsune")
-        if cmd.is_not_in_cell("Boss"):
-            await cmd.jump_cell("Boss", "Left")
+    #: Set from the listener; read by the loop below.
+    shifted = {"on": False}
 
-        if item:
-            if await cmd.has_item(item, quant, isTemp=is_temp):
-                await cmd.leave_combat()
+    def kitsune_listener(message) -> None:
+        state = kitsune_shifted(message)
+        if state is not None:
+            shifted["on"] = state
+
+    cmd.bot.subscribe(kitsune_listener)
+    try:
+        while cmd.is_still_connected():
+            while cmd.is_still_connected() and cmd.is_not_in_map("kitsune"):
+                await cmd.join_map("kitsune")
+            if cmd.is_not_in_cell("Boss"):
+                await cmd.jump_cell("Boss", "Left")
+
+            if item:
+                if await cmd.has_item(item, quant, isTemp=is_temp):
+                    await cmd.leave_combat()
+                    return
+            elif not cmd.is_monster_alive(KITSUNE):
                 return
-        elif not cmd.is_monster_alive(KITSUNE):
-            return
 
-        monster = cmd.get_monster(KITSUNE)
-        if monster is not None and monster.hasAura("Shapeshifted"):
-            # it cannot be damaged while shifted, so wait it out
-            await cmd.sleep(500)
-            continue
-        await cmd.use_next_skill(DEFAULT_SKILL_LIST, KITSUNE)
+            if shifted["on"]:
+                # it cannot be damaged while shifted, so wait it out
+                await cmd.sleep(500)
+                continue
+            await cmd.use_next_skill(DEFAULT_SKILL_LIST, KITSUNE)
+    finally:
+        cmd.bot.unsubscribe(kitsune_listener)
 
 
 async def buy_item(cmd: Command, shop_id: int, item_name: str,
