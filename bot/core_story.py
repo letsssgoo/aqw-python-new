@@ -23,10 +23,11 @@ Not portable, and not reproduced:
   uses and preloads their data.  Nothing here needs it: the payload of an accepted
   quest carries what these routines read.
 """
-from typing import Dict, List, Sequence, Tuple, Union
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 from core.command import Command
-from templates.hunt import hunt_item, kill_quest as _kill_quest
+from templates.hunt import (DEFAULT_SKILL_LIST, hunt_item,
+                            kill_quest as _kill_quest)
 
 
 def _as_names(value: Union[str, Sequence[str]]) -> List[str]:
@@ -118,20 +119,26 @@ async def map_item_quest(cmd: Command, quest_id: int, map_name: str,
 
 
 async def kill_quest(cmd: Command, quest_id: int, map_name: str,
-                     monster_names: Union[str, Sequence[str]]) -> None:
+                     monster_names: Union[str, Sequence[str]],
+                     skill_list: Optional[Sequence[int]] = None) -> None:
     """``CoreStory.KillQuest``: accept, hunt the monster(s), turn the quest in.
 
     The engine's ``templates.hunt.kill_quest`` is the same loop for a single
     monster; this adds the guard the reference has (a quest that is already done
     is skipped, because a one-time quest cannot be accepted twice) and the
-    requirement-to-monster mapping of its array overload.
+    requirement-to-monster mapping of its array overload.  ``skill_list`` is the
+    rotation to cast, for fights that want a specific one.
     """
     if await cmd.is_completed_before(quest_id):
         return
 
     names = _as_names(monster_names)
     if len(names) == 1:
-        await _kill_quest(cmd, quest_id, map_name, names[0])
+        if skill_list is None:
+            await _kill_quest(cmd, quest_id, map_name, names[0])
+        else:
+            await _kill_quest(cmd, quest_id, map_name, names[0],
+                              skill_list=list(skill_list))
         return
 
     await cmd.ensure_accept_quest(quest_id)
@@ -143,5 +150,6 @@ async def kill_quest(cmd: Command, quest_id: int, map_name: str,
     for index, (item, qty, is_temp) in enumerate(pending_requirements(cmd, quest)):
         monster = names[index] if index < len(names) else names[-1]
         await hunt_item(cmd, item, qty, map_name, monster_name=monster,
-                        is_temp=is_temp)
+                        is_temp=is_temp,
+                        skill_list=skill_list or DEFAULT_SKILL_LIST)
     await cmd.ensure_turn_in_quest(quest_id)

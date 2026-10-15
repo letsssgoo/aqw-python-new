@@ -118,7 +118,8 @@ async def kill_quest(
         map_name: str, 
         monster_name: str = "*",
         room_number: int = None, 
-        hunt: bool = False
+        hunt: bool = False,
+        skill_list: list[int] = DEFAULT_SKILL_LIST
     ):
     await cmd.ensure_accept_quest(quest_id)
     
@@ -137,7 +138,7 @@ async def kill_quest(
             await cmd.ensure_turn_in_quest(quest_id)
             return
         
-        await attack_script(cmd, monster_name, hunt)
+        await attack_script(cmd, monster_name, hunt, skill_list)
 
 async def quest_item_req(cmd: Command, map_name: str, item_name: str, qty: int = 1, monster: str = "*", is_temp: bool = True):    
     if cmd.is_not_in_map(map_name):
@@ -150,14 +151,18 @@ async def quest_item_req(cmd: Command, map_name: str, item_name: str, qty: int =
         await attack_script(cmd, monster)
 
         
-async def attack_script(cmd: Command, monster_name: str = "*", hunt: bool = False):
+async def attack_script(cmd: Command, monster_name: str = "*", hunt: bool = False,
+                        skill_list: list[int] = DEFAULT_SKILL_LIST):
     """One scheduler tick: cast whichever listed skill is ready.
 
     Callers already loop on this, so it deliberately performs a single cast
     instead of replaying the whole fixed rotation each pass -- replaying it
     meant every pass re-attempted skills that were still on cooldown.
+
+    ``skill_list`` is the rotation to cast; the reference's advanced ``"1 | 4"``,
+    for instance, is ``[0, 1, 4]`` here -- slot 0 is mandatory.
     """
-    await cmd.use_next_skill(DEFAULT_SKILL_LIST, monster_name, hunt)
+    await cmd.use_next_skill(skill_list, monster_name, hunt)
 
 
 def hunt_item_cmds(

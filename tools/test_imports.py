@@ -124,6 +124,7 @@ ENTRY_MODULES = [
     "bot.story.nation.terces_invasion",
     "bot.story.nation.tercessuinotlim",
     "bot.story.nation.shadow_blast_arena",
+    "bot.story.nation.citadel_ruins",
     "bot.farm.leveling",
     "bot.farm.gold_farm",
     "bot.farm.dark_war_legion_gold",
