@@ -18,6 +18,10 @@ from enum import Enum
 from typing import Optional
 
 from core.command import Command
+from templates.hunt import DEFAULT_SKILL_LIST
+
+#: Kitsune's own name -- ``KillKitsune`` attacks it by name.
+KITSUNE = "Kitsune"
 
 
 class Alignment(Enum):
@@ -51,6 +55,48 @@ def _find_shop(cmd: Command, shop_id: int):
         if str(shop.shop_id) == str(shop_id):
             return shop
     return None
+
+
+async def kill_kitsune(cmd: Command, item: Optional[str] = None, quant: int = 1,
+                       is_temp: bool = False) -> None:
+    """``CoreBots.KillKitsune``: kill Kitsune in /kitsune, optionally for an item.
+
+    The reference hooks the combat packet that adds and removes Kitsune's
+    ``Shapeshifted`` aura and stops attacking while it is up -- the boss cannot be
+    hurt then.  This engine carries the auras on the monster, so the same decision
+    is read from there instead of from the packet.
+
+    Args:
+        cmd (Command): Facade to act through.
+        item (str | None): What to farm; without it, one kill.
+        quant (int): How many of ``item``.
+        is_temp (bool): Whether the item is a temp drop, as the reference's own
+            flag says (its caller passes ``true`` for ``Private Reserve Sake``).
+    """
+    if item and await cmd.has_item(item, quant, isTemp=is_temp):
+        return
+    if item and not is_temp:
+        cmd.add_drop(item)
+
+    while cmd.is_still_connected():
+        while cmd.is_still_connected() and cmd.is_not_in_map("kitsune"):
+            await cmd.join_map("kitsune")
+        if cmd.is_not_in_cell("Boss"):
+            await cmd.jump_cell("Boss", "Left")
+
+        if item:
+            if await cmd.has_item(item, quant, isTemp=is_temp):
+                await cmd.leave_combat()
+                return
+        elif not cmd.is_monster_alive(KITSUNE):
+            return
+
+        monster = cmd.get_monster(KITSUNE)
+        if monster is not None and monster.hasAura("Shapeshifted"):
+            # it cannot be damaged while shifted, so wait it out
+            await cmd.sleep(500)
+            continue
+        await cmd.use_next_skill(DEFAULT_SKILL_LIST, KITSUNE)
 
 
 async def buy_item(cmd: Command, shop_id: int, item_name: str,
