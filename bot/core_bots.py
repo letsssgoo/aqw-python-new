@@ -45,6 +45,52 @@ async def change_alignment(cmd: Command, side: Alignment) -> None:
     await cmd.sleep(2000)
 
 
+def _find_shop(cmd: Command, shop_id: int):
+    """The loaded shop with ``shop_id``, or None when it has not arrived yet."""
+    for shop in cmd.bot.loaded_shop_datas:
+        if str(shop.shop_id) == str(shop_id):
+            return shop
+    return None
+
+
+async def buy_item(cmd: Command, shop_id: int, item_name: str,
+                   qty: int = 1, attempts: int = 3) -> bool:
+    """Buy an item from a shop, waiting for the shop to load first.
+
+    ``CoreBots.BuyItem`` waits for the shop and then buys.  This engine's
+    ``Command.buy_item`` does neither on fits own: on a shop it has not seen it
+    only *asks* the server for it and returns, so the first call buys nothing --
+    silently.  This wraps that: ask, wait, then buy.
+
+    Args:
+        cmd (Command): Facade to act through.
+        shop_id (int): Shop to buy from.
+        item_name (str): Item to buy; must be in the shop.
+        qty (int): How many to buy.
+        attempts (int): How many times to wait for the shop to load.
+
+    Returns:
+        bool: True when the buy packet was sent.  False is reported, with the
+        reason: a shop that never loaded, or an item the shop does not carry.
+    """
+    shop = _find_shop(cmd, shop_id)
+    for _ in range(attempts):
+        if shop is not None:
+            break
+        await cmd.buy_item(shop_id, item_name, qty)      # requests the shop
+        await cmd.sleep(1000)
+        shop = _find_shop(cmd, shop_id)
+    if shop is None:
+        print(f"[core] shop {shop_id} never loaded; {item_name!r} was not bought.")
+        return False
+    if not any(i.item_name == item_name.lower() for i in shop.items):
+        print(f"[core] shop {shop_id} does not carry {item_name!r}; nothing "
+              f"bought.")
+        return False
+    await cmd.buy_item(shop_id, item_name, qty)
+    return True
+
+
 async def equip_class(cmd: Command, solo: bool = False) -> bool:
     """Equip the configured farm or solo class (``CoreBots.EquipClass``).
 

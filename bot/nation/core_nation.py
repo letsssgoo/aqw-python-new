@@ -44,18 +44,22 @@ rather than all at once.
 
 **Not ported yet:**
 
-* The member Forge stack -- ``GemStoneReceiptOfNulgath``, ``DwoboCoin``,
-  ``GemStonesOfnulgath``, ``ForgeTaintedGems`` / ``ForgeDarkCrystalShards`` /
-  ``ForgeDiamondsOfNulgath`` / ``ForgeBloodGems``, ``CarveUniGemStone`` and
-  ``VoucherItemTotemofNulgath``.  The Vampire rep and gold farms they need now
-  exist in ``bot.core_farms``; the Forge routines themselves have not been read
-  yet.  ``farm_tainted_gem`` says so rather than skipping silently.
 * The remaining Nation-root script methods, which have not been read yet.
+* The Forge chain's callers: ``HireNulgathLarvae``, and the merge-shop and
+  "Various" wrappers that are not written yet.
 * The rest of CoreFarms: ``Experience``/``IcestormArena`` and the four gold
   methods are in ``bot.core_farms``, along with the faction methods a Nation
   script calls (Good, Vampire).  The other ~60 faction methods -- and the
   boost-item support ``ToggleBoost`` needs -- are not ported;
   ``farm_faction`` names what it cannot do.
+
+The member Forge chain (quests 4917-4924) is ported: ``dwobo_coin``,
+``gem_stone_receipt_of_nulgath``, ``gem_stones_of_nulgath``, the four
+``forge_*`` routines, ``carve_uni_gem_stone`` and ``leery_exchange_gold``.
+Four of those guards, and two of their item names, are broken in the reference
+(a ``&&`` where both conditions are required, and ``"Dark Crystal Shards"`` /
+``"Diamonds for Nulgath"`` where no item is named that); each one would farm
+forever, so the intent is followed and each slip is noted at the routine.
 
 Folder layout mirrors the reference tree: the ``Nation/`` root wrappers and
 this file sit in ``bot/nation/``, and each subfolder that exists so far --
@@ -82,7 +86,8 @@ import random
 from typing import List, Optional, Sequence, Tuple
 
 from bot import core_bots as _core_bots
-from bot.core_farms import farm_experience, farm_faction, farm_gold
+from bot.core_bots import buy_item
+from bot.core_farms import (farm_experience, farm_faction, farm_gold)
 from core.command import Command
 from model.quest import Quest
 from templates.hunt import DEFAULT_SKILL_LIST, hunt_item, kill_quest
@@ -268,6 +273,39 @@ SWINDLES_RETURN_REWARDS: Tuple[str, ...] = (
     "Gem of Nulgath",
     "Blood Gem of the Archfiend",
 )
+
+#: The member Forge chain.  ``GEMSTONE_OF_NULGATH`` gates every one of them --
+#: 4918 hands it out, and the four Forge quests spend it.
+GEMSTONE_OF_NULGATH = "Gemstone of Nulgath"
+DEMANDING_APPROVAL_QUEST = 4917
+GEMSTONES_FOR_NULGATH_QUEST = 4918
+FORGE_TAINTED_GEMS_QUEST = 4919
+FORGE_DARK_CRYSTAL_SHARDS_QUEST = 4920
+FORGE_DIAMONDS_QUEST = 4921
+FORGE_BLOOD_GEMS_QUEST = 4922
+CARVE_UNI_GEMSTONE_QUEST = 4923
+RECEIPT_OF_NULGATH_QUEST = 4924
+RECEIPT_OF_NULGATH_ID = 33451
+RECEIPT_OF_NULGATH = "Receipt of Nulgath"
+GEMSTONE_RECEIPT_OF_NULGATH = "Gemstone Receipt of Nulgath"
+
+#: Quest 4923 lets the caller name its reward; these are the ids the server
+#: wants, straight from the reference's own lookup.
+CARVE_REWARD_IDS = {
+    "Tainted Gem": 4769,
+    "Dark Crystal Shard": 4770,
+    "Diamond of Nulgath": 4771,
+    "Gem of Nulgath": 6136,
+    "Blood Gem of the Archfiend": 22332,
+}
+
+#: The three ``GemstonesOfnulgath`` counters, by name.
+GEMSTONE_COUNTERS: Tuple[str, ...] = (
+    "Bloodstone of Nulgath",
+    "Quartz of Nulgath",
+    "Tanzanite of Nulgath",
+)
+UNI_GEMSTONE_OF_NULGATH = "Unidentified Gemstone of Nulgath"
 
 
 def uni(nr: int) -> str:
@@ -1024,7 +1062,7 @@ async def assistant_during_supplies(cmd: Command, assist: bool = True) -> None:
         await cmd.jump_cell("Enter", "Spawn")
     quantity = min(gold // 100_000, 250)
     await cmd.ensure_accept_quest(2859)
-    await cmd.buy_item(41, "War-Torn Memorabilia", quantity)
+    await buy_item(cmd, 41, "War-Torn Memorabilia", quantity)
     await cmd.ensure_turn_in_quest(2859, -1, quantity)
 
 
@@ -1510,11 +1548,8 @@ async def farm_blood_gem(cmd: Command, quant: int = 100,
 async def farm_tainted_gem(cmd: Command, quant: int = 1000) -> None:
     """Tainted Gem, by every route the account can take.
 
-    Note:
-        The C# also runs ``ForgeTaintedGems`` here.  That Forge route is not
-        ported -- it goes through ``GemStoneReceiptOfNulgath``, which needs the
-        Vampire rep and gold farms that are still outstanding -- so it is
-        skipped with a notice instead of silently missing.
+    The Forge route (quest 4919) needs membership and the Gemstone of Nulgath,
+    so it refuses by itself when either is missing; the rest runs regardless.
     """
     if await cmd.has_item("Tainted Gem", quant):
         return
@@ -1522,8 +1557,7 @@ async def farm_tainted_gem(cmd: Command, quant: int = 1000) -> None:
     await farm_contract_exchage(cmd, "Tainted Gem", quant)
     if await cmd.has_item(CRAG_PET):
         await supplies(cmd, "Tainted Gem", quant, return_item="Tainted Gem")
-    print("[nation] the Forge route (quest 4919) is not ported; farming "
-          "Tainted Gem through the other three steps only.")
+    await forge_tainted_gems(cmd, quant)
     await supplies(cmd, "Tainted Gem", quant, return_item="Tainted Gem")
 
 
@@ -1983,7 +2017,7 @@ async def _assistant_step(cmd: Command, item: Optional[str],
                           reward: Optional[str], return_policy: bool) -> None:
     """One Assistant turn-in: buy 10 memorabilia, hand them over, then tidy up."""
     await cmd.ensure_accept_quest(2859)
-    await cmd.buy_item(41, "War-Torn Memorabilia", 10)
+    await buy_item(cmd, 41, "War-Torn Memorabilia", 10)
     await cmd.ensure_turn_in_quest(2859)
     await do_swindles_return_area(cmd, return_policy, reward)
     await handle_voucher_conversions(cmd, item or "")
@@ -2311,3 +2345,297 @@ async def assisting_crag_and_bamboozle(cmd: Command,
         targets = [t for t in targets if t[0] not in finished]
 
     print("[nation] AssistingCandB complete.")
+
+
+# ----------------------------------------------------------------------------
+# The member Forge chain (quests 4917-4924)
+# ----------------------------------------------------------------------------
+
+def _forge_ready(cmd: Command, what: str) -> bool:
+    """Membership plus the Gemstone of Nulgath -- what every Forge quest needs.
+
+    The reference writes this guard five times, and four of those use ``&&``
+    where the message next to it says both are required, so it would start a
+    farm that can never turn in.  Both are required here, and a refusal says
+    which one is missing.
+    """
+    if not cmd.get_player().is_member:
+        print(f"[nation] {what} needs membership; nothing farmed.")
+        return False
+    if not cmd.is_in_inventory(GEMSTONE_OF_NULGATH):
+        print(f"[nation] {what} needs {GEMSTONE_OF_NULGATH!r}; nothing farmed.")
+        return False
+    return True
+
+
+async def dwobo_coin(cmd: Command, quant: int) -> None:
+    """``CoreNation.DwoboCoin``: quest 4798 for members, 4797 without.
+
+    Only the receipt chain asks for it, and the quest is open to everyone, so
+    unlike its neighbours it has no membership guard of its own.
+    """
+    if await cmd.has_item("Dwobo Coin", quant):
+        return
+
+    member = bool(cmd.get_player().is_member)
+    treasure, tech = (8, 5) if member else (10, 7)
+    print(f"[nation] farming {quant} Dwobo Coins (quest "
+          f"{4798 if member else 4797})")
+    cmd.farming_logger("Dwobo Coin", quant)
+    await cmd.register_quest(4798 if member else 4797)
+    cmd.add_drop("Dwobo Coin")
+
+    while cmd.is_still_connected() and not await cmd.has_item("Dwobo Coin", quant):
+        await hunt_item(cmd, "Ancient Treasure", treasure, "crashruins",
+                        cell="r2", pad="Left", monster_name="Unlucky Explorer",
+                        is_temp=False)
+        await hunt_item(cmd, "Pieces of Future Tech", tech, "crashruins",
+                        cell="r2", pad="Left", monster_name="Spacetime Anomaly",
+                        is_temp=False)
+        await hunt_item(cmd, "Idol Heart", 1, "crashruins",
+                        monster_name="Cluckmoo Idol", is_temp=False)
+
+    cmd.cancel_registered_quests()
+
+
+async def gem_stone_receipt_of_nulgath(cmd: Command, quant: int = 10) -> None:
+    """``CoreNation.GemStoneReceiptOfNulgath``: the Forge chain's currency.
+
+    One pass runs two quests: 4924 hands over the ``Receipt of Nulgath`` the
+    chain buys ``Blade of Affliction`` with, and 4917 turns everything gathered
+    into the receipt item itself.
+    """
+    if not cmd.get_player().is_member:
+        print("[nation] Gemstone Receipt of Nulgath needs membership; nothing "
+              "farmed.")
+        return
+    if await cmd.has_item(GEMSTONE_RECEIPT_OF_NULGATH, quant):
+        return
+
+    print(f"[nation] farming {quant} {GEMSTONE_RECEIPT_OF_NULGATH} (quests 4917, "
+          f"4924)")
+    cmd.add_drop([GEMSTONE_RECEIPT_OF_NULGATH, RECEIPT_OF_NULGATH])
+
+    while (cmd.is_still_connected()
+           and not await cmd.has_item(GEMSTONE_RECEIPT_OF_NULGATH, quant)):
+        await cmd.ensure_accept_quest(DEMANDING_APPROVAL_QUEST)
+
+        await farm_uni13_quest(cmd, 3)
+        await farm_faction(cmd, "Vampire")
+
+        if not await cmd.has_item_id(RECEIPT_OF_NULGATH_ID):
+            await dwobo_coin(cmd, 100)
+            await buy_item(cmd, 1212, RECEIPT_OF_NULGATH)
+
+        await cmd.ensure_accept_quest(RECEIPT_OF_NULGATH_QUEST)
+        await approval_and_favor(cmd, 0, 100)
+        await equip_class(cmd)
+        await hunt_item(cmd, "Coal", 15, "Extinction",
+                        monster_name="Control Panel", is_temp=False)
+        await dwobo_coin(cmd, 10)
+        await essence_of_nulgath(cmd, 10)
+        await farm_gold(cmd, 1_500_000)
+        await buy_item(cmd, 68, "Blade of Affliction")
+        await cmd.ensure_turn_in_quest(RECEIPT_OF_NULGATH_QUEST)
+
+        await farm_voucher(cmd, True, True)
+        await farm_voucher(cmd, False, True)
+        await essence_of_nulgath(cmd, 100)
+        await farm_totem_of_nulgath(cmd, 1)
+        await equip_class(cmd, solo=True)
+        await hunt_item(cmd, "Ultimate Darkness Gem", 5, "ShadowfallWar",
+                        monster_name="Bonemuncher", is_temp=False)
+        await cmd.ensure_turn_in_quest(DEMANDING_APPROVAL_QUEST)
+
+
+async def gem_stones_of_nulgath(cmd: Command, bloodstone: int = 100,
+                                quartz: int = 100, tanzanite: int = 100,
+                                uni_gemstone: int = 1) -> None:
+    """``CoreNation.GemStonesOfnulgath``: quest 4918's counters.
+
+    Unlocks quests 374 / 375 / 376 in ``/battleundera`` first when they are not
+    done, because 4918 needs them.
+    """
+    if not _forge_ready(cmd, "Gemstones of Nulgath"):
+        return
+
+    wanted = [(name, qty) for name, qty in
+              ((GEMSTONE_COUNTERS[0], bloodstone),
+               (GEMSTONE_COUNTERS[1], quartz),
+               (GEMSTONE_COUNTERS[2], tanzanite),
+               (UNI_GEMSTONE_OF_NULGATH, uni_gemstone)) if qty > 0]
+    if await all_owned(cmd, wanted):
+        return
+
+    await farm_uni13_quest(cmd, 1)
+    await gem_stone_receipt_of_nulgath(cmd, 1)
+    await supplies(cmd, "Unidentified 4")
+
+    if not await cmd.is_completed_before(376):
+        print("[nation] unlocking quest 4918 (battleundera quests 374-376)")
+        await equip_class(cmd)
+        if not await cmd.is_completed_before(374):
+            await cmd.ensure_accept_quest(374)
+            await hunt_item(cmd, "Yara's Ring", 1, "battleundera",
+                            monster_name="Skeletal Warrior", is_temp=False)
+            await cmd.ensure_turn_in_quest(374)
+        if not await cmd.is_completed_before(375):
+            await cmd.ensure_accept_quest(375)
+            await hunt_item(cmd, "Skeletal Claymore", 6, "battleundera",
+                            monster_name="Skeletal Warrior", is_temp=False)
+            await hunt_item(cmd, "Bony Chestplate", 3, "battleundera",
+                            monster_name="Skeletal Warrior", is_temp=False)
+            await cmd.ensure_turn_in_quest(375)
+        if not await cmd.is_completed_before(376):
+            await cmd.ensure_accept_quest(376)
+            await hunt_item(cmd, "Bone Terror's Head", 1, "battleundera",
+                            monster_name="Bone Terror", is_temp=False)
+            await cmd.ensure_turn_in_quest(376)
+
+    cmd.add_drop(list(GEMSTONE_COUNTERS)
+                 + [UNI_GEMSTONE_OF_NULGATH, "Gem of Nulgath"])
+
+    while cmd.is_still_connected() and not await all_owned(cmd, wanted):
+        await cmd.ensure_accept_quest(GEMSTONES_FOR_NULGATH_QUEST)
+        await equip_class(cmd, solo=True)
+        await hunt_item(cmd, "Abbadon's Abide", 1, "Twilight",
+                        monster_name="Abaddon", is_temp=False)
+        await equip_class(cmd)
+        await hunt_item(cmd, "Ultimate Darkness Gem", 1, "ShadowfallWar",
+                        cell="Garden1", pad="Bottom", is_temp=False)
+        await hunt_item(cmd, "Unidentified Weapon", 1, "battleundera",
+                        cell="r3", pad="Left", is_temp=False)
+        await cmd.ensure_turn_in_quest(GEMSTONES_FOR_NULGATH_QUEST)
+
+
+async def _forge_gem(cmd: Command, what: str, quest_id: int, reward: str,
+                     gem_of_nulgath: int, counters: Tuple[int, int, int, int],
+                     quant: int) -> None:
+    """One Forge quest: accept, gather, turn in, until ``reward`` is full.
+
+    The four Forge routines differ only in these numbers, so they share this.
+    """
+    if not _forge_ready(cmd, what):
+        return
+    if await cmd.has_item(reward, quant):
+        return
+
+    print(f"[nation] forging {quant} {reward} (quest {quest_id})")
+    await gem_stone_receipt_of_nulgath(cmd, 1)
+    await supplies(cmd, "Unidentified 5")
+    cmd.add_drop([reward, UNI_GEMSTONE_OF_NULGATH])
+
+    while cmd.is_still_connected() and not await cmd.has_item(reward, quant):
+        await cmd.ensure_accept_quest(quest_id)
+        await farm_gem_of_nulgath(cmd, gem_of_nulgath)
+        await gem_stones_of_nulgath(cmd, *counters)
+        await cmd.ensure_turn_in_quest(quest_id)
+
+
+async def forge_tainted_gems(cmd: Command, quant: int = 1000) -> None:
+    """``CoreNation.ForgeTaintedGems``: quest 4919.
+
+    Note:
+        The reference names this one's reward correctly; its three siblings do
+        not, so see :func:`forge_dark_crystal_shards` and friends.
+    """
+    await _forge_gem(cmd, "Forge Tainted Gems", FORGE_TAINTED_GEMS_QUEST,
+                     "Tainted Gem", 1, (0, 3, 1, 0), quant)
+
+
+async def forge_dark_crystal_shards(cmd: Command, quant: int = 1000) -> None:
+    """``CoreNation.ForgeDarkCrystalShards``: quest 4920.
+
+    Note:
+        The reference checks for ``"Dark Crystal Shards"`` -- plural, which no
+        other file in the tree uses and no item is named.  Its stop condition
+        would never fire, so the singular is used here.
+    """
+    await _forge_gem(cmd, "Forge Dark Crystal Shards",
+                     FORGE_DARK_CRYSTAL_SHARDS_QUEST, "Dark Crystal Shard", 1,
+                     (0, 5, 2, 0), quant)
+
+
+async def forge_diamonds_of_nulgath(cmd: Command, quant: int = 1000) -> None:
+    """``CoreNation.ForgeDiamondsOfNulgath``: quest 4921.
+
+    Note:
+        The reference checks for ``"Diamonds for Nulgath"``, which appears only
+        in this method; the item every other file names is ``Diamond of
+        Nulgath``, so that is what is used and what the stop condition reads.
+    """
+    await _forge_gem(cmd, "Forge Diamonds of Nulgath", FORGE_DIAMONDS_QUEST,
+                     "Diamond of Nulgath", 1, (0, 2, 0, 0), quant)
+
+
+async def forge_blood_gems(cmd: Command, quant: int = 100) -> None:
+    """``CoreNation.ForgeBloodGems``: quest 4922."""
+    await _forge_gem(cmd, "Forge Blood Gems", FORGE_BLOOD_GEMS_QUEST,
+                     "Blood Gem of the Archfiend", 7, (3, 5, 0, 0), quant)
+
+
+async def carve_uni_gem_stone(cmd: Command, item: Optional[str] = None,
+                              quant: int = 1000) -> None:
+    """``CoreNation.CarveUniGemStone``: quest 4923, for one reward or all.
+
+    Note:
+        With ``item=None`` the reference loops until the bot is stopped -- it
+        turns the quest in for a reward it never names.  Here "all" means every
+        one of quest 4923's rewards, so the run has a goal and an end.
+    """
+    if not cmd.get_player().is_member:
+        print("[nation] Carve the Unidentified Gemstone needs membership; "
+              "nothing farmed.")
+        return
+    if item is not None and item not in CARVE_REWARD_IDS:
+        print(f"[nation] {item!r} is not one of quest 4923's rewards ("
+              f"{', '.join(CARVE_REWARD_IDS)}).")
+        return
+
+    rewards = [item] if item else list(CARVE_REWARD_IDS)
+    if await all_owned(cmd, [(name, quant) for name in rewards]):
+        return
+
+    await hunt_item(cmd, "Hadean Onyx of Nulgath", 1, "tercessuinotlim",
+                    cell="m4", pad="Right", monster_name="Shadow of Nulgath",
+                    is_temp=False)
+    await gem_stone_receipt_of_nulgath(cmd, 1)
+    await supplies(cmd, "Unidentified 5")
+    cmd.add_drop(rewards)
+
+    while (cmd.is_still_connected()
+           and not await all_owned(cmd, [(name, quant) for name in rewards])):
+        await cmd.ensure_accept_quest(CARVE_UNI_GEMSTONE_QUEST)
+        await hunt_item(cmd, "The Secret 1", 1, "WillowCreek",
+                        monster_name="Hidden Spy", is_temp=False)
+        await farm_gem_of_nulgath(cmd, 7)
+        await gem_stones_of_nulgath(cmd, 1, 3, 1, 1)
+        # -1 makes the turn-in a "choose one", which is what the reference does
+        # when the reward is not named
+        await cmd.ensure_turn_in_quest(CARVE_UNI_GEMSTONE_QUEST,
+                                      CARVE_REWARD_IDS.get(item, -1))
+
+
+async def leery_exchange_gold(cmd: Command, quant: int = 100_000_000) -> None:
+    """``CoreNation.LeeryExchangeGold``: swap Unidentified 13 for gold, quest 554."""
+    if not cmd.get_player().is_member or cmd.get_player().GOLD >= quant:
+        return
+
+    print(f"[nation] trading Unidentified 13 for gold until {quant}")
+    cmd.add_drop(uni(13))
+    # the reference toggles its gold boost here; this engine has no boosts
+
+    while cmd.is_still_connected() and cmd.get_player().GOLD < quant:
+        await farm_uni13_quest(cmd, 13)
+        while cmd.is_still_connected() and await cmd.has_item(uni(13)):
+            await cmd.ensure_accept_quest(554)
+            await hunt_item(cmd, "Undead Legend Rune", 1, "underworld",
+                            cell="r2", pad="up", monster_name="Undead Legend",
+                            is_temp=False)
+            if not await cmd.ensure_turn_in_quest(554):
+                print("[nation] quest 554 did not complete; stopping the "
+                      "exchange.")
+                cmd.cancel_registered_quests()
+                return
+
+    cmd.cancel_registered_quests()

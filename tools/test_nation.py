@@ -21,17 +21,23 @@ from bot.nation.core_nation import (  # noqa: E402
     approval_and_favor, assistant_during_supplies,
     assisting_crag_and_bamboozle, assisting_drudgen,
     bamboozle_vs_drudge, bloody_chaos, blood_from_the_void, can_we_aggro,
-    contract_exchange, crags_thirst, dark_makai_item, deal, diamond_exchange,
+    carve_uni_gem_stone, contract_exchange, crags_thirst, dark_makai_item,
+    deal, diamond_exchange,
     dirty_deeds_done_dirt_cheap, do_swindles_return_area,
-    dragon_slayer_reward, dreadrock_gem_exchange, emblem_of_nulgath,
+    dragon_slayer_reward, dreadrock_gem_exchange, dwobo_coin,
+    emblem_of_nulgath,
     empowering_items, equip_class, essence_of_defeat_reagent,
     essence_of_nulgath, farm_blood_gem,
     farm_contract_exchage, farm_dark_crystal_shard, farm_diamond_of_nulgath,
     farm_fiend_token, farm_gem_of_nulgath, farm_tainted_gem,
     farm_totem_of_nulgath, farm_uni10, farm_uni13_quest, farm_voucher,
-    feed_the_fiend, fiend_emblem, get_pcod, handle_voucher_conversions,
+    feed_the_fiend, fiend_emblem, forge_blood_gems,
+    forge_dark_crystal_shards, forge_diamonds_of_nulgath, forge_tainted_gems,
+    gem_stone_receipt_of_nulgath, gem_stones_of_nulgath, get_pcod,
+    handle_voucher_conversions,
     kill_escherion, kill_vath,
-    kissthe_void, nation_loyalty_rewarded, nation_round_4_medal,
+    kissthe_void, leery_exchange_gold, nation_loyalty_rewarded,
+    nation_round_4_medal,
     new_worlds_new_opportunities,
     nulgath_larvae, nulgaths_roulette_of_misfortune, sell_voucher_of_nulgath,
     supplies, swindle_bulk, swindle_return, the_assistant, time_is_money,
@@ -645,6 +651,63 @@ def main() -> None:
     assert "add_drop" not in nlr.kinds(), nlr.kinds()
     print("nlr        : quest sent no rewards -> reported, farmed nothing")
 
+    # --- the Forge chain (quests 4917-4924) ---------------------------
+    f2p = Stub()
+    asyncio.run(forge_tainted_gems(f2p, 100))
+    assert f2p.calls == [], f2p.calls
+    print("forge      : non-member -> reported, nothing farmed")
+
+    no_gem = Stub(member=True)
+    asyncio.run(forge_tainted_gems(no_gem, 100))
+    assert no_gem.calls == [], no_gem.calls
+    print("forge      : member without the Gemstone of Nulgath -> reported")
+
+    done = Stub(member=True, inventory={"Gemstone of Nulgath": 1,
+                                        "Tainted Gem": 100})
+    asyncio.run(forge_tainted_gems(done, 100))
+    assert done.calls == [], done.calls
+    print("forge      : reward already at the target -> no calls")
+
+    # the reference checks the plural, which no item is named -- the farm would
+    # never stop
+    shipped = Stub(member=True, inventory={"Gemstone of Nulgath": 1,
+                                           "Dark Crystal Shard": 1000})
+    asyncio.run(forge_dark_crystal_shards(shipped, 1000))
+    assert shipped.calls == [], shipped.calls
+    print("forge dcs  : 'Dark Crystal Shard' ends the farm")
+
+    gem_done = Stub(member=True, inventory={"Gemstone of Nulgath": 1,
+                                            "Diamond of Nulgath": 1000})
+    asyncio.run(forge_diamonds_of_nulgath(gem_done, 1000))
+    assert gem_done.calls == [], gem_done.calls
+    print("forge dia  : 'Diamond of Nulgath' ends the farm")
+
+    blood_done = Stub(member=True, inventory={
+        "Gemstone of Nulgath": 1, "Blood Gem of the Archfiend": 100})
+    asyncio.run(forge_blood_gems(blood_done, 100))
+    assert blood_done.calls == [], blood_done.calls
+    print("forge blood: reward already at the target -> no calls")
+
+    bad_reward = Stub(member=True)
+    asyncio.run(carve_uni_gem_stone(bad_reward, "Not A Reward", 10))
+    assert bad_reward.calls == [], bad_reward.calls
+    print("carve      : unknown reward -> reported, nothing farmed")
+
+    noc = Stub(member=True, inventory={"Gemstone of Nulgath": 1})
+    asyncio.run(carve_uni_gem_stone(noc, "Tainted Gem", 10))
+    assert ("add_drop", ["Tainted Gem"]) in noc.calls, noc.calls
+    print("carve      : a named reward starts the farm")
+
+    rich = Stub(member=True, gold=200_000_000)
+    asyncio.run(leery_exchange_gold(rich, 100_000_000))
+    assert rich.calls == [], rich.calls
+    print("leery      : already at the gold target -> no calls")
+
+    dwobo = Stub(inventory={"Dwobo Coin": 100})
+    asyncio.run(dwobo_coin(dwobo, 100))
+    assert dwobo.calls == [], dwobo.calls
+    print("dwobo      : already owned -> no calls")
+
     # --- every wrapper is runnable, and no-ops when all is banked -----
     WRAPPERS = [
         "materials.0_max_bags", "materials.approval_and_favor",
@@ -663,12 +726,19 @@ def main() -> None:
         "the_assistant", "void_knight_sword_quest",
         "assisting_crag_and_bamboozle", "empowering_items",
         "nation_loyalty_rewarded", "time_is_money", "voucher_item_choose",
+        "various.forge_gem_stones_for_nulgath",
+        "various.carve_the_unidentified_gem_stone",
+        "various.leery_exchange_gold",
     ]
+    #: ``leery_exchange_gold`` trades Unidentified 13 for gold: with a stub that
+    #: owns everything and never spends it, the loop has no way to end -- give
+    #: it the gold it is after instead.
+    WRAPPER_STUBS = {"various.leery_exchange_gold": {"gold": 200_000_000}}
     from importlib import import_module
     for name in WRAPPERS:
         mod = import_module(f"bot.nation.{name}")
         assert inspect.iscoroutinefunction(mod.main), name
-        stub = Stub(all_owned=True)
+        stub = Stub(all_owned=True, **WRAPPER_STUBS.get(name, {}))
         asyncio.run(mod.main(stub))
         assert not stub._connected or True      # ran to completion
     print(f"wrappers   : {len(WRAPPERS)} modules import, expose main(cmd), and "

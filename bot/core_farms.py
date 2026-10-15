@@ -13,7 +13,10 @@ noted where it happens:
   They exist in the reference to put the character back after a death; this
   engine's ``check_alive`` waits for the respawn and its ``death_handler`` owns
   it, so there is nothing for a save state to repair.
-* Boosts are not ported -- see :func:`toggle_boost`.
+* Boosts are not available: ``CoreFarms.ToggleBoost`` drives Skua's boost
+  items, which this engine has no support for.  The reference keeps every boost
+  switched **off** by default, so leaving the calls out changes nothing today --
+  the sites that would toggle one carry a comment saying so.
 * ``ClassType`` has no "unset" case in the reference.  Here an unconfigured
   class is reported and the farm continues, rather than stopping a long run
   over a settings gap.
@@ -126,29 +129,6 @@ async def farm_until(
     return True
 
 
-def toggle_boost(cmd: Command, kind: str, enabled: bool = True) -> bool:
-    """Report a boost the reference would switch on -- this engine has none.
-
-    ``CoreFarms.ToggleBoost`` drives Skua's ``Bot.Boosts``, which finds a boost
-    item in the inventory and uses it.  Nothing here reads or uses boost items,
-    and the reference keeps every boost switched **off** in its own options by
-    default, so the farm behaves the same either way -- but a caller that did
-    enable one deserves to know it is not happening.
-
-    Args:
-        cmd (Command): Facade to act through.
-        kind (str): ``"Gold"``, ``"Class"``, ``"Reputation"`` or ``"Experience"``.
-        enabled (bool): The reference's on/off flag.
-
-    Returns:
-        bool: Always False -- the boost was not toggled.
-    """
-    state = "on" if enabled else "off"
-    print(f"[farm] {kind} boost {state}: boost items are not supported by this "
-          f"engine, so the farm runs without it.")
-    return False
-
-
 async def _sell_all(cmd: Command, item_name: str) -> None:
     """Sell every copy held (the reference's ``Core.SellItem(name, all: true)``)."""
     have = cmd.get_quant_item(item_name)
@@ -170,11 +150,10 @@ async def farm_gold(cmd: Command, quant: int = DEFAULT_GOLD) -> bool:
     if cmd.get_player().GOLD >= quant:
         return True
 
-    toggle_boost(cmd, "Gold")
+    # the reference toggles its gold boost here; this engine has no boosts
     await honor_hall(cmd, quant)
     await battle_ground_e(cmd, quant)
     await berserker_bunny(cmd, quant)
-    toggle_boost(cmd, "Gold", False)
 
     gold = cmd.get_player().GOLD
     if gold < quant:
@@ -228,12 +207,11 @@ async def dark_war_legion(cmd: Command, gold_quant: int = DEFAULT_GOLD) -> None:
     """``CoreFarms.DarkWarLegion``: quests 8584+8585 on Nation Badge drops."""
     if cmd.get_player().GOLD >= gold_quant:
         return
-    toggle_boost(cmd, "Gold")
+    # the reference toggles its gold boost here; this engine has no boosts
     print(f"[farm] darkwarlegion: farming to {gold_quant} gold")
     await farm_until(cmd, lambda: cmd.get_player().GOLD >= gold_quant,
                      "darkwarlegion", cell="r2", pad="Left", monster="*",
                      quests=(8584, 8585), drops=["Nation Badge"])
-    toggle_boost(cmd, "Gold", False)
 
 
 # ----------------------------------------------------------------------------
@@ -252,7 +230,7 @@ async def farm_experience(cmd: Command, level: int = 100,
               f"engine cannot read; farming to level {level} instead.")
 
     await equip_class(cmd)
-    toggle_boost(cmd, "Experience")
+    # the reference toggles its experience boost here; this engine has no boosts
 
     if cmd.get_player().LEVEL < 10:
         print('[farm] oaklore: "Bone Berserker" up to level 10')
@@ -329,7 +307,7 @@ async def icestorm_arena(cmd: Command, level: int = 100,
         return
 
     await equip_class(cmd)
-    toggle_boost(cmd, "Experience")
+    # the reference toggles its experience boost here; this engine has no boosts
 
     for start, end, map_name, cell, pad, quests in ICESTORM_LADDER:
         current = cmd.get_player().LEVEL

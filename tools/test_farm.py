@@ -23,7 +23,7 @@ from bot.core_bots import (Alignment, can_we_aggro,  # noqa: E402
 from bot.core_farms import (FACTION_FARMS, ICESTORM_LADDER,  # noqa: E402
                             battle_ground_e, dark_war_legion, farm_experience,
                             farm_faction, farm_gold, farm_until, good_rep,
-                            honor_hall, icestorm_arena, toggle_boost,
+                            honor_hall, icestorm_arena,
                             undead_giant_unlock, vampire_rep)
 
 
@@ -43,9 +43,23 @@ class _Bot:
                                for n in others]
         self.areaId = "evilwarnul-9909"
         self.sent = []
+        self.loaded_shop_datas = []
 
     def write_message(self, msg):
         self.sent.append(msg)
+
+
+class _ShopItem:
+    """Mirrors ``ItemInventory``: the model lower-cases ``sName`` on the way in."""
+
+    def __init__(self, name):
+        self.item_name = name.lower()
+
+
+class _Shop:
+    def __init__(self, shop_id, items):
+        self.shop_id = shop_id
+        self.items = [_ShopItem(n) for n in items]
 
 
 class Stub:
@@ -162,6 +176,9 @@ class Stub:
     async def bank_to_inv(self, names):
         self.calls.append(("bank_to_inv", names))
 
+    async def buy_item(self, shop_id, item_name, qty=1):
+        self.calls.append(("buy_item", shop_id, item_name, qty))
+
     async def wait_use_skill(self, slot, target_monsters="*"):
         self.calls.append(("wait_use_skill", slot))
 
@@ -241,11 +258,6 @@ def main() -> None:
     assert can_we_aggro(shared) is True
     assert ("start_aggro_by_cell", ("Enter",)) in shared.calls, shared.calls
     print("aggro      : alone -> stop, shared -> aggro the cell")
-
-    # --- toggle_boost is honest about not existing ---------------------
-    for kind in ("Gold", "Class", "Reputation", "Experience"):
-        assert toggle_boost(Stub(), kind) is False
-    print("boost      : every kind is reported as unsupported")
 
     # --- farm_until: the quest gate ------------------------------------
     refused = Stub(accept=False)
@@ -419,6 +431,30 @@ def main() -> None:
     known = Stub(vampire_rank=10)
     assert asyncio.run(farm_faction(known, "Vampire", 10)) is True
     print("dispatch   : ported factions run, the rest are named and refused")
+
+    # --- buy_item waits for the shop, then buys -------------------------
+    # Command.buy_item only *asks* for an unseen shop; buying on that first
+    # call would look like a purchase that never happened
+    from bot.core_bots import buy_item
+
+    never = Stub()
+    assert asyncio.run(buy_item(never, 1212, "Receipt of Nulgath")) is False
+    assert never.calls == [("buy_item", 1212, "Receipt of Nulgath", 1)] * 3, \
+        never.calls
+    print("buy_item   : shop never loads -> reported, asked 3 times")
+
+    lacking = Stub()
+    lacking.bot.loaded_shop_datas.append(_Shop(1212, ["Something Else"]))
+    assert asyncio.run(buy_item(lacking, 1212, "Receipt of Nulgath")) is False
+    assert lacking.calls == [], lacking.calls
+    print("buy_item   : shop lacks the item -> reported, nothing bought")
+
+    stocked = Stub()
+    stocked.bot.loaded_shop_datas.append(_Shop(68, ["Blade of Affliction"]))
+    assert asyncio.run(buy_item(stocked, 68, "Blade of Affliction")) is True
+    assert stocked.calls == [("buy_item", 68, "Blade of Affliction", 1)], \
+        stocked.calls
+    print("buy_item   : shop loaded -> bought once")
 
     print("\nfarm tests OK")
 
