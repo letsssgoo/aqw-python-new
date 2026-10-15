@@ -509,6 +509,19 @@ def main() -> None:
     assert "add_drop" not in empty.kinds(), empty.kinds()
     print("larvae     : quest with no rewards at all -> reported, farmed nothing")
 
+    # the shape quest 2566 actually sends names its rewards without the itemsC
+    # wrapper; once it parses, a no-item run really does start farming
+    flat = Stub(quests={2566: Quest.from_payload({
+        "QuestID": 2566,
+        "reward": [{"ItemID": 4723, "iQty": 1, "iType": 2}],
+        "oRewards": {"0": {"ItemID": 4723, "sName": "Mana Energy for Nulgath",
+                           "iStk": 100}},
+    })})
+    asyncio.run(nulgath_larvae(flat))
+    assert "add_drop" in flat.kinds(), flat.kinds()
+    assert "farming_logger" in flat.kinds(), flat.kinds()
+    print("larvae     : flat oRewards -> parses and starts farming")
+
     named = Stub(quests={7551: Quest.from_payload(
         {"QuestID": 7551, "oRewards": {"itemsC": {
             "0": {"ItemID": 4769, "sName": "Tainted Gem", "iStk": 1000}}}})})

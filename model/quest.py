@@ -82,6 +82,33 @@ def _as_list(value: Any) -> List[Dict[str, Any]]:
     return []
 
 
+def _collect_items(value: Any, depth: int = 0) -> List[Dict[str, Any]]:
+    """Every item-shaped mapping under ``value``, however it is nested.
+
+    ``oRewards`` is not shaped the same way on every quest: quest 870 sends
+    ``{"itemsC": {"0": {...}}}``, while others put the items straight in the
+    container or send an array.  Walking the value instead of guessing the
+    wrapper means all of those read the same -- and an item is recognised by
+    carrying ``ItemID`` or ``sName``, so a wrapper key is never mistaken for
+    one.
+    """
+    if depth > 4:
+        return []
+    if isinstance(value, dict):
+        if "ItemID" in value or "sName" in value:
+            return [value]
+        found: List[Dict[str, Any]] = []
+        for item in value.values():
+            found.extend(_collect_items(item, depth + 1))
+        return found
+    if isinstance(value, list):
+        found = []
+        for item in value:
+            found.extend(_collect_items(item, depth + 1))
+        return found
+    return []
+
+
 def normalize_quest_id(value: Any) -> int:
     """A quest id as an ``int``, or ``0`` when it cannot be read as one.
 
@@ -225,16 +252,14 @@ class Quest(dict):
 
     @property
     def reward_items(self) -> List[Dict[str, Any]]:
-        """Full reward item objects, from ``oRewards.itemsC``.
+        """Full reward item objects, from ``oRewards``.
 
         These carry ``sName``, which is what :attr:`reward_names` reads.  The
         lighter :attr:`rewards` array beside them has the quantities and the
-        choice flag but no names.
+        choice flag but no names.  ``oRewards`` is nested differently from
+        quest to quest, so it is walked rather than indexed.
         """
-        container = self.get("oRewards")
-        if isinstance(container, dict):
-            return _as_list(container.get("itemsC"))
-        return _as_list(container)
+        return _collect_items(self.get("oRewards"))
 
     @property
     def rewards(self) -> List[Dict[str, Any]]:

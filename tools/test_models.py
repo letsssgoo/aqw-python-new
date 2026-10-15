@@ -138,9 +138,23 @@ def check_quest_rewards() -> None:
         assert empty.reward_names == [], payload
         assert empty.reward_items == [], payload
         assert not empty.is_choice_reward, payload
-    assert Quest.from_payload(
-        {"oRewards": [{"sName": "loose"}]}).reward_names == ["loose"]
     print("quest rwd : empty/odd payloads ok")
+
+    # oRewards is nested differently from quest to quest; all of these are the
+    # same two rewards, and each must be read the same way
+    two = {"0": {"ItemID": 4769, "sName": "Tainted Gem"},
+           "1": {"ItemID": 4770, "sName": "Dark Crystal Shard"}}
+    for payload in ({"oRewards": {"itemsC": two}},
+                    {"oRewards": two},
+                    {"oRewards": [two["0"], two["1"]]}):
+        names = Quest.from_payload(payload).reward_names
+        assert names == ["Tainted Gem", "Dark Crystal Shard"], (payload, names)
+    print("quest rwd : itemsC / flat / array nestings all read the same")
+
+    # a wrapper key must never be mistaken for an item
+    assert Quest.from_payload(
+        {"oRewards": {"itemsC": {}, "iQty": {"ItemID": 1}}}
+    ).reward_names == [], "a nested non-item mapping was read as an item"
 
 
 def main() -> None:

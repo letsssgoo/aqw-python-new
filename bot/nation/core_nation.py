@@ -832,10 +832,18 @@ def _quest_rewards_or_warn(quest_id: int,
         return names
     ids = quest.reward_ids
     if ids:
+        shape = quest.get("oRewards")
+        if isinstance(shape, dict):
+            detail = f"dict keyed {sorted(shape)[:6]}"
+        elif isinstance(shape, list):
+            detail = f"list of {len(shape)}"
+        else:
+            detail = repr(shape)
         print(f"[nation] quest {quest_id} listed {len(ids)} reward ids ({ids}) "
               f"but sent no names, so its rewards cannot be enumerated from "
               f"the payload. Pass the item you want as the argument instead. "
-              f"(payload keys: {sorted(quest.keys())})")
+              f"(oRewards is a {type(shape).__name__}: {detail}; "
+              f"payload keys: {sorted(quest.keys())})")
     else:
         print(f"[nation] quest {quest_id} sent no rewards at all; nothing to "
               f"farm. (payload keys: {sorted(quest.keys())})")
