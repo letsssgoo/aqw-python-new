@@ -21,7 +21,8 @@ from bot.nation.core_nation import (  # noqa: E402
     approval_and_favor, assistant_during_supplies,
     assisting_crag_and_bamboozle, assisting_drudgen,
     bamboozle_vs_drudge, bloody_chaos, blood_from_the_void, can_we_aggro,
-    carve_uni_gem_stone, contract_exchange, crags_thirst, dark_makai_item,
+    carve_uni_gem_stone, contract_exchange, CRAG_PET, crags_thirst,
+    dark_makai_item,
     deal, diamond_exchange,
     dirty_deeds_done_dirt_cheap, do_swindles_return_area,
     dragon_slayer_reward, dreadrock_gem_exchange, dwobo_coin,
@@ -648,7 +649,7 @@ def main() -> None:
     assert emp.calls == [], emp.calls
     print("empowering : scythe already held -> returns without a single call")
 
-    acab = Stub({"Crag & Bamboozle": 1}, member=True)
+    acab = Stub({CRAG_PET: 1}, member=True)
     asyncio.run(assisting_crag_and_bamboozle(acab))
     assert acab.calls == [], acab.calls
     print("acab       : no Sparrow's Blood -> reported, farmed nothing")
@@ -680,19 +681,26 @@ def main() -> None:
     assert done.calls == [], done.calls
     print("forge      : reward already at the target -> no calls")
 
-    # the reference checks the plural, which no item is named -- the farm would
-    # never stop
-    shipped = Stub(member=True, inventory={"Gemstone of Nulgath": 1,
-                                           "Dark Crystal Shard": 1000})
-    asyncio.run(forge_dark_crystal_shards(shipped, 1000))
-    assert shipped.calls == [], shipped.calls
-    print("forge dcs  : 'Dark Crystal Shard' ends the farm")
+    # the reference's own stop conditions, verbatim: they name "Dark Crystal
+    # Shards" and "Diamonds for Nulgath", which no item is called, so holding the
+    # real item does not end those farms -- as in the reference
+    dcs_literal = Stub(member=True, inventory={"Gemstone of Nulgath": 1,
+                                               "Dark Crystal Shards": 1000})
+    asyncio.run(forge_dark_crystal_shards(dcs_literal, 1000))
+    assert dcs_literal.calls == [], dcs_literal.calls
+    print("forge dcs  : the literal 'Dark Crystal Shards' ends the farm")
+
+    dcs_real = Stub(member=True, inventory={"Gemstone of Nulgath": 1,
+                                            "Dark Crystal Shard": 1000})
+    asyncio.run(forge_dark_crystal_shards(dcs_real, 1000))
+    assert dcs_real.calls, "the plural check should not match the real item"
+    print("forge dcs  : the real item does not -- same as the reference")
 
     gem_done = Stub(member=True, inventory={"Gemstone of Nulgath": 1,
-                                            "Diamond of Nulgath": 1000})
+                                            "Diamonds for Nulgath": 1000})
     asyncio.run(forge_diamonds_of_nulgath(gem_done, 1000))
     assert gem_done.calls == [], gem_done.calls
-    print("forge dia  : 'Diamond of Nulgath' ends the farm")
+    print("forge dia  : the literal 'Diamonds for Nulgath' ends the farm")
 
     blood_done = Stub(member=True, inventory={
         "Gemstone of Nulgath": 1, "Blood Gem of the Archfiend": 100})

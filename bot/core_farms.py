@@ -279,11 +279,9 @@ async def undead_giant_unlock(cmd: Command) -> None:
 
 #: ``CoreFarms.IcestormArena``'s ladder: ``(from level, to level, map, cell, pad,
 #: quests)``.  The reference repeats the same block once per band; the band is
-#: data here.
-#:
-#: The 35-50 band reads ``r14`` in its own death-recovery branch but jumps to
-#: ``r11`` -- the 30-35 cell -- on the way in.  That is a copy-paste slip in the
-#: reference, and the band above it is what it means, so ``r14`` it is.
+#: data here.  Each cell is the one its own block jumps to, the 35-50 band's
+#: ``r11`` included -- that block's death-recovery branch says ``r14``, but the
+#: block itself jumps to ``r11``, and the source is what is followed.
 ICESTORM_LADDER = (
     (0, 5, "icestormarena", "r4", "Bottom", ()),
     (5, 10, "icestormarena", "r5", "Left", ()),
@@ -291,7 +289,7 @@ ICESTORM_LADDER = (
     (20, 25, "icestormarena", "r7", "Left", (6628,)),
     (25, 30, "icestormarena", "r10", "Left", ()),
     (30, 35, "icestormarena", "r11", "Left", (6629,)),
-    (35, 50, "icestormarena", "r14", "Left", (6629,)),
+    (35, 50, "icestormarena", "r11", "Left", (6629,)),
     (50, 61, "icestormarena", "r16", "Left", ()),
 )
 

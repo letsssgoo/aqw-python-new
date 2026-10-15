@@ -57,14 +57,11 @@ The member Forge chain (quests 4917-4924) is ported: ``dwobo_coin``,
 ``gem_stone_receipt_of_nulgath``, ``gem_stones_of_nulgath``, the four
 ``forge_*`` routines, ``carve_uni_gem_stone`` and ``leery_exchange_gold``.
 
-Three reference slips are not reproduced, because each one farms forever:
-``"Dark Crystal Shards"`` (plural) and ``"Diamonds for Nulgath"`` name no item,
-and ``TendurrrTheAssistantQuests``' reward option holds indices where item ids
-are looked up.  Two slips *are* kept, because they are the reference's own
-behaviour and only cost a wasted start: its four loose ``&&`` Forge guards, and
-``CarveUniGemStone``'s endless "All" loop (bounded here to every reward's max
-stack).  Where a kept slip makes the server refuse a quest, the loop reports the
-refusal instead of spinning -- see ``_forge_ready`` and ``_forge_gem``.
+Its guards and stop conditions are the reference's own, verbatim: the four loose
+``&&`` guards, and the two reward names that name no item (``"Dark Crystal
+Shards"``, ``"Diamonds for Nulgath"``), so those two loops run until the bot is
+stopped -- exactly as the reference does.  The one thing not copied is a loop
+that spins on a quest the server refuses: that reports once and stops.
 
 Folder layout mirrors the reference tree: the ``Nation/`` root wrappers and
 this file sit in ``bot/nation/``, and each subfolder that exists so far --
@@ -131,9 +128,12 @@ NWNO_PETS: Tuple[str, ...] = ("Nulgath's Birthday Gift",
 VOID_KNIGHT_SWORDS: Tuple[int, ...] = (38275, 38254)
 
 #: The Crag & Bamboozle pet, which gates several of the cheapest farm methods.
-#: (The C# source spells it ``Crag &amp; Bamboozle`` -- an HTML escape that got
-#: baked into the string literal, so the reference bot's own Crag checks can never match.)
-CRAG_PET = "Crag & Bamboozle"
+#: This is the reference's own literal, HTML escape and all: ``CragName`` in
+#: ``CoreNation`` spells it ``"Crag &amp; Bamboozle"``, and its twenty Crag checks
+#: compare against that, so in the reference they never match an item either.
+#: Kept verbatim: the routes that would use the pet take their fallbacks, exactly
+#: as the reference does.  Change this one string to make them run.
+CRAG_PET = "Crag &amp; Bamboozle"
 
 #: Extra drops handed out while Bloody Chaos is running with the relic branch.
 BLOODY_CHAOS_SUPPLIES: Tuple[str, ...] = (
@@ -311,17 +311,6 @@ GEMSTONE_COUNTERS: Tuple[str, ...] = (
     "Tanzanite of Nulgath",
 )
 UNI_GEMSTONE_OF_NULGATH = "Unidentified Gemstone of Nulgath"
-
-#: What the two Forge stop conditions should read.  The reference checks
-#: ``"Dark Crystal Shards"`` and ``"Diamonds for Nulgath"``; nothing in the tree
-#: -- no item, no other file -- is named either of those, and the item every
-#: other routine names is here.  Named constants so a live check can flip one
-#: line rather than edit the routine.
-#:
-#: To verify: accept quest 4920 or 4921 and read the reward names the server
-#: sends (``bot.nation.core_nation``'s docstring covers the payload).
-FORGE_DCRYSTAL_REWARD = "Dark Crystal Shard"
-FORGE_DIAMOND_REWARD = "Diamond of Nulgath"
 
 
 def uni(nr: int) -> str:
@@ -2587,18 +2576,14 @@ async def forge_dark_crystal_shards(cmd: Command, quant: int = 1000) -> None:
     """``CoreNation.ForgeDarkCrystalShards``: quest 4920.
 
     Note:
-        Two reference slips, kept out of the port rather than copied:
-
-        * the guard is the *loose* one, ``!gemstone && !member``, so it starts on
-          a character that has only one of the two -- the reference's own message
-          says both are required.  That reading is kept, and the loop reports the
-          server's refusal when it comes.
-        * it checks for ``"Dark Crystal Shards"`` -- plural, which no other file
-          in the tree uses and no item is named.  The stop condition would never
-          fire, so :data:`FORGE_DCRYSTAL_REWARD` names the real item.
+        Two things are the reference's own and are kept verbatim: its guard is
+        the loose one (``!gemstone && !member``), and its stop condition checks
+        ``"Dark Crystal Shards"`` -- plural, which no item in the tree is named.
+        The loop therefore runs until the bot is stopped, exactly as the
+        reference does; the loop still reports a quest the server refuses.
     """
     await _forge_gem(cmd, "Forge Dark Crystal Shards",
-                     FORGE_DARK_CRYSTAL_SHARDS_QUEST, FORGE_DCRYSTAL_REWARD, 1,
+                     FORGE_DARK_CRYSTAL_SHARDS_QUEST, "Dark Crystal Shards", 1,
                      (0, 5, 2, 0), quant, strict=False)
 
 
@@ -2606,13 +2591,14 @@ async def forge_diamonds_of_nulgath(cmd: Command, quant: int = 1000) -> None:
     """``CoreNation.ForgeDiamondsOfNulgath``: quest 4921.
 
     Note:
-        The same loose guard as its sibling above, and it checks for
-        ``"Diamonds for Nulgath"``, which appears nowhere else in the tree; every
-        other file names ``Diamond of Nulgath``, so that is what
-        :data:`FORGE_DIAMOND_REWARD` holds.
+        The same loose guard as its sibling, and its stop condition checks
+        ``"Diamonds for Nulgath"`` -- which appears nowhere else in the tree and
+        is no item's name, so the loop runs until the bot is stopped, as in the
+        reference.
     """
     await _forge_gem(cmd, "Forge Diamonds of Nulgath", FORGE_DIAMONDS_QUEST,
-                     FORGE_DIAMOND_REWARD, 1, (0, 2, 0, 0), quant, strict=False)
+                     "Diamonds for Nulgath", 1, (0, 2, 0, 0), quant,
+                     strict=False)
 
 
 async def forge_blood_gems(cmd: Command, quant: int = 100) -> None:
