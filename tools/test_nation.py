@@ -480,11 +480,14 @@ def main() -> None:
 
     # --- every wrapper is runnable, and no-ops when all is banked -----
     WRAPPERS = [
-        "0_max_bags", "approval_and_favor", "blood_from_the_void",
-        "blood_gem", "dark_crystal_shards", "diamond_of_nulgath",
-        "fiend_emblem", "fiend_token", "gem_of_nulgath", "tainted_gem",
-        "totem_of_nulgath", "unidentified_10", "unidentified_13",
-        "voucher_of_nulgath", "voucher_of_nulgath_non_member",
+        "materials.0_max_bags", "materials.approval_and_favor",
+        "materials.blood_from_the_void", "materials.blood_gem",
+        "materials.dark_crystal_shards", "materials.diamond_of_nulgath",
+        "materials.fiend_emblem", "materials.fiend_token",
+        "materials.gem_of_nulgath", "materials.tainted_gem",
+        "materials.totem_of_nulgath", "materials.unidentified_10",
+        "materials.unidentified_13", "materials.voucher_of_nulgath",
+        "materials.voucher_of_nulgath_non_member",
         "contract_exchange", "dirty_deeds_done_dirt_cheap",
         "dragon_slayer_reward", "dreadrock_gem_exchange",
         "emblem_of_nulgath", "essence_of_defeat_reagent", "kissthe_void",

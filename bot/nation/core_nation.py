@@ -49,6 +49,12 @@ rather than all at once.
   ``NulgathLarvae``, ``NulgathsRouletteofMisfortune``.
 * The CoreFarms rep / gold / experience farms (a separate data-heavy pass).
 
+Folder layout mirrors the reference tree: the ``Nation/`` root wrappers and
+this file sit in ``bot/nation/``, and each subfolder that exists so far --
+``materials/`` -- matches its sibling.  Later batches land in ``various/``,
+``merge_shops/``, ``vhl/``, ``afdl/``, ``evolved_orb/`` and
+``oblivion_blade/`` as those are ported, rather than being flattened here.
+
 Porting notes that apply throughout:
 
 * The reference bot's ``Bot.Sleep`` / ``Bot.Wait.ForPickup`` / ``ForMapLoad`` become the
