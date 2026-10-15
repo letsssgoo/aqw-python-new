@@ -18,21 +18,25 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from bot.nation.core_nation import (  # noqa: E402
-    approval_and_favor, assistant_during_supplies, assisting_drudgen,
+    approval_and_favor, assistant_during_supplies,
+    assisting_crag_and_bamboozle, assisting_drudgen,
     bamboozle_vs_drudge, bloody_chaos, blood_from_the_void, can_we_aggro,
     contract_exchange, crags_thirst, dark_makai_item, deal, diamond_exchange,
     dirty_deeds_done_dirt_cheap, do_swindles_return_area,
     dragon_slayer_reward, dreadrock_gem_exchange, emblem_of_nulgath,
-    equip_class, essence_of_defeat_reagent, essence_of_nulgath, farm_blood_gem,
+    empowering_items, equip_class, essence_of_defeat_reagent,
+    essence_of_nulgath, farm_blood_gem,
     farm_contract_exchage, farm_dark_crystal_shard, farm_diamond_of_nulgath,
     farm_fiend_token, farm_gem_of_nulgath, farm_tainted_gem,
     farm_totem_of_nulgath, farm_uni10, farm_uni13_quest, farm_voucher,
     feed_the_fiend, fiend_emblem, get_pcod, handle_voucher_conversions,
     has_any_item, has_any_item_id, has_item_id, kill_escherion, kill_vath,
-    kissthe_void, nation_round_4_medal, new_worlds_new_opportunities,
+    kissthe_void, nation_loyalty_rewarded, nation_round_4_medal,
+    new_worlds_new_opportunities,
     nulgath_larvae, nulgaths_roulette_of_misfortune, sell_voucher_of_nulgath,
-    supplies, swindle_bulk, swindle_return, the_assistant, totems_via_taros,
-    uni, void_knight_sword_quest)
+    supplies, swindle_bulk, swindle_return, the_assistant, time_is_money,
+    totems_via_taros, uni, void_knight_sword_quest,
+    voucher_item_totem_of_nulgath)
 
 
 class _Other:
@@ -182,6 +186,10 @@ class Stub:
 
     def get_quest_rewards(self, quest_id):
         return []
+
+    def get_quest_reward_entries(self, quest_id):
+        quest = self._quests.get(str(quest_id))
+        return quest.reward_entries if quest else []
 
     def remove_drop(self, names):
         self.calls.append(("remove_drop", names))
@@ -530,6 +538,32 @@ def main() -> None:
     print("swindle    : no item given -> picked the first reward instead of "
           "silently stopping")
 
+    # --- the Nation-root batch ----------------------------------------
+    tim = Stub()
+    asyncio.run(time_is_money(tim))
+    assert tim.calls == [], tim.calls
+    print("timeismoney: no Bounty Hunter Blade Pet -> reported, farmed nothing")
+
+    emp = Stub({"Death Scythe of Nulgath": 1})
+    asyncio.run(empowering_items(emp))
+    assert emp.calls == [], emp.calls
+    print("empowering : scythe already held -> returns without a single call")
+
+    acab = Stub({"Crag & Bamboozle": 1}, member=True)
+    asyncio.run(assisting_crag_and_bamboozle(acab))
+    assert acab.calls == [], acab.calls
+    print("acab       : no Sparrow's Blood -> reported, farmed nothing")
+
+    vch = Stub({"Voucher of Nulgath (non-mem)": 1})
+    asyncio.run(voucher_item_totem_of_nulgath(vch, "Not A Reward"))
+    assert "add_drop" not in vch.kinds(), vch.kinds()
+    print("voucher    : unknown reward name -> reported, farmed nothing")
+
+    nlr = Stub(quests={4749: Quest.from_payload({"QuestID": 4749})})
+    asyncio.run(nation_loyalty_rewarded(nlr))
+    assert "add_drop" not in nlr.kinds(), nlr.kinds()
+    print("nlr        : quest sent no rewards -> reported, farmed nothing")
+
     # --- every wrapper is runnable, and no-ops when all is banked -----
     WRAPPERS = [
         "materials.0_max_bags", "materials.approval_and_favor",
@@ -546,6 +580,8 @@ def main() -> None:
         "new_worlds_new_opportunities", "nulgath_larvae",
         "supplies_to_spin_the_wheel_of_chance", "swindle_return_policy",
         "the_assistant", "void_knight_sword_quest",
+        "assisting_crag_and_bamboozle", "empowering_items",
+        "nation_loyalty_rewarded", "time_is_money", "voucher_item_choose",
     ]
     from importlib import import_module
     for name in WRAPPERS:

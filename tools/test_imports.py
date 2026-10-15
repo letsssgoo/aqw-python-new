@@ -70,6 +70,11 @@ ENTRY_MODULES = [
     "bot.nation.swindle_return_policy",
     "bot.nation.the_assistant",
     "bot.nation.void_knight_sword_quest",
+    "bot.nation.assisting_crag_and_bamboozle",
+    "bot.nation.empowering_items",
+    "bot.nation.nation_loyalty_rewarded",
+    "bot.nation.time_is_money",
+    "bot.nation.voucher_item_choose",
 ]
 
 #: Modules that deliberately define no class -- they re-export one from

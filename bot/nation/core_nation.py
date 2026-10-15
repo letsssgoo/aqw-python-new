@@ -218,6 +218,51 @@ LARVAE_QUEST = 2566
 MANA_ENERGY = "Mana Energy for Nulgath"
 CHARGED_MANA_ENERGY = "Charged Mana Energy for Nulgath"
 
+#: The two rewards quest 4778 can hand out, by lower-cased name.
+VOUCHER_ITEM_REWARDS = {
+    "totem of nulgath": TOTEM_OF_NULGATH,
+    "gem of nulgath": GEM_OF_NULGATH,
+}
+
+#: What Assisting Crag & Bamboozle pays out, and therefore what to pick up.
+ACAB_DROPS: Tuple[str, ...] = (
+    "Nulgath Larvae", "Sparrow's Blood", "Sword of Nulgath", "Gem of Nulgath",
+    "Tainted Gem", "Dark Crystal Shard", "Diamond of Nulgath",
+    "Totem of Nulgath", "Blood Gem of the Archfiend", "Unidentified 19",
+    "Elders' Blood", "Voucher of Nulgath", "Voucher of Nulgath (non-mem)",
+)
+
+#: The eight Betrayal Blades, by name, for ``kissthe_void``'s blade argument.
+BETRAYAL_BLADES: Tuple[str, ...] = tuple(
+    f"{nth} Betrayal Blade of Nulgath"
+    for nth in ("1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th")
+)
+
+#: The eleven Assisting Crag & Bamboozle rewards, as ``(name, item_id)``.
+#: Item ids because that is how the quest picks between them.
+ACAB_REWARDS: Tuple[Tuple[str, int], ...] = (
+    ("Sword of Nulgath", 4670),
+    ("Tainted Gem", 4769),
+    ("Dark Crystal Shard", 4770),
+    ("Diamond of Nulgath", 4771),
+    ("Unidentified 19", 4752),
+    ("Totem of Nulgath", 5357),
+    ("Elders' Blood", 5586),
+    ("Gem of Nulgath", 6136),
+    ("Blood Gem of the Archfiend", 22332),
+    ("Voucher of Nulgath", 4861),
+    ("Voucher of Nulgath (non-mem)", 4862),
+)
+
+#: Which quest-7551 rewards can be asked for by name.
+SWINDLES_RETURN_REWARDS: Tuple[str, ...] = (
+    "Tainted Gem",
+    "Dark Crystal Shard",
+    "Diamond of Nulgath",
+    "Gem of Nulgath",
+    "Blood Gem of the Archfiend",
+)
+
 
 def uni(nr: int) -> str:
     """``Unidentified {nr}`` -- the reference bot's ``CoreNation.Uni``.
@@ -2033,3 +2078,249 @@ async def the_assistant(cmd: Command, item: Optional[str] = None,
 
     if return_policy and reward:
         cmd.unregister_quest(7551)
+
+
+async def voucher_item_totem_of_nulgath(cmd: Command,
+                                        reward: str = "Totem of Nulgath",
+                                        quant: int = 0) -> None:
+    """Trade spare Vouchers for Totems or Gems of Nulgath (quest 4778).
+
+    ``quant = 0`` means the reward's usual cap: 100 for the totem, 1000 for the
+    gem, matching the C#.
+    """
+    if not cmd.is_in_inventory("Voucher of Nulgath (non-mem)"):
+        await farm_voucher(cmd, False, keep_voucher=True)
+
+    reward_id = VOUCHER_ITEM_REWARDS.get(reward.lower())
+    if reward_id is None:
+        print(f"[nation] {reward!r} is not one of quest 4778's rewards "
+              f"({', '.join(VOUCHER_ITEM_REWARDS)}).")
+        return
+    if quant == 0:
+        quant = 100 if reward_id == TOTEM_OF_NULGATH else 1000
+
+    await cmd.ensure_accept_quest(VOUCHER_CONVERSION_QUEST)
+    entries = cmd.get_quest_reward_entries(VOUCHER_CONVERSION_QUEST)
+    entry = next((e for e in entries if e[0] == reward_id), None)
+    if entry is None:
+        print(f"[nation] quest {VOUCHER_CONVERSION_QUEST} did not report "
+              f"{reward!r} as a reward; nothing farmed.")
+        return
+    _, name, _ = entry
+
+    cmd.add_drop(name)
+    cmd.farming_logger(name, quant)
+
+    while cmd.is_still_connected() and not cmd.is_in_inventory(name, quant):
+        await cmd.ensure_accept_quest(VOUCHER_CONVERSION_QUEST)
+        await essence_of_nulgath(cmd)
+        # the C# retries the turn-in with a fresh batch of essence when the
+        # first attempt reports it cannot complete; can_turnin_quest is the
+        # local equivalent of that answer
+        if not cmd.can_turnin_quest(VOUCHER_CONVERSION_QUEST):
+            have = cmd.get_quant_item("Essence of Nulgath")
+            await essence_of_nulgath(cmd, have + 1 if have < 100 else 60)
+        await cmd.ensure_turn_in_quest(VOUCHER_CONVERSION_QUEST, reward_id)
+
+
+async def empowering_items(cmd: Command) -> None:
+    """Quest 558 for the Death Scythe of Nulgath.
+
+    Port of ``Nation/EmpoweringItems.cs``, whose logic lives in the script
+    itself rather than in the shared class.
+    """
+    if cmd.is_in_inventory("Death Scythe of Nulgath"):
+        return
+
+    cmd.add_drop("Death Scythe of Nulgath")
+    await cmd.ensure_accept_quest(558)
+    await farm_uni13_quest(cmd, 1)
+    await farm_diamond_of_nulgath(cmd, 10)
+
+    if not has_item_id(cmd, 4867):
+        await cmd.ensure_accept_quest(623)
+        await farm_uni13_quest(cmd, 1)
+        await hunt_item(cmd, "The Secret 1", 1, "willowcreek",
+                        monster_name="Hidden Spy", is_temp=False)
+        await cmd.ensure_turn_in_quest(623)
+
+    await hunt_item(cmd, "Undead Bruiser Sigil", 1, "underworld",
+                    monster_name="Undead Bruiser", is_temp=True)
+    await cmd.ensure_turn_in_quest(558)
+
+
+async def time_is_money(cmd: Command) -> None:
+    """Quest 6185 rewards, one at a time up to each one's max stack.
+
+    Port of ``Nation/TimeIsMoney.cs``.  Needs the Bounty Hunter Blade Pet
+    (item 42581); without it the quest cannot be taken at all.
+    """
+    if not has_item_id(cmd, 42581):
+        print("[nation] Time is Money needs the Bounty Hunter Blade Pet "
+              "(item 42581); nothing farmed.")
+        return
+
+    await cmd.ensure_accept_quest(6185)
+    entries = cmd.get_quest_reward_entries(6185)
+    if not entries:
+        _quest_rewards_or_warn(6185, cmd.get_loaded_quest(6185))
+        return
+
+    cmd.add_drop([name for _, name, _ in entries])
+
+    for _, name, max_stack in entries:
+        if cmd.is_in_inventory(name, max_stack):
+            print(f"[nation] {name} is at max stack; checking the next reward.")
+            continue
+        while (cmd.is_still_connected()
+               and not cmd.is_in_inventory(name, max_stack)):
+            await cmd.ensure_accept_quest(6185)
+            await join_swf(cmd, "mobius", "Slugfit", "Bottom")
+            await hunt_item(cmd, "Slugfit Horn", 5, "mobius",
+                            cell="Slugfit", pad="Bottom",
+                            monster_name="Slugfit", is_temp=True)
+            await hunt_item(cmd, "Imp Flame", 3, "mobius",
+                            monster_name="Fire Imp", is_temp=True)
+            await hunt_item(cmd, "Tanuki Ears", 3, "bamboo",
+                            monster_name="Tanuki", is_temp=True)
+            await hunt_item(cmd, "Wereboar Tusk", 2, "greenguardwest",
+                            cell="West12", pad="Up",
+                            monster_name="Big Bad Boar", is_temp=True)
+            await hunt_item(cmd, "Onibaba Nails", 5, "junkyard",
+                            monster_name="Onibaba", is_temp=True)
+            await cmd.ensure_turn_in_quest(6185)
+
+
+async def _nlr(cmd: Command, items: Sequence[str], quantity: int) -> None:
+    """One Nation Loyalty Rewarded cycle for ``items``."""
+    if not items or all(cmd.is_in_inventory(name, quantity) for name in items):
+        print(f"[nation] {', '.join(items) or 'nothing'} x{quantity} already "
+              f"held; skipping.")
+        return
+
+    for name in items:
+        cmd.farming_logger(name, quantity)
+    await equip_class(cmd, solo=True)
+
+    while (cmd.is_still_connected()
+           and not all(cmd.is_in_inventory(name, quantity) for name in items)):
+        await cmd.ensure_accept_quest(4749)
+        await _kill_once(cmd, "dflesson", "r12", "Right", "id.29")
+        await hunt_item(cmd, "Carnax Eye", 1, "aqlesson",
+                        monster_name="Carnax", is_temp=True)
+        await hunt_item(cmd, "Kathool Tentacle", 1, "deepchaos",
+                        monster_name="Kathool", is_temp=True)
+        await hunt_item(cmd, "Red Dragon's Fang", 1, "lair",
+                        monster_name="Red Dragon", is_temp=True)
+        await hunt_item(cmd, "Blood Titan's Blade", 1, "bloodtitan",
+                        monster_name="Blood Titan", is_temp=True)
+        await equip_class(cmd)
+        await hunt_item(cmd, "Defeated Makai", 25, "tercessuinotlim",
+                        cell="m2", pad="Left", monster_name="*",
+                        is_temp=False)
+        await cmd.ensure_turn_in_quest(4749)
+
+
+async def nation_loyalty_rewarded(cmd: Command,
+                                  farm_items: Optional[Sequence[str]] = None,
+                                  quantity: int = 0) -> None:
+    """Quest 4749 (Nation Loyalty Rewarded).
+
+    With no ``farm_items`` it walks every reward the quest offers, each up to
+    its own max stack; with a list it farms just those.
+    """
+    await cmd.ensure_accept_quest(4749)
+    entries = cmd.get_quest_reward_entries(4749)
+    if not entries:
+        _quest_rewards_or_warn(4749, cmd.get_loaded_quest(4749))
+        return
+
+    if not farm_items:
+        for _, name, max_stack in entries:
+            await _nlr(cmd, [name], quantity or max_stack)
+        return
+
+    cmd.add_drop(list(farm_items))
+    await nation_round_4_medal(cmd)
+    await farm_uni13_quest(cmd, 1)
+
+    for name in farm_items:
+        entry = next((e for e in entries if e[1] == name), None)
+        if entry is None:
+            print(f"[nation] {name!r} is not a quest 4749 reward.")
+            continue
+        if cmd.is_in_inventory(name, entry[2]):
+            continue
+        await _nlr(cmd, [name], quantity or entry[2])
+
+
+async def assisting_crag_and_bamboozle(cmd: Command,
+                                       reward_id: Optional[int] = None) -> None:
+    """Quest 5817 daily rewards, using the Crag & Bamboozle pet.
+
+    ``reward_id`` picks one reward by item id; ``None`` takes every one that is
+    not maxed, as the C# ``Get_whats_not_maxed`` option does.
+
+    Note:
+        The C# also *runs* the daily that supplies Sparrow's Blood (quest 803,
+        through ``CoreDailies``).  That daily is not ported, so this only works
+        from Sparrow's Blood you already hold, and says so instead of looping
+        against a quest it cannot feed.
+    """
+    if not cmd.get_player().is_member or not cmd.is_in_inventory(CRAG_PET):
+        return
+    if not cmd.is_in_inventory("Sparrow's Blood"):
+        print("[nation] Assisting Crag & Bamboozle is fed by the Sparrow's "
+              "Blood daily (quest 803), which is CoreDailies work that is not "
+              "ported. Hold Sparrow's Blood first and re-run.")
+        return
+
+    await cmd.ensure_accept_quest(5817)
+    entries = cmd.get_quest_reward_entries(5817)
+    if not entries:
+        _quest_rewards_or_warn(5817, cmd.get_loaded_quest(5817))
+        return
+
+    targets = [e for e in entries
+               if not cmd.is_in_inventory(e[1], e[2])
+               and (reward_id is None or e[0] == reward_id)]
+    if not targets:
+        print("[nation] everything already maxed; no work needed.")
+        return
+
+    cmd.add_drop(ACAB_DROPS)
+    print(f"[nation] AssistingCandB targets: {len(targets)}")
+
+    while cmd.is_still_connected() and targets:
+        await cmd.ensure_accept_quest(5817)
+
+        if not cmd.is_in_inventory("Tendurrr The Assistant"):
+            await hunt_item(cmd, "Tendurrr The Assistant", 1,
+                            "tercessuinotlim", cell="m2", pad="Left",
+                            monster_name="*", is_temp=False)
+        if not cmd.is_in_inventory("Sparrow's Blood"):
+            print("[nation] missing Sparrow's Blood. Stopping.")
+            return
+
+        await essence_of_nulgath(cmd, 20)
+        await approval_and_favor(cmd, 100, 100)
+        await nation_round_4_medal(cmd)
+        await cmd.ensure_accept_quest(4748)
+        await hunt_item(cmd, "Fiend Seal", 10, "shadowblast",
+                        monster_name="Legion Fenrir", is_temp=False)
+
+        finished = []
+        for item_id, name, max_stack in targets:
+            if cmd.is_in_inventory(name, max_stack):
+                finished.append(item_id)
+                continue
+            await cmd.ensure_turn_in_quest(5817, item_id)
+            if cmd.is_in_inventory(name, max_stack):
+                finished.append(item_id)
+            if not cmd.is_in_inventory("Sparrow's Blood"):
+                print(f"[nation] stopped early after completing {name}")
+                return
+
+        targets = [t for t in targets if t[0] not in finished]
+
+    print("[nation] AssistingCandB complete.")
