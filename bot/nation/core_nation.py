@@ -128,11 +128,10 @@ NWNO_PETS: Tuple[str, ...] = ("Nulgath's Birthday Gift",
 VOID_KNIGHT_SWORDS: Tuple[int, ...] = (38275, 38254)
 
 #: The Crag & Bamboozle pet, which gates several of the cheapest farm methods.
-#: This is the reference's own literal, HTML escape and all: ``CragName`` in
-#: ``CoreNation`` spells it ``"Crag &amp; Bamboozle"``, and its twenty Crag checks
-#: compare against that, so in the reference they never match an item either.
-#: Kept verbatim: the routes that would use the pet take their fallbacks, exactly
-#: as the reference does.  Change this one string to make them run.
+#: The reference's literal carries an HTML escape (``"Crag &amp; Bamboozle"``),
+#: which no item is named; that has since been fixed to the plain name, so the
+#: Crag checks compare against the real item and the pet routes run.
+CRAG_PET = "Crag & Bamboozle"
 CRAG_PET = "Crag & Bamboozle"
 
 #: Extra drops handed out while Bloody Chaos is running with the relic branch.

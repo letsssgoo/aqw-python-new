@@ -9,6 +9,8 @@ kept here.
 Quest 554 is the same one ``leery_exchange_gold`` turns Unidentified 13 into
 gold with; this side of it takes an Undead Legend Rune instead.
 """
+from typing import Optional
+
 from core.command import Command
 from bot.nation.core_nation import (all_owned, farm_uni13_quest, first_missing)
 from templates.hunt import hunt_item
@@ -26,7 +28,13 @@ MONSTER = "Undead Legend"
 MAP = "EvilWarNul"
 
 
-async def main(cmd: Command):
+async def quest_items(cmd: Command,
+                      reward: Optional[str] = REWARD) -> None:
+    """One quest-554 reward, or every one of them.
+
+    Split out of :func:`main` because ``ImpossibleEmpoweredItemsofNulgath`` calls
+    the reference's ``TheLeeryContract.QuestItems(...)`` directly.
+    """
     if not cmd.get_player().is_member:
         print("[nation] The Leery Contract is members only; nothing farmed.")
         return
@@ -38,15 +46,15 @@ async def main(cmd: Command):
         return
     cmd.add_drop([name for _, name, _ in entries])
 
-    if REWARD is None:
+    if reward is None:
         targets = [(name, 1) for _, name, _ in entries]
         reward_id = None
     else:
         match = next(((item_id, name) for item_id, name, _ in entries
-                      if name == REWARD), None)
+                      if name == reward), None)
         if match is None:
             names = ", ".join(name for _, name, _ in entries)
-            print(f"[nation] {REWARD!r} is not one of quest {QUEST_ID}'s "
+            print(f"[nation] {reward!r} is not one of quest {QUEST_ID}'s "
                   f"rewards ({names}).")
             return
         targets = [(match[1], 1)]
@@ -62,3 +70,7 @@ async def main(cmd: Command):
             chosen = await first_missing(cmd, [(i, n, 1) for i, n, _ in entries])
             await cmd.ensure_turn_in_quest(QUEST_ID,
                                            chosen[0] if chosen else -1)
+
+
+async def main(cmd: Command):
+    await quest_items(cmd, REWARD)
