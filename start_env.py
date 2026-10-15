@@ -67,7 +67,10 @@ def create_bot(username, password, server, room_number):
         showDebug=False,
         showChat=True,
         isScriptable=True,
-        farmClass="Legion Revenant"
+        farmClass="Legion Revenant",
+        # A dropped socket brings it back after 35 seconds, the same way the
+        # hub app and the browser dashboard do.
+        autoRelogin=True,
     )
     bot.set_login_info(username, password, server)
     return bot

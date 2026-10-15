@@ -28,8 +28,16 @@ import traceback
 #: sends that packet still runs, with a warning.
 BANK_WAIT_TIMEOUT_S = 10
 
+#: Seconds between losing the connection and logging back in.  The server keeps
+#: the old session for a while after a peer reset, and a relogin inside that
+#: window is refused -- which then looks like "the bot just stopped".
+RELOGIN_DELAY_S = 35
+
 
 class Bot:
+    #: See RELOGIN_DELAY_S: an attribute so a test can shorten it.
+    RELOGIN_DELAY_S: float = RELOGIN_DELAY_S
+
 
     def __init__(
             self, 
@@ -184,8 +192,28 @@ class Bot:
                     if not self.is_register_quest_task_running:
                         self.run_register_quest_task()
                         self.is_register_quest_task_running = True
-                    
-                    await botMain(self._resolve_script_arg(botMain))
+
+                    # The script runs in its own task so a dropped connection can
+                    # end it.  Waiting on it directly was the reason a peer reset
+                    # mid-farm stopped nothing: the script sits in a loop that
+                    # never checks the connection, so ``botMain`` never returned
+                    # and the relogin below was never reached.
+                    script = asyncio.create_task(
+                        botMain(self._resolve_script_arg(botMain)))
+                    while self.is_client_connected and not script.done():
+                        await asyncio.sleep(0.2)
+                    if not script.done():
+                        print("Connection lost while the script was running; "
+                              "stopping it and relogging.")
+                        script.cancel()
+                        try:
+                            await script
+                        except asyncio.CancelledError:
+                            pass
+                    elif not script.cancelled() and script.exception() is not None:
+                        # let the traceback out through the task machinery
+                        script.result()
+
                     self.stop_bot()
                 if self.auto_relogin:
                     print("Relogin from start bot")
@@ -262,8 +290,8 @@ class Bot:
         self.check_spam_time = None
         self.spam_backoff_ms = 0
         try:
-            print("Restarting bot in 35 secs...")
-            await asyncio.sleep(35)
+            print(f"Restarting bot in {self.RELOGIN_DELAY_S} secs...")
+            await asyncio.sleep(self.RELOGIN_DELAY_S)
             if not self.auto_relogin:
                 print("Relogin cancelled (bot stopped).")
                 return
