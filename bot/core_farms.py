@@ -876,7 +876,7 @@ async def black_knight_orb(cmd: Command) -> None:
 
     cmd.add_drop(BLACK_KNIGHT_ORB)
     if not await cmd.ensure_accept_quest(BLACK_KNIGHT_ORB_QUEST):
-        print(f"[farm] quest {BLACK_KNIGHT_ORB_QUEST} ({BLACK_KNIGHT_ORB}) "
+        cmd.bot.log(f"[farm] quest {BLACK_KNIGHT_ORB_QUEST} ({BLACK_KNIGHT_ORB}) "
               f"cannot be accepted; nothing farmed.")
         return
     for map_name, monster, piece in BLACK_KNIGHT_ORB_PIECES:

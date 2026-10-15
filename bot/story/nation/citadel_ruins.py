@@ -289,7 +289,7 @@ async def _equip_dragon_lord_class(cmd: Command):
 
     for name in held:
         if name == YAMI or name.startswith(CHAOS_SLAYER):
-            print(f"[nation] quest {DRAGON_LORD_QUEST}: equipping {name}"
+            cmd.bot.log(f"[nation] quest {DRAGON_LORD_QUEST}: equipping {name}"
                   + (f" with the \"1 | 4\" rotation ({YAMI_ROTATION})"
                      if name == YAMI else "")
                   + ". Its farm gear has no counterpart here, so the configured "
@@ -297,7 +297,7 @@ async def _equip_dragon_lord_class(cmd: Command):
             await cmd.equip_item(name)
             return YAMI_ROTATION if name == YAMI else None
 
-    print(f"[nation] quest {DRAGON_LORD_QUEST}: neither \"{YAMI}\" nor a "
+    cmd.bot.log(f"[nation] quest {DRAGON_LORD_QUEST}: neither \"{YAMI}\" nor a "
           f"\"{CHAOS_SLAYER}\" class is held; using the configured solo class.")
     await equip_class(cmd, solo=True)
     return None

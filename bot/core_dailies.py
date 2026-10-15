@@ -43,12 +43,13 @@ async def elders_blood(cmd: Command) -> None:
         return
 
     if not await cmd.ensure_accept_quest(ELDERS_BLOOD_QUEST):
-        print(f"[dailies] {ELDERS_BLOOD} (quest {ELDERS_BLOOD_QUEST}) cannot be "
+        cmd.bot.log(f"[dailies] {ELDERS_BLOOD} (quest {ELDERS_BLOOD_QUEST}) cannot be "
               f"accepted right now: the daily is done for today. "
               f"Nothing farmed.")
         return
 
     cmd.add_drop(ELDERS_BLOOD)
+    cmd.bot.log("Daily: Elders' Blood")
     await equip_class(cmd)
     await hunt_item(cmd, "Slain Gorillaphant", ELDERS_BLOOD_KILLS,
                     ELDERS_BLOOD_MAP, cell=ELDERS_BLOOD_CELL,

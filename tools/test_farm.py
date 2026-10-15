@@ -47,9 +47,17 @@ class _Bot:
         self.sent = []
         self.loaded_shop_datas = []
         self.monsters = []
+        self.logs = []
 
     def write_message(self, msg):
         self.sent.append(msg)
+
+    def log(self, *args):
+        """The engine's script log (``Bot.log``): what the port writes to."""
+        self.logs.append(" ".join(map(str, args)))
+
+    def debug(self, *args):
+        self.logs.append(" ".join(map(str, args)))
 
 
 class _ShopItem:
@@ -923,6 +931,8 @@ def main() -> None:
     assert ("ensure_accept_quest", 802) in blood.calls, blood.calls
     assert ("ensure_turn_in_quest", 802) in blood.calls, blood.calls
     assert blood.inv.get("Elders' Blood") == 1, blood.inv
+    # the source's own log line, verbatim: the port's log has to read like it
+    assert "Daily: Elders' Blood" in blood.bot.logs, blood.bot.logs
     print("elders     : quest 802 in /arcangrove LeftBack for the one Blood")
 
     print("\nfarm tests OK")

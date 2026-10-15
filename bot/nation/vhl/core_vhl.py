@@ -102,7 +102,7 @@ def _rank_up(cmd: Command, rank_up_class: bool) -> None:
     """``Adv.RankUpClass``, which this engine cannot do (no class rank)."""
     if not rank_up_class:
         return
-    print(f'[vhl] "{VOID_HIGHLORD}" would be ranked up here, but rank-up-class '
+    cmd.bot.log(f'[vhl] "{VOID_HIGHLORD}" would be ranked up here, but rank-up-class '
           f"work needs the class rank, which this engine cannot read; "
           f"skipping it. The class itself is unaffected.")
 
@@ -118,7 +118,7 @@ async def vhl_challenge(cmd: Command, quant: int, farmextra: bool = False) -> No
     if await cmd.has_item(ROENTGENIUM, quant):
         return
 
-    print("[vhl] Getting Void HighLord Challenge prerequisites")
+    cmd.bot.log("Getting Void HighLord Challenge prerequisites")
     await farm_experience(cmd, VHL_LEVEL)
     cmd.add_drop(BAG_DROPS)
     if not await all_owned(cmd, [(reward, 1) for reward in CHALLENGE_REWARDS]):
@@ -128,7 +128,7 @@ async def vhl_challenge(cmd: Command, quant: int, farmextra: bool = False) -> No
     cmd.farming_logger(ROENTGENIUM, quant)
     while cmd.is_still_connected() and not await cmd.has_item(ROENTGENIUM, quant):
         if not await cmd.ensure_accept_quest(CHALLENGE_QUEST):
-            print(f"[vhl] quest {CHALLENGE_QUEST} cannot be accepted, so no "
+            cmd.bot.log(f"[vhl] quest {CHALLENGE_QUEST} cannot be accepted, so no "
                   f"{ROENTGENIUM} can be made. Stopping.")
             return
         await hunt_item(cmd, CHALLENGE_SHADOW[1], 1, VOID_HIGHLORD_MAP,
@@ -165,7 +165,7 @@ async def vhl_challenge(cmd: Command, quant: int, farmextra: bool = False) -> No
         if (not await cmd.has_item(ELDERS_BLOOD)
                 and not await cmd.has_item(ROENTGENIUM, quant)):
             left = 2 - dynamic_quant(cmd, ELDERS_BLOOD)
-            print(f'[vhl] Not enough "{ELDERS_BLOOD}", please do the daily '
+            cmd.bot.log(f'Not enough "{ELDERS_BLOOD}", please do the daily '
                   f"{left} more times (not today)")
             if farmextra:
                 await farm_extra(cmd)
@@ -187,7 +187,7 @@ async def vhl_crystals(cmd: Command) -> None:
     await farm_uni13_quest(cmd, 1)
 
     if not await cmd.has_item(VOID_CRYSTAL_A):
-        print("[vhl] Obtaining Void Crystal A ")
+        cmd.bot.log("Obtaining Void Crystal A ")
         await farm_uni10(cmd, 200)
         await farm_tainted_gem(cmd, 200)
         await farm_dark_crystal_shard(cmd, 200)
@@ -196,20 +196,20 @@ async def vhl_crystals(cmd: Command) -> None:
                        map_name=VOID_HIGHLORD_MAP)
 
     if not await cmd.has_item(VOID_CRYSTAL_B):
-        print("[vhl] Obtaining Void Crystal B")
+        cmd.bot.log("Obtaining Void Crystal B")
         if not await cmd.has_item(ELDERS_BLOOD, 2):
             await elders_blood(cmd)
         await _sparrow_method(cmd, 2)
 
         if not await cmd.has_item(ELDERS_BLOOD, 2):
-            print(f'[vhl] Not enough "{ELDERS_BLOOD}", please do the daily '
-                  f"{2 - dynamic_quant(cmd, ELDERS_BLOOD)} more times "
+            cmd.bot.log(f'Not enough "{ELDERS_BLOOD}", please do the daily '
+                  f"{2 - cmd.get_quant_item(ELDERS_BLOOD)} more times "
                   f"(not today)")
-            print("[vhl] Gathering Materials for Void Crystal B")
+            cmd.bot.log("Gathering Materials for Void Crystal B")
             await farm_totem_of_nulgath(cmd, 15)
             await farm_diamond_of_nulgath(cmd, 200)
             await farm_blood_gem(cmd, 30)
-            print("[vhl] Mats are all preped for Void Crystal B")
+            cmd.bot.log("Mats are all preped for Void Crystal B")
         else:
             await farm_totem_of_nulgath(cmd, 15)
             await farm_diamond_of_nulgath(cmd, 200)
@@ -227,9 +227,9 @@ async def farm_extra(cmd: Command, quant: int = FARM_EXTRA_QUANT) -> None:
     if await cmd.has_item(ROENTGENIUM, quant):
         return
 
-    print(f"[vhl] {ROENTGENIUM}: {dynamic_quant(cmd, ROENTGENIUM)}/{quant} "
-          f"Not Enough Roent")
-    print("[vhl] Not enough \"Roentgenium of Nulgath\", maxing mats so it's "
+    cmd.bot.log(f"{ROENTGENIUM}: {dynamic_quant(cmd, ROENTGENIUM)}/{quant}",
+                 "Not Enough Roent")
+    cmd.bot.log("Not enough \"Roentgenium of Nulgath\", maxing mats so it's "
           "easier tomorrow. You can just leave this running!")
 
     await black_knight_orb(cmd)
@@ -248,7 +248,7 @@ async def farm_extra(cmd: Command, quant: int = FARM_EXTRA_QUANT) -> None:
     if not await cmd.has_item(UNIDENTIFIED_19):
         reward = await _swindle_reward_name(cmd)
         if reward is None:
-            print(f"[vhl] quest {SWINDLE_QUEST}'s reward with item id "
+            cmd.bot.log(f"[vhl] quest {SWINDLE_QUEST}'s reward with item id "
                   f"{SWINDLE_REWARD_ID} could not be read, so {UNIDENTIFIED_19!r} "
                   f"was not swapped for or bought.")
         else:
@@ -259,7 +259,7 @@ async def farm_extra(cmd: Command, quant: int = FARM_EXTRA_QUANT) -> None:
     await farm_totem_of_nulgath(cmd, 15)
     await farm_voucher(cmd, False)
     await farm_voucher(cmd, True)
-    print("[vhl] Materials max out! You should be good for tomorrow.")
+    cmd.bot.log("Materials max out! You should be good for tomorrow.")
 
 
 async def _sparrow_method(cmd: Command, elders_blood_quant: int) -> None:

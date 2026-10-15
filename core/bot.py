@@ -274,6 +274,20 @@ class Bot:
         combined_message = ' '.join(map(str, args))
         print(f"[{datetime.now().strftime('%H:%M:%S')}] [{caller_name}] {combined_message}")
 
+    def log(self, *args):
+        """Log one script line -- the reference bot's ``Core.Logger``.
+
+        ``showLog`` gates it and the timestamp matches the engine's other
+        output, so a run reads the same way whether the line came from here or
+        from a script.  Scripts call this instead of ``print``: their lines then
+        sit in the same stream as the engine's, which is what makes a port's log
+        comparable with the reference bot's.
+        """
+        if not self.showLog:
+            return
+        combined_message = ' '.join(map(str, args))
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] {combined_message}")
+
     def login(self, username, password, server):
         if self.player.login(username, password):
             self.server_info = self.player.getServerInfo(server)

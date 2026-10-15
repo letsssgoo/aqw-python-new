@@ -197,14 +197,14 @@ async def buy_item(cmd: Command, shop_id: int, item: Union[int, str],
             await cmd.join_map(map_name)
             await cmd.sleep(1000)
         if not cmd.is_still_connected():
-            print(f"[core] disconnected while joining {map_name}; {item!r} "
+            cmd.bot.log(f"[core] disconnected while joining {map_name}; {item!r} "
                   f"was not bought.")
             return False
 
     if not await cmd.ensure_load_shop(shop_id):
-        print(f"[core] shop {shop_id} never loaded; {item!r} was not bought.")
+        cmd.bot.log(f"[core] shop {shop_id} never loaded; {item!r} was not bought.")
         return False
-    wanted = _resolve_shop_item(_find_shop(cmd, shop_id), item, shop_item_id)
+    wanted = _resolve_shop_item(cmd, _find_shop(cmd, shop_id), item, shop_item_id)
     if wanted is None:
         return False
     await cmd.buy_item(shop_id, wanted.item_name, qty,
@@ -212,7 +212,8 @@ async def buy_item(cmd: Command, shop_id: int, item: Union[int, str],
     return True
 
 
-def _resolve_shop_item(shop, item: Union[int, str], shop_item_id: int = 0):
+def _resolve_shop_item(cmd: Command, shop, item: Union[int, str],
+                       shop_item_id: int = 0):
     """The shop entry ``BuyItem`` would pick, or None (reported).
 
     ``parseShopItem`` tries the shop item id first -- merge shops carry one item
@@ -220,7 +221,7 @@ def _resolve_shop_item(shop, item: Union[int, str], shop_item_id: int = 0):
     a name match, which it only accepts when it is unique.
     """
     if shop is None:
-        print("[core] the shop is not in the cache; nothing bought.")
+        cmd.bot.log("[core] the shop is not in the cache; nothing bought.")
         return None
     entries = list(shop.items)
 
@@ -228,24 +229,24 @@ def _resolve_shop_item(shop, item: Union[int, str], shop_item_id: int = 0):
         for entry in entries:
             if str(entry.shop_item_id) == str(shop_item_id):
                 return entry
-        print(f"[core] shop {shop.shop_id} has no entry {shop_item_id}; falling "
+        cmd.bot.log(f"[core] shop {shop.shop_id} has no entry {shop_item_id}; falling "
               f"back to {item!r}.")
 
     if isinstance(item, int):
         for entry in entries:
             if str(entry.item_id) == str(item):
                 return entry
-        print(f"[core] shop {shop.shop_id} does not carry item {item}; nothing "
+        cmd.bot.log(f"[core] shop {shop.shop_id} does not carry item {item}; nothing "
               f"bought.")
         return None
 
     matches = [e for e in entries if e.item_name.lower() == str(item).lower()]
     if len(matches) > 1:
-        print(f"[core] shop {shop.shop_id} carries {item!r} {len(matches)} times; "
+        cmd.bot.log(f"[core] shop {shop.shop_id} carries {item!r} {len(matches)} times; "
               f"pass shop_item_id to say which entry is meant.")
         return None
     if not matches:
-        print(f"[core] shop {shop.shop_id} does not carry {item!r}; nothing "
+        cmd.bot.log(f"[core] shop {shop.shop_id} does not carry {item!r}; nothing "
               f"bought.")
         return None
     return matches[0]
@@ -291,7 +292,7 @@ async def wait_for_item(cmd: Command, item_name: str, quant: int = 1,
         await cmd.sleep(500)
         waited += 500
     if cmd.is_still_connected():
-        print(f"[core] {item_name!r} has not arrived after {timeout_ms} ms; "
+        cmd.bot.log(f"[core] {item_name!r} has not arrived after {timeout_ms} ms; "
               f"continuing without it.")
     return False
 

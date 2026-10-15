@@ -92,9 +92,17 @@ class _Bot:
         self.areaId = "evilwarnul-9909"
         self.sent: list[str] = []
         self.loaded_shop_datas: list = []
+        self.logs: list[str] = []
 
     def write_message(self, msg):
         self.sent.append(msg)
+
+    def log(self, *args):
+        """The engine's script log (``Bot.log``): what the port writes to."""
+        self.logs.append(" ".join(map(str, args)))
+
+    def debug(self, *args):
+        self.logs.append(" ".join(map(str, args)))
 
 
 class Stub:
@@ -828,6 +836,9 @@ def main() -> None:
     assert ("add_drop", "Hadean Onyx of Nulgath") not in refused.calls, \
         refused.calls
     assert ("jump_cell", "m4", "Right") not in refused.calls, refused.calls
+    # the source's log line, verbatim, so a run can be read next to its own
+    assert "Getting Void HighLord Challenge prerequisites" in refused.bot.logs, \
+        refused.bot.logs
     print("vhl        : quest 5660 refused -> reported, no kill for its drop")
 
     # the Sparrow pass: only members holding Crag & Bamboozle, and only while
