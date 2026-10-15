@@ -7,14 +7,15 @@ async def main(cmd: Command):
     if cmd.bot.soloClass:
         await cmd.equip_item(cmd.bot.soloClass)
     
+    await cmd.equip_enhancement("Valiance")
+    await cmd.equip_enhancement("Vainglory")
+    await cmd.equip_enhancement("Wizard Helm Enhancement")
+    
     while cmd.is_not_in_map("hydrachallenge"):
         await cmd.join_map("hydrachallenge", 9909)
         await cmd.sleep(1000)
     
     await cmd.jump_cell("h90", "Left")
-
-    while not cmd.wait_count_player(4):
-        await cmd.sleep(100)
 
     await cmd.register_quest(555)
     cmd.add_drop("Relic of Chaos")
