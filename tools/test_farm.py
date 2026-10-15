@@ -676,6 +676,9 @@ def main() -> None:
     assert ("jump_cell", "r2", "Left") in hunted.calls, hunted.calls
     assert ("use_next_skill",) in hunted.calls, hunted.calls
     assert monster_by_definition_id(hunted, 560) is hunted.bot.monsters[0]
+    # either id the model carries is accepted, because which one Skua's
+    # Monster.ID is cannot be told from the scripts
+    assert monster_by_definition_id(hunted, "7") is hunted.bot.monsters[0]
     assert monster_by_definition_id(hunted, 561) is None
     print("craggle    : monster id 560 -> jumps to its cell and hits it")
 

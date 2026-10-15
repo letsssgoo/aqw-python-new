@@ -19,8 +19,9 @@ Not portable, and not reproduced:
 * ``QuestProgression`` reads quest slot values out of Flash and re-completes
   earlier quests to repair a chain.  The server-side half is what is kept: a quest
   that ``is_completed_before`` is done.
-* ``PreLoad`` fills a client-side quest cache.  Nothing here needs it -- an
-  accepted quest's payload carries what these routines read.
+* ``PreLoad`` reads the script's own compiled source to find the quests its class
+  uses and preloads their data.  Nothing here needs it: the payload of an accepted
+  quest carries what these routines read.
 """
 from typing import Dict, List, Sequence, Tuple, Union
 
@@ -86,6 +87,11 @@ async def map_item_quest(cmd: Command, quest_id: int, map_name: str,
             or several ids to pick up once each (the reference's two overloads).
         qty (int): How many of a single id to pick up.
     """
+    # the reference guards this one with QuestProgression too, so a quest that is
+    # already done is skipped rather than accepted a second time
+    if await cmd.is_completed_before(quest_id):
+        return
+
     ids = [item_ids] if isinstance(item_ids, int) else list(item_ids)
     counts = [qty] * len(ids) if isinstance(item_ids, int) else [1] * len(ids)
 

@@ -776,14 +776,17 @@ async def chronospan_rep(cmd: Command, rank: int = 10) -> None:
 
 
 def monster_by_definition_id(cmd: Command, mon_id: int):
-    """The map monster whose definition id is ``mon_id``.
+    """The map monster whose id is ``mon_id``, by either id the model carries.
 
-    Skua's ``Monster.ID`` is the monster's own id; ``MapID`` is the per-map one
-    (``z_CompiledScript.cs`` compares against both).  This engine keeps them as
-    ``mon_id`` and ``mon_map_id``.
+    ``CraggleRockREP`` compares against Skua's ``Monster.ID``, and which id that
+    is cannot be told from the scripts: ``z_CompiledScript.cs`` matches a monster
+    by ``m.MapID == id || m.ID == id``, so the two are the same field in some
+    builds and different in others.  This engine keeps both -- ``mon_map_id`` and
+    ``mon_id`` -- and either match is accepted rather than guessing.
     """
     for monster in cmd.bot.monsters:
-        if str(monster.mon_id) == str(mon_id):
+        if (str(monster.mon_id) == str(mon_id)
+                or str(monster.mon_map_id) == str(mon_id)):
             return monster
     return None
 
