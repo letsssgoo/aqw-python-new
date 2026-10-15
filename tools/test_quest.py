@@ -178,6 +178,29 @@ def main() -> None:
     print("ensure    : turn-in caps at max_attempts ->", turnins)
     bot.is_client_connected = False
 
+    # --- quest requirements: names from oItems, temp from the temp bag ---
+    # the join CoreStory's kill quest drives its per-monster kills from
+    from bot.core_story import pending_requirements
+
+    bot.loaded_quest_datas.append(Quest.from_payload({
+        "QuestID": 9526, "sName": "Where the Heart is",
+        "turnin": [{"ItemID": "11", "iQty": "2"}, {"ItemID": "22", "iQty": "1"}],
+        "oItems": [{"ItemID": "11", "sName": "Lightguard Paladin"},
+                   {"ItemID": "22", "sName": "Paladin Ascendant"}],
+    }))
+    heart = cmd.get_loaded_quest(9526)
+    assert pending_requirements(cmd, heart) == [
+        ("Lightguard Paladin", 2, False),
+        ("Paladin Ascendant", 1, False)], pending_requirements(cmd, heart)
+    bot.player.INVENTORY.append(
+        ItemInventory({"sName": "Lightguard Paladin", "ItemID": 11, "iQty": 2}))
+    assert pending_requirements(cmd, heart) == [("Paladin Ascendant", 1, False)]
+    bot.player.TEMPINVENTORY.append(
+        ItemInventory({"sName": "Paladin Ascendant", "ItemID": 22, "iQty": 1,
+                       "bTemp": 1}))
+    assert pending_requirements(cmd, heart) == []
+    print("requirements: ids joined to names, held ones dropped, temp detected")
+
     print("\nquest tests OK")
 
 
