@@ -74,31 +74,44 @@ def pending_requirements(cmd: Command, quest) -> List[Tuple[str, int, bool]]:
 
 
 async def map_item_quest(cmd: Command, quest_id: int, map_name: str,
-                         item_ids: Union[int, Sequence[int]],
+                         item_ids: Union[int, Sequence[int], Sequence[Tuple[int, int]]],
                          qty: int = 1) -> None:
     """``CoreStory.MapItemQuest``: accept, pick map items up, turn the quest in.
+
+    The reference has three overloads and all three shapes are accepted here:
+
+    * one id, picked up ``qty`` times;
+    * a list of ids, each picked up ``qty`` times;
+    * a list of ``(id, qty)`` pairs, each with its own amount.
+
+    Every map item's own map column is not reproduced: the reference groups by map
+    and joins each; every caller ported so far stays in one map, and a caller that
+    needs another can call this twice.
 
     Args:
         cmd (Command): Facade to act through.
         quest_id (int): Quest to run.
         map_name (str): Map the items sit in -- the character is moved there
             first, because ``getMapItem`` only works where they are.
-        item_ids (int | Sequence[int]): One map item id to pick up ``qty`` times,
-            or several ids to pick up once each (the reference's two overloads).
-        qty (int): How many of a single id to pick up.
+        item_ids (int | Sequence[int] | Sequence[Tuple[int, int]]): See above.
+        qty (int): How many of each id to pick up, for the first two shapes.
     """
     # the reference guards this one with QuestProgression too, so a quest that is
     # already done is skipped rather than accepted a second time
     if await cmd.is_completed_before(quest_id):
         return
 
-    ids = [item_ids] if isinstance(item_ids, int) else list(item_ids)
-    counts = [qty] * len(ids) if isinstance(item_ids, int) else [1] * len(ids)
+    if isinstance(item_ids, int):
+        wanted: List[Tuple[int, int]] = [(item_ids, qty)]
+    else:
+        entries = list(item_ids)
+        wanted = [tuple(entry) if isinstance(entry, (tuple, list)) else (entry, qty)
+                  for entry in entries]
 
     await cmd.ensure_accept_quest(quest_id)
     while cmd.is_still_connected() and cmd.is_not_in_map(map_name):
         await cmd.join_map(map_name)
-    for item_id, count in zip(ids, counts):
+    for item_id, count in wanted:
         for _ in range(count):
             await cmd.get_map_item(item_id)
     await cmd.ensure_turn_in_quest(quest_id)
