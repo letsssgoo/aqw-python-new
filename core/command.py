@@ -11,6 +11,8 @@ from enum import Enum
 from core.player import Player
 from core.utils import normalize
 from model.inventory import ItemInventory, ItemType, ScrollType
+from model.faction import Faction, MAX_REP
+from model.quest import Quest, normalize_quest_id
 from model.monster import Monster
 from model.player_area import PlayerArea
 from model.shop import Shop
@@ -114,6 +116,7 @@ class Command:
 
         Returns:
             None: Exits once the quest is tracked or a failure is recorded."""
+        quest_id = normalize_quest_id(quest_id)
         while self.quest_not_in_progress(quest_id) and self.is_still_connected():
             await self.accept_quest(quest_id)
             await self.sleep(1000)
@@ -131,6 +134,7 @@ class Command:
 
         Returns:
             None: Stops when the quest leaves the progress list or fails."""
+        quest_id = normalize_quest_id(quest_id)
         while self.quest_in_progress(quest_id) and self.is_still_connected():
             await self.turn_in_quest(quest_id, item_id,amount)
             await self.sleep(1000)
@@ -147,6 +151,7 @@ class Command:
 
         Returns:
             None: The coroutine simply delays to allow server processing."""
+        quest_id = normalize_quest_id(quest_id)
         self.bot.accept_quest(quest_id)
         print("trying accept quest:", quest_id)
         await asyncio.sleep(1)
@@ -162,20 +167,54 @@ class Command:
 
         Returns:
             None: Updates quest tracking state and delays for server processing."""
-        self.quest_to_check = quest_id
+        self.quest_to_check = normalize_quest_id(quest_id)
         await self.bot.ensure_leave_from_combat()
-        self.bot.turn_in_quest(quest_id, item_id, qty)
+        self.bot.turn_in_quest(self.quest_to_check, item_id, qty)
         await asyncio.sleep(1)
 
     def quest_not_in_progress(self, quest_id: int) -> bool:
         """Return True when the quest is not currently tracked in progress."""
-        loaded_quest_ids = [loaded_quest["QuestID"] for loaded_quest in self.bot.loaded_quest_datas]
-        return str(quest_id) not in str(loaded_quest_ids)
+        return self.bot.quest_not_in_progress(quest_id)
 
     def quest_in_progress(self, quest_id: int) -> bool:
         """Return True when the quest is present in the in-progress list."""
-        loaded_quest_ids = [loaded_quest["QuestID"] for loaded_quest in self.bot.loaded_quest_datas]
-        return str(quest_id) in str(loaded_quest_ids)
+        return not self.bot.quest_not_in_progress(quest_id)
+
+    def get_loaded_quest(self, quest_id: int) -> Optional[Quest]:
+        """Return the in-progress :class:`Quest` for ``quest_id``, or None.
+
+        The port of reading the reference bot's ``Core.EnsureLoad(id)`` result: the object
+        carries the chain position (``slot``/``value``), the one-time flags
+        (``is_once``/``field``) and the turn-in requirements
+        (``turn_in_items``) -- none of which the older dict-only access
+        exposed.  ``None`` means the quest is not accepted right now.
+        """
+        return self.bot.get_loaded_quest(quest_id)
+
+    def get_quest_rewards(self, quest_id: int) -> List[str]:
+        """Reward item names of an in-progress quest, straight from the payload.
+
+        The port of the reference bot's ``Core.QuestRewards``: feed the result to
+        :meth:`add_drop` so the reward is actually picked up.  Returns ``[]``
+        when the quest is not loaded or the server sent no rewards.
+
+        Note:
+            the reference bot reads these from a client-side quest cache; the live
+            ``getQuests`` payload carries them too, under ``oRewards``.
+        """
+        quest = self.bot.get_loaded_quest(quest_id)
+        return quest.reward_names if quest else []
+
+    def add_quest_rewards(self, quest_id: int) -> List[str]:
+        """Whitelist a quest's reward items (the reference bot's ``AddDrop(QuestRewards(id))``).
+
+        Returns:
+            List[str]: The names that were whitelisted (empty when none).
+        """
+        names = self.get_quest_rewards(quest_id)
+        if names:
+            self.add_drop(names)
+        return names
 
     def can_turnin_quest(self, questId: int) -> bool:
         """Delegate to the bot helper that checks quest completion requirements."""
@@ -242,9 +281,30 @@ class Command:
 
         Args:
             questId (int): Identifier of the quest to register."""
+        questId = normalize_quest_id(questId)
         if questId not in self.bot.registered_auto_quest_ids:
             self.bot.registered_auto_quest_ids.append(questId)
             await self.ensure_accept_quest(questId)
+
+    def unregister_quest(self, quest_id: int) -> None:
+        """Stop auto-accepting and auto-completing a registered quest (sync).
+
+        The counterpart of :meth:`register_quest`, and the port of the reference bot's
+        ``Core.CancelRegisteredQuests`` for one id.  The background task in
+        ``handlers/register_quest.py`` re-reads the list on every pass, so the
+        quest is left alone from its next tick.
+        """
+        quest_id = normalize_quest_id(quest_id)
+        if quest_id in self.bot.registered_auto_quest_ids:
+            self.bot.registered_auto_quest_ids.remove(quest_id)
+
+    def cancel_registered_quests(self) -> None:
+        """Forget every registered auto quest (sync).
+
+        the reference bot's ``Core.CancelRegisteredQuests``.  Useful at the end of a farm
+        loop: a registered quest keeps being turned in forever otherwise.
+        """
+        self.bot.registered_auto_quest_ids.clear()
 
     async def buy_item_cmd(self, item_name: str, shop_id: int, qty: int = 1) -> None:
         """Buy an item from a shop, loading data when necessary.
@@ -1123,6 +1183,24 @@ class Command:
                 await asyncio.sleep(1)
                 return
 
+    def choose_best_cell(self, monster: str) -> Optional[str]:
+        """Cell holding the most of ``monster`` (the reference bot's ``ChooseBestCell``).
+
+        Args:
+            monster (str): Display name or ``id.X`` identifier.
+
+        Returns:
+            Optional[str]: Cell name, or ``None`` when ``monster`` is not in
+            the map at all.
+
+        Note:
+            the reference bot returns a cell/pad pair.  The map payload only ranks cells, so
+            no pad is chosen here -- ``jump_to_monster`` is usually the better
+            call, because it picks the best cell and jumps to it in one go.
+        """
+        return self.bot.find_best_cell(monster, byMostMonster=True,
+                                       byAliveMonster=False)
+
     @check_alive
     async def wait_use_skill(self, index: int, target_monsters: str = "*") -> None:
         """Wait until a skill is ready before casting it.
@@ -1523,6 +1601,40 @@ class Command:
         """Return list of registered Slaves username"""
         return self.bot.slaves_player
 
+    def get_faction(self, faction_name: str) -> Optional[Faction]:
+        """Return the tracked :class:`Faction` for ``faction_name``, or None."""
+        return self.bot.player.get_faction(faction_name)
+
+    def get_faction_rank(self, faction_name: str) -> int:
+        """Rank (1-10) of ``faction_name``, or 0 when it is not tracked.
+
+        the reference bot's ``CoreFarms.FactionRank``.
+        """
+        return self.bot.player.getFactionRank(faction_name)
+
+    def get_faction_rep(self, faction_name: str) -> int:
+        """Total reputation accumulated in ``faction_name`` (0 when unknown).
+
+        the reference bot's ``CoreFarms.FactionRep``.
+        """
+        faction = self.bot.player.get_faction(faction_name)
+        return faction.rep if faction else 0
+
+    def get_faction_remaining_to_max(self, faction_name: str) -> int:
+        """Reputation still needed for rank 10 in ``faction_name``.
+
+        the reference bot's ``CoreFarms.RemainingFactionRepToMax``.  An untracked faction
+        returns :data:`model.faction.MAX_REP` -- the same "nothing banked yet"
+        default the reference bot uses.
+        """
+        faction = self.bot.player.get_faction(faction_name)
+        return faction.remaining_to_max() if faction else MAX_REP
+
+    def is_faction_max(self, faction_name: str) -> bool:
+        """True when ``faction_name`` is at rank 10."""
+        faction = self.bot.player.get_faction(faction_name)
+        return bool(faction and faction.is_max())
+
     def is_player_alive(self) -> bool:
         """Return True when the local player is not dead."""
         return not self.bot.player.ISDEAD
@@ -1561,6 +1673,20 @@ class Command:
     async def send_chat(self, message: str) -> None:
         """Send a zone chat message through the server packet API."""
         await self.send_packet(f"%xt%zm%message%{self.bot.areaId}%{message}%zone%")
+
+    async def use_potion(self, potion_id: int) -> None:
+        """Drink a potion on the local player (the reference bot's ``Core.UsePotion``).
+
+        Args:
+            potion_id (int): Inventory id of the potion to use.
+
+        Note:
+            This is the raw potion packet (``Bot.use_potion``).  The equipped
+            slot-5 scroll/potion is a different thing: ``equip_scroll`` first,
+            then ``use_skill(5, ...)``.
+        """
+        self.bot.use_potion(potion_id)
+        await asyncio.sleep(0.5)
 
     async def rest(self) -> None:
         """Request the rest action."""
@@ -1601,11 +1727,11 @@ class Command:
         cmd = data.get("cmd")
         if cmd != "ccqr":
             return
-        quest_id = data.get('QuestID')
+        quest_id = normalize_quest_id(data.get('QuestID'))
         ccqr_msg = data.get('msg', '')
         if data.get('bSuccess', 0) == 1:
             return
-        if quest_id is None or int(quest_id) != self.quest_to_check:
+        if quest_id <= 0 or quest_id != self.quest_to_check:
             return
         if "Missing Turn In Item" in ccqr_msg:
             self.is_green_quest_var = True

@@ -1,0 +1,132 @@
+"""Quest tracking: id normalisation and in-progress lookups.
+
+    python tools/test_quest.py
+
+Quest ids arrive as **strings** off the wire (``{"QuestID": "870"}``) and as
+**ints** from scripts.  The old lookup fell back on
+``str(quest_id) in str(loaded_quest_ids)`` to paper over the mismatch -- and
+that substring test equated ``443`` with ``4432``, so a check for one quest
+could pass because a *different* quest was in progress.  Every lookup must now
+be an exact int match, which is what this file guards.
+"""
+import asyncio
+import json
+import pathlib
+import sys
+
+REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from core.bot import Bot  # noqa: E402
+from core.command import Command  # noqa: E402
+from model import Quest, normalize_quest_id  # noqa: E402
+from model.inventory import ItemInventory  # noqa: E402
+
+
+def _server(cmd: str, **fields) -> str:
+    """Wrap a payload the way the server frames it: ``{"t":"xt","b":{"o":...}}``."""
+    return json.dumps({"t": "xt", "b": {"r": -1, "o": dict(cmd=cmd, **fields)}})
+
+
+def _quest(quest_id, turnin=None) -> Quest:
+    return Quest.from_payload({
+        "QuestID": str(quest_id), "iSlot": 12, "iValue": 3,
+        "sName": f"Quest {quest_id}", "bOnce": "0", "sField": "",
+        "turnin": turnin or [],
+    })
+
+
+def main() -> None:
+    # --- normalize_quest_id ------------------------------------------
+    assert normalize_quest_id("870") == 870          # wire string
+    assert normalize_quest_id(870) == 870            # script int
+    assert normalize_quest_id(" 870 ") == 870        # padded
+    assert normalize_quest_id(None) == 0
+    assert normalize_quest_id("") == 0
+    assert normalize_quest_id("abc") == 0
+    print("normalize : '870' ->", normalize_quest_id("870"),
+          "| None ->", normalize_quest_id(None))
+
+    bot = Bot()
+    cmd = Command(bot)
+
+    # --- exact-match lookup, string and int agree --------------------
+    bot.loaded_quest_datas.append(_quest(4432, [{"ItemID": "22332", "iQty": "2"}]))
+    assert bot.get_loaded_quest("4432") is bot.get_loaded_quest(4432)
+    assert bot.get_loaded_quest(4432) is not None
+    assert bot.loaded_quest_ids() == [4432]
+    print("lookup    : 4432 via '4432' and 4432 -> same object")
+
+    # --- the regression: 443 must NOT match 4432 ---------------------
+    assert bot.quest_not_in_progress(443), "443 matched 4432 (substring bug)"
+    assert not bot.quest_not_in_progress(4432)
+    assert cmd.quest_in_progress(4432) and not cmd.quest_in_progress(443)
+    print("regression: 443 does not match 4432")
+
+    # --- junk ids match nothing -------------------------------------
+    for junk in (0, None, "", "abc"):
+        assert bot.get_loaded_quest(junk) is None, junk
+        assert bot.quest_not_in_progress(junk), junk
+    print("junk ids  : 0/None/''/'abc' -> not in progress")
+
+    # --- can_turn_in_quest reads the model ---------------------------
+    assert not bot.can_turn_in_quest(4432)           # nothing in inventory
+    bot.player.INVENTORY.append(
+        ItemInventory({"sName": "Blood Gem of the Archfiend",
+                       "ItemID": 22332, "iQty": 2}))
+    assert bot.can_turn_in_quest("4432")             # string id again
+    bot.player.INVENTORY[0].qty = 1                  # one short of the 2 needed
+    assert not bot.can_turn_in_quest(4432)
+    print("turn-in   : 2 needed, 2 held -> True; 1 held -> False")
+
+    # --- ccqr handler: exact removal, and near-miss must not remove ---
+    asyncio.run(bot.handle_server_response(
+        _server("ccqr", QuestID="443", bSuccess=1, sName="near miss")))
+    assert bot.get_loaded_quest(4432) is not None, "ccqr 443 removed 4432"
+    asyncio.run(bot.handle_server_response(
+        _server("ccqr", QuestID="4432", bSuccess=1, sName="exact")))
+    assert bot.get_loaded_quest(4432) is None, "ccqr 4432 did not remove it"
+    print("ccqr      : '443' kept it, '4432' removed it")
+
+    # --- acceptQuest handler: a wire string lands as an int -----------
+    asyncio.run(bot.handle_server_response(
+        _server("acceptQuest", QuestID="9999", bSuccess=0)))
+    assert bot.failed_get_quest_datas == [9999], bot.failed_get_quest_datas
+    asyncio.run(bot.handle_server_response(
+        _server("acceptQuest", QuestID="9999", bSuccess=0)))
+    assert bot.failed_get_quest_datas == [9999], "duplicate recorded"
+    assert 9999 in cmd.bot.failed_get_quest_datas  # int lookup now matches
+    print("failed    : wire '9999' stored as int, no duplicate")
+
+    # --- quest rewards come from the payload, not from a cache -------
+    bot.loaded_quest_datas.append(Quest.from_payload({
+        "QuestID": 871, "sName": "Rewarded", "oRewards": {"itemsC": {
+            "0": {"ItemID": 4769, "sName": "Tainted Gem"},
+            "1": {"ItemID": 4770, "sName": "Dark Crystal Shard"}}},
+    }))
+    assert cmd.get_quest_rewards(871) == ["Tainted Gem", "Dark Crystal Shard"]
+    assert cmd.get_quest_rewards(99999) == []
+    added = cmd.add_quest_rewards(871)
+    assert added == ["Tainted Gem", "Dark Crystal Shard"]
+    assert set(added) <= set(bot.items_drop_whitelist)
+    print("rewards   : read oRewards, whitelisted the names")
+
+    # --- registration list round-trips through str/int ---------------
+    # ``register_quest`` is @check_alive, so it no-ops while disconnected;
+    # connect first, and keep 870 already in progress so ensure_accept_quest
+    # has nothing to loop on.
+    bot.loaded_quest_datas.append(_quest(870))
+    bot.is_client_connected = True
+    asyncio.run(cmd.register_quest("870"))
+    assert bot.registered_auto_quest_ids == [870]
+    cmd.unregister_quest("870")                      # str removes the int
+    assert bot.registered_auto_quest_ids == []
+    bot.is_client_connected = False
+    print("register  : '870' registered then unregistered as int")
+
+    print("\nquest tests OK")
+
+
+if __name__ == "__main__":
+    main()

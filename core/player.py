@@ -44,6 +44,10 @@ class Player:
         self.GOLD: int = 0
         self.GOLDFARMED: int = 0
         self.EXPFARMED: int = 0
+        #: Character level, parsed from ``initUserDatas``.  the reference bot exposes this as
+        #: ``Bot.Player.Level`` and several Core loops gate on it (HonorHall
+        #: needs 61, ``CoreFarms.Experience`` stops at a target level).
+        self.LEVEL: int = 0
         self.ISDEAD: bool = False
         self.MAX_HP: int = 9999
         self.MAX_MP: int = 100
@@ -399,6 +403,18 @@ class Player:
                 fac.add_rep(faction_rep)
                 return
     
+    def get_faction(self, faction_name: str) -> Optional[Faction]:
+        """The tracked :class:`Faction` for ``faction_name``, or ``None``.
+
+        Matches on the normalised name, the same way :meth:`getFactionRank`
+        does, so ``"Yew Mountains"`` and ``"yew mountains"`` agree.
+        """
+        normalized_faction = normalize(faction_name)
+        for fac in self.FACTIONS:
+            if fac.faction_name == normalized_faction:
+                return fac
+        return None
+
     def getFactionRank(self, faction_name: str) -> int:
         normalized_faction = normalize(faction_name)
         for fac in self.FACTIONS:

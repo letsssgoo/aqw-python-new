@@ -17,6 +17,7 @@ from model import Shop
 from model import Monster
 from model import ItemInventory, ItemType, Faction, PlayerArea
 from model import Skill
+from model import Quest, normalize_quest_id
 from handlers import register_quest_task, death_handler_task, aggro_handler_task
 import time
 import traceback
@@ -421,6 +422,13 @@ class Bot:
                         if username.lower() == self.username.lower() and self.player.CHARID == 0:
                             self.player.CHARID = i["data"]["CharID"]
                             self.player.GOLD = int(i["data"]["intGold"])
+                            # Level sits in this payload under one of two keys
+                            # depending on the client build; neither is worth
+                            # raising over, so read whichever is present.
+                            self.player.LEVEL = int(
+                                i["data"].get("iLvl")
+                                or i["data"].get("intLevel") or 0
+                            )
                         self.check_user_access_level(username, access_level)
                     if not self.player.BANK:
                         # print("Load bank and inventory...")
@@ -614,7 +622,7 @@ class Bot:
                         self.run_death_hanlder_task()
             elif cmd == "getQuests":
                 for quest_id, quest_data in data.get("quests").items():
-                    self.loaded_quest_datas.append(quest_data)
+                    self.loaded_quest_datas.append(Quest.from_payload(quest_data))
             elif cmd == "loadShop":
                 shop = Shop(data["shopinfo"])
                 # Opening a forge shop teaches the enhancement registry every
@@ -752,24 +760,23 @@ class Bot:
                 #     if self.strMapName.lower() == "ultraspeaker":
                 #         await self.walk_to(100, 321)
             elif cmd == "ccqr":
-                quest_id = data.get('QuestID', None)
+                quest_id = normalize_quest_id(data.get('QuestID'))
                 s_name = data.get('sName', None)
                 faction_id = data.get('rewardObj', {}).get('FactionID', None)
                 i_rep = data.get('rewardObj', {}).get('iRep', 0)
                 is_success = data.get('bSuccess', 0)
                 ccqr_msg = data.get('msg', '')
                 if is_success == 1:
-                    for loaded_quest in self.loaded_quest_datas:
-                        if str(loaded_quest["QuestID"]) == str(quest_id) and int(quest_id) not in self.registered_auto_quest_ids:
-                            self.loaded_quest_datas.remove(loaded_quest)
-                            break
+                    quest = self.get_loaded_quest(quest_id)
+                    if quest is not None and quest_id not in self.registered_auto_quest_ids:
+                        self.loaded_quest_datas.remove(quest)
                     print(Fore.YELLOW + f"ccqr: [{datetime.now().strftime('%H:%M:%S')}] {quest_id} - {s_name} - {i_rep} rep" + Fore.WHITE)
                 else:
                     print(Fore.RED + f"ccqr: [{datetime.now().strftime('%H:%M:%S')}] {quest_id} - {s_name} | {ccqr_msg}" + Fore.WHITE)
-                    if "Missing Turn In Item" in ccqr_msg:
-                        self.missing_turn_in_item_questid.append(int(quest_id))
-                    if "Missing Quest Progress" in ccqr_msg:
-                        self.missing_quest_progress_questid.append(int(quest_id))
+                    if quest_id and "Missing Turn In Item" in ccqr_msg:
+                        self.missing_turn_in_item_questid.append(quest_id)
+                    if quest_id and "Missing Quest Progress" in ccqr_msg:
+                        self.missing_quest_progress_questid.append(quest_id)
                     if "One Time Quest Only" in ccqr_msg:
                         pass
             elif cmd == "Wheel":
@@ -777,14 +784,13 @@ class Bot:
                 dropItemsName = [item["sName"] for item in dropItems.values() if "sName" in item]
                 print(Fore.YELLOW + f"Wheel: {dropItemsName}" + Fore.WHITE)
             elif cmd == "acceptQuest":
-                quest_id = data["QuestID"]
+                quest_id = normalize_quest_id(data["QuestID"])
                 if data["bSuccess"] == 1:
-                    loaded_quest_ids = [loaded_quest["QuestID"] for loaded_quest in self.loaded_quest_datas]
-                    if not str(quest_id) in str(loaded_quest_ids):
+                    if self.get_loaded_quest(quest_id) is None:
                         self.write_message(f"%xt%zm%getQuests%{self.areaId}%{quest_id}%")
                         self.do_wait(500)
                 elif data["bSuccess"] == 0:
-                    if quest_id not in self.failed_get_quest_datas:
+                    if quest_id and quest_id not in self.failed_get_quest_datas:
                         self.failed_get_quest_datas.append(quest_id)
             elif cmd == "addFaction":
                 # {"t":"xt","b":{"r":-1,"o":{"cmd":"addFaction","faction":{"FactionID":"75","bitSuccess":"1","CharFactionID":"48707365","sName":"Yew Mountains","iRep":"0"}}}}
@@ -1035,10 +1041,12 @@ class Bot:
         self.write_message(packet)
     
     def accept_quest(self, quest_id: int):
+        quest_id = normalize_quest_id(quest_id)
         self.write_message(f"%xt%zm%acceptQuest%{self.areaId}%{quest_id}%")
         self.do_wait(500)
         
     def turn_in_quest(self, quest_id: int, item_id: int = -1, qty: int = 1):
+        quest_id = normalize_quest_id(quest_id)
         packet = f"%xt%zm%tryQuestComplete%{self.areaId}%{quest_id}%{item_id}%false%{qty}%wvz%"
         self.write_message(packet)
         self.do_wait(500)
@@ -1154,27 +1162,33 @@ class Bot:
         best_cell = max(cell_counts, key=cell_counts.get)
         return best_cell
 
-    def can_turn_in_quest(self, questId: int) -> bool:
+    def get_loaded_quest(self, quest_id) -> Optional[Quest]:
+        """The tracked :class:`Quest` with this id, or ``None``.
+
+        A quest present in :attr:`loaded_quest_datas` is in progress -- the
+        server only lists it in ``getQuests`` once it has been accepted.  The
+        id is normalised, so a wire string and a script int agree; an id that
+        is not a number (``0``) matches nothing.
+        """
+        wanted = normalize_quest_id(quest_id)
+        if wanted <= 0:
+            return None
         for loaded_quest in self.loaded_quest_datas:
-            if str(loaded_quest.get("QuestID", 0))  == str(questId):
-                return self._check_req_inventory(loaded_quest["turnin"])
-        return False
+            if loaded_quest.quest_id == wanted:
+                return loaded_quest
+        return None
 
-    def _check_req_inventory(self, quest_data) -> bool:
-        all_items_met = True
-        for req_item in quest_data:
-            required_item_id = req_item["ItemID"]
-            required_qty = req_item["iQty"]
+    def loaded_quest_ids(self) -> list:
+        """Ids of every quest currently tracked as in progress."""
+        return [quest.quest_id for quest in self.loaded_quest_datas]
 
-            item = self.player.get_item_inventory_by_id(required_item_id) or \
-                self.player.get_item_temp_inventory_by_id(required_item_id)
-            if not item or int(item.qty) < int(required_qty):
-                all_items_met = False
-        return all_items_met
-    
+    def can_turn_in_quest(self, questId: int) -> bool:
+        quest = self.get_loaded_quest(questId)
+        return bool(quest and quest.requirements_met(self.player))
+
     def quest_not_in_progress(self, quest_id: int) -> bool:
-        loaded_quest_ids = [loaded_quest["QuestID"] for loaded_quest in self.loaded_quest_datas]
-        return str(quest_id) not in str(loaded_quest_ids)
+        """Return True when the quest is not currently tracked in progress."""
+        return self.get_loaded_quest(quest_id) is None
 
     def reset_cmds(self):
         self.index = 0

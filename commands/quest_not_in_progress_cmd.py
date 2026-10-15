@@ -9,8 +9,7 @@ class QuestNotInProgressCmd(BaseCommand):
         self.questId = questId
 
     async def execute(self, bot: Bot, cmd: Command):
-        loaded_quest_ids = [loaded_quest["QuestID"] for loaded_quest in bot.loaded_quest_datas]
-        if str(self.questId) in str(loaded_quest_ids):
+        if bot.get_loaded_quest(self.questId):
             bot.index += 1
         
     def to_string(self):
