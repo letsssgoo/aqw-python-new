@@ -112,6 +112,9 @@ ENTRY_MODULES = [
     "bot.nation.evolved_orb.evolved_blood_orb",
     "bot.nation.evolved_orb.evolved_hex_orb",
     "bot.nation.evolved_orb.evolved_shadow_orb",
+    "bot.nation.vhl.0_void_highlord",
+    "bot.nation.vhl.void_crystals",
+    "bot.nation.vhl.void_highlords_challenge",
     "bot.bank_check",
     "bot.story.battle_under",
     "bot.story.nation.void_refuge",
@@ -145,8 +148,10 @@ SUPPORT_MODULES = [
     "bot.ultra.core_ultra",
     "bot.nation.core_nation",
     "bot.core_bots",
+    "bot.core_dailies",
     "bot.core_farms",
     "bot.core_story",
+    "bot.nation.vhl.core_vhl",
 ]
 
 

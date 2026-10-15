@@ -25,7 +25,7 @@ import random
 from typing import Awaitable, Callable, Optional, Sequence, Tuple
 
 from bot.core_bots import (Alignment, buy_item, can_we_aggro, change_alignment,
-                           equip_class)
+                           equip_class, wait_for_item)
 from core.command import Command
 from templates.hunt import DEFAULT_SKILL_LIST, hunt_item
 
@@ -845,3 +845,42 @@ async def farm_faction(cmd: Command, faction: str, rank: int = 10) -> bool:
         return False
     await farm(cmd, rank)
     return True
+
+
+# ---------------------------------------------------------------------------
+# Quest items the Nation cores ask for
+# ---------------------------------------------------------------------------
+
+#: ``CoreFarms.BlackKnightOrb`` -- quest 318's four pieces, one per map.
+BLACK_KNIGHT_ORB = "Black Knight Orb"
+BLACK_KNIGHT_ORB_QUEST = 318
+BLACK_KNIGHT_ORB_PIECES = (
+    ("well", "Gell Oh No", "Black Knight Leg Piece"),
+    ("greendragon", "Greenguard Dragon", "Black Knight Chest Piece"),
+    ("deathgazer", "Deathgazer", "Black Knight Shoulder Piece"),
+    ("trunk", "GreenGuard Basilisk", "Black Knight Arm Piece"),
+)
+
+
+async def black_knight_orb(cmd: Command) -> None:
+    """``CoreFarms.BlackKnightOrb``: quest 318, one piece in each of four maps.
+
+    The reference closes with ``Bot.Wait.ForPickup``; the reward is waited for
+    here too, through ``bot.core_bots.wait_for_item``.  Its ``EnsureAccept`` loops
+    until the quest is active, so a refusal there never reaches the hunt; this
+    engine's accept gives up and reports instead, which is why the guard below
+    stops rather than killing for a quest that is not running.
+    """
+    if await cmd.has_item(BLACK_KNIGHT_ORB):
+        return
+
+    cmd.add_drop(BLACK_KNIGHT_ORB)
+    if not await cmd.ensure_accept_quest(BLACK_KNIGHT_ORB_QUEST):
+        print(f"[farm] quest {BLACK_KNIGHT_ORB_QUEST} ({BLACK_KNIGHT_ORB}) "
+              f"cannot be accepted; nothing farmed.")
+        return
+    for map_name, monster, piece in BLACK_KNIGHT_ORB_PIECES:
+        await hunt_item(cmd, piece, 1, map_name, monster_name=monster,
+                        is_temp=True)
+    await cmd.ensure_turn_in_quest(BLACK_KNIGHT_ORB_QUEST)
+    await wait_for_item(cmd, BLACK_KNIGHT_ORB)

@@ -1047,13 +1047,18 @@ class Command:
             await self.sleep(500)
 
     @check_alive
-    async def buy_item(self, shop_id: int, item_name: str, qty: int = 1) -> None:
+    async def buy_item(self, shop_id: int, item_name: str, qty: int = 1,
+                       shop_item_id: int = 0) -> None:
         """Buy an item, loading the shop if it is not cached.
 
         Args:
             shop_id (int): Identifier of the shop containing the item.
             item_name (str): Name of the item to purchase.
             qty (int): Quantity to purchase in a single request.
+            shop_item_id (int): Which entry to buy when the shop carries the
+                same name more than once, which merge shops do -- it is the only
+                thing that tells those entries apart.  ``0`` takes the first
+                match, as before.
 
         Returns:
             None: Sends the buy packet once the shop data is available.
@@ -1066,11 +1071,14 @@ class Command:
                 break
         if shop:
             for shop_item in shop.items:
-                if shop_item.item_name.lower() == item_name.lower():
-                    packet = f"%xt%zm%buyItem%{self.bot.areaId}%{shop_item.item_id}%{shop.shop_id}%{shop_item.shop_item_id}%{qty}%"
-                    self.bot.write_message(packet)
-                    await asyncio.sleep(1)
-                    break
+                if shop_item.item_name.lower() != item_name.lower():
+                    continue
+                if shop_item_id and str(shop_item.shop_item_id) != str(shop_item_id):
+                    continue
+                packet = f"%xt%zm%buyItem%{self.bot.areaId}%{shop_item.item_id}%{shop.shop_id}%{shop_item.shop_item_id}%{qty}%"
+                self.bot.write_message(packet)
+                await asyncio.sleep(1)
+                break
         else:
             packet = f"%xt%zm%loadShop%{self.bot.areaId}%{shop_id}%"
             self.bot.write_message(packet)

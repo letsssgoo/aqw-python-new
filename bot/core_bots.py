@@ -9,6 +9,9 @@ call live here so far:
 ``change_alignment``    ``CoreBots.ChangeAlignment``
 ``equip_class``         ``CoreBots.EquipClass``
 ``can_we_aggro``        ``CoreBots.CanWeAggro``
+``buy_item``            ``CoreBots.BuyItem``, by name or by item id
+``dynamic_quant``       ``CoreBots.dynamicQuant``
+``wait_for_item``       ``Bot.Wait.ForPickup``, as a bounded poll
 ======================  ==================================================
 
 ``bot.nation.core_nation`` re-exports ``equip_class`` and ``can_we_aggro`` from
@@ -16,7 +19,7 @@ here, so its call sites and tests keep the names they had.
 """
 import json
 from enum import Enum
-from typing import Optional
+from typing import Optional, Union
 
 from core.command import Command
 from core.utils import is_valid_json
@@ -154,8 +157,9 @@ async def kill_kitsune(cmd: Command, item: Optional[str] = None, quant: int = 1,
         cmd.bot.unsubscribe(kitsune_listener)
 
 
-async def buy_item(cmd: Command, shop_id: int, item_name: str,
-                   qty: int = 1, map_name: Optional[str] = None) -> bool:
+async def buy_item(cmd: Command, shop_id: int, item: Union[int, str],
+                   qty: int = 1, map_name: Optional[str] = None,
+                   shop_item_id: int = 0) -> bool:
     """Buy an item from a shop, in the map that shop lives in.
 
     ``CoreBots.BuyItem(map, shopID, item)`` joins the map before anything else --
@@ -167,36 +171,129 @@ async def buy_item(cmd: Command, shop_id: int, item_name: str,
     Args:
         cmd (Command): Facade to act through.
         shop_id (int): Shop to buy from.
-        item_name (str): Item to buy; must be in the shop.
+        item (int | str): Item to buy, by name or by item id.  The reference has
+            an overload for each, and some shop entries are only ever named by
+            id -- ``CoreVHL``'s Citadel shop 44, item 38316, is one.
         qty (int): How many to buy.
         map_name (str | None): Map the shop is in.  Without it the shop is asked
             for wherever the character happens to be.
+        shop_item_id (int): Which entry to buy when the shop carries the same
+            item more than once, as merge shops do.  The reference's
+            ``parseShopItem`` looks this up before anything else and treats it as
+            the answer, so it is honoured the same way here.
 
     Returns:
-        bool: True when the buy packet was sent.  False is reported, with the
-        reason: the map could not be reached, the shop never loaded, or the item
-        is not in it.
+        bool: True when the buy packet was sent, or when the id form found the
+        item already in hand.  False is reported, with the reason: the map could
+        not be reached, the shop never loaded, or the item is not in it.
     """
+    if isinstance(item, int) and await cmd.has_item_id(item):
+        # BuyItem(int itemID) opens with CheckInventory(itemID, quant); every
+        # call site here asks for one, which is what has_item_id answers for
+        return True
+
     if map_name:
         while cmd.is_still_connected() and cmd.is_not_in_map(map_name):
             await cmd.join_map(map_name)
             await cmd.sleep(1000)
         if not cmd.is_still_connected():
-            print(f"[core] disconnected while joining {map_name}; {item_name!r} "
+            print(f"[core] disconnected while joining {map_name}; {item!r} "
                   f"was not bought.")
             return False
 
     if not await cmd.ensure_load_shop(shop_id):
-        print(f"[core] shop {shop_id} never loaded; {item_name!r} was not bought.")
+        print(f"[core] shop {shop_id} never loaded; {item!r} was not bought.")
         return False
-    shop = _find_shop(cmd, shop_id)
-    if shop is None or not any(i.item_name == item_name.lower()
-                               for i in shop.items):
-        print(f"[core] shop {shop_id} does not carry {item_name!r}; nothing "
-              f"bought.")
+    wanted = _resolve_shop_item(_find_shop(cmd, shop_id), item, shop_item_id)
+    if wanted is None:
         return False
-    await cmd.buy_item(shop_id, item_name, qty)
+    await cmd.buy_item(shop_id, wanted.item_name, qty,
+                       shop_item_id=wanted.shop_item_id)
     return True
+
+
+def _resolve_shop_item(shop, item: Union[int, str], shop_item_id: int = 0):
+    """The shop entry ``BuyItem`` would pick, or None (reported).
+
+    ``parseShopItem`` tries the shop item id first -- merge shops carry one item
+    under several ids and only that id tells them apart -- then the item id, then
+    a name match, which it only accepts when it is unique.
+    """
+    if shop is None:
+        print("[core] the shop is not in the cache; nothing bought.")
+        return None
+    entries = list(shop.items)
+
+    if shop_item_id:
+        for entry in entries:
+            if str(entry.shop_item_id) == str(shop_item_id):
+                return entry
+        print(f"[core] shop {shop.shop_id} has no entry {shop_item_id}; falling "
+              f"back to {item!r}.")
+
+    if isinstance(item, int):
+        for entry in entries:
+            if str(entry.item_id) == str(item):
+                return entry
+        print(f"[core] shop {shop.shop_id} does not carry item {item}; nothing "
+              f"bought.")
+        return None
+
+    matches = [e for e in entries if e.item_name.lower() == str(item).lower()]
+    if len(matches) > 1:
+        print(f"[core] shop {shop.shop_id} carries {item!r} {len(matches)} times; "
+              f"pass shop_item_id to say which entry is meant.")
+        return None
+    if not matches:
+        print(f"[core] shop {shop.shop_id} does not carry {item!r}; nothing "
+              f"bought.")
+        return None
+    return matches[0]
+
+
+def dynamic_quant(cmd: Command, item: str, is_temp: bool = False) -> int:
+    """``CoreBots.dynamicQuant``: how much of ``item`` the account holds.
+
+    The reference sums the inventory and the bank, and only looks in the temp bag
+    when told to; that is the number its "how many more do I need?" arithmetic
+    wants.  An item lives in one of those at a time, so the engine's first-match
+    lookups answer the same sum.
+    """
+    player = cmd.bot.player
+    if is_temp:
+        found = player.get_item_temp_inventory(item)
+        return int(getattr(found, "qty", 0) or 0)
+
+    total = 0
+    for found in (player.get_item_inventory(item), player.get_item_bank(item)):
+        if found is not None:
+            total += int(getattr(found, "qty", 0) or 0)
+    return total
+
+
+#: How long :func:`wait_for_item` waits for a turn-in's reward to land.
+PICKUP_WAIT_MS = 10_000
+
+
+async def wait_for_item(cmd: Command, item_name: str, quant: int = 1,
+                        timeout_ms: int = PICKUP_WAIT_MS) -> bool:
+    """``Bot.Wait.ForPickup`` as a bounded poll: True once the item is held.
+
+    The reference blocks here after a turn-in until the reward reaches the
+    inventory.  This engine polls, so the wait is bounded and a timeout is
+    reported -- the drop is on its way, but a caller that assumed it had arrived
+    would send the next packet against an inventory that does not have it yet.
+    """
+    waited = 0
+    while cmd.is_still_connected() and waited < timeout_ms:
+        if await cmd.has_item(item_name, quant):
+            return True
+        await cmd.sleep(500)
+        waited += 500
+    if cmd.is_still_connected():
+        print(f"[core] {item_name!r} has not arrived after {timeout_ms} ms; "
+              f"continuing without it.")
+    return False
 
 
 async def equip_class(cmd: Command, solo: bool = False) -> bool:

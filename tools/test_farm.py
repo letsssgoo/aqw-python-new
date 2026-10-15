@@ -55,14 +55,17 @@ class _Bot:
 class _ShopItem:
     """Mirrors ``ItemInventory``: the model lower-cases ``sName`` on the way in."""
 
-    def __init__(self, name):
+    def __init__(self, name, item_id=0, shop_item_id=None):
         self.item_name = name.lower()
+        self.item_id = item_id
+        self.shop_item_id = item_id if shop_item_id is None else shop_item_id
 
 
 class _Shop:
     def __init__(self, shop_id, items):
         self.shop_id = shop_id
-        self.items = [_ShopItem(n) for n in items]
+        self.items = [i if isinstance(i, _ShopItem) else _ShopItem(i)
+                      for i in items]
 
 
 class _ShopBot:
@@ -121,6 +124,8 @@ class Stub:
         self._monsters_dead = False
         #: set True to make is_in_cell answer yes whatever the cell
         self.cell_ok = False
+        #: item ids ``has_item_id`` should report as held
+        self.owned_ids = set()
 
     # --- sync -----------------------------------------------------------
     def kinds(self):
@@ -239,12 +244,16 @@ class Stub:
     async def bank_to_inv(self, names):
         self.calls.append(("bank_to_inv", names))
 
-    async def buy_item(self, shop_id, item_name, qty=1):
-        self.calls.append(("buy_item", shop_id, item_name, qty))
+    async def buy_item(self, shop_id, item_name, qty=1, shop_item_id=0):
+        self.calls.append(("buy_item", shop_id, item_name, qty, shop_item_id))
 
     async def ensure_load_shop(self, shop_id):
         self.calls.append(("ensure_load_shop", shop_id))
         return self.shop_loads
+
+    async def has_item_id(self, item_id):
+        self.calls.append(("has_item_id", item_id))
+        return str(item_id) in self.owned_ids
 
     async def has_item(self, name, qty=1, operator=">=", isTemp=False):
         if not isTemp and self.is_in_bank(name):
@@ -332,6 +341,61 @@ def _rank_on_turn_in(stub, faction, amount):
         return result
 
     stub.ensure_turn_in_quest = turn_in
+
+
+class _HuntStub(Stub):
+    """Credits each hunt on the first cast, so a farm loop ends on its own.
+
+    ``hunt_item`` whitelists the item it is about to farm with ``add_drop``, so
+    that call names whatever the next cast should produce -- no per-item setup.
+    ``turn_in_rewards`` does the same for a quest's reward, so a ``Wait.ForPickup``
+    poll (``wait_for_item``) finds it.
+    """
+
+    def __init__(self, *args, turn_in_rewards=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._wanted = None
+        self.turn_in_rewards = {int(k): v
+                                for k, v in (turn_in_rewards or {}).items()}
+
+    def add_drop(self, names):
+        super().add_drop(names)
+        self._wanted = names if isinstance(names, str) else names[0]
+
+    async def use_next_skill(self, *args, **kwargs):
+        if self._wanted:
+            self.inv[self._wanted] = self.inv.get(self._wanted, 0) + 1
+        await super().use_next_skill(*args, **kwargs)
+
+    async def ensure_turn_in_quest(self, quest_id, item_id=-1, amount=1):
+        result = await super().ensure_turn_in_quest(quest_id, item_id, amount)
+        reward = self.turn_in_rewards.get(int(quest_id))
+        if reward:
+            self.inv[reward] = self.inv.get(reward, 0) + 1
+        return result
+
+
+class _QtyPlayer:
+    """The three name lookups ``dynamic_quant`` reads, and nothing else."""
+
+    def __init__(self, inventory=None, bank=None, temp=None):
+        self._inventory = dict(inventory or {})
+        self._bank = dict(bank or {})
+        self._temp = dict(temp or {})
+
+    @staticmethod
+    def _found(source, name):
+        qty = source.get(name)
+        return None if qty is None else type("I", (), {"qty": qty})()
+
+    def get_item_inventory(self, name):
+        return self._found(self._inventory, name)
+
+    def get_item_bank(self, name):
+        return self._found(self._bank, name)
+
+    def get_item_temp_inventory(self, name):
+        return self._found(self._temp, name)
 
 
 def main() -> None:
@@ -563,7 +627,7 @@ def main() -> None:
     stocked = Stub()
     stocked.bot.loaded_shop_datas.append(_Shop(68, ["Blade of Affliction"]))
     assert asyncio.run(buy_item(stocked, 68, "Blade of Affliction")) is True
-    assert ("buy_item", 68, "Blade of Affliction", 1) in stocked.calls, \
+    assert ("buy_item", 68, "blade of affliction", 1, 0) in stocked.calls, \
         stocked.calls
     print("buy_item   : shop loaded and stocked -> bought once")
 
@@ -777,6 +841,89 @@ def main() -> None:
         == {"cmd": "ct"}
     assert parse_message("not json") is None
     print("kitsune    : the Shapeshifted rule reads on/off, nothing else")
+
+    # --- buy_item: the id form, and the shop entry id -------------------
+    from bot.core_bots import dynamic_quant, wait_for_item
+
+    by_id = Stub()
+    by_id.bot.loaded_shop_datas.append(
+        _Shop(44, [_ShopItem("Some Item", 38316, 22367)]))
+    assert asyncio.run(buy_item(by_id, 44, 38316, map_name="citadel",
+                                shop_item_id=22367)) is True
+    assert ("buy_item", 44, "some item", 1, 22367) in by_id.calls, by_id.calls
+    print("buy_item   : item id + shop entry id buys that entry")
+
+    owned = Stub()
+    owned.owned_ids = {"38316"}
+    assert asyncio.run(buy_item(owned, 44, 38316)) is True
+    assert owned.calls == [("has_item_id", 38316)], owned.calls
+    print("buy_item   : the id form stops when that id is already held")
+
+    twice = Stub()
+    twice.bot.loaded_shop_datas.append(_Shop(900, ["Twin", "Twin"]))
+    assert asyncio.run(buy_item(twice, 900, "Twin")) is False
+    assert "buy_item" not in twice.kinds(), twice.calls
+    print("buy_item   : a name the shop carries twice is refused, not guessed")
+
+    # --- dynamic_quant / wait_for_item ----------------------------------
+    qty = Stub()
+    qty.bot.player = _QtyPlayer(inventory={"Unidentified 13": 3},
+                                bank={"Unidentified 13": 2})
+    assert dynamic_quant(qty, "Unidentified 13") == 5
+    assert dynamic_quant(qty, "Unidentified 13", is_temp=True) == 0
+    assert dynamic_quant(qty, "Something Else") == 0
+    print("quant      : bank counts with the inventory, temp only on ask")
+
+    assert asyncio.run(wait_for_item(Stub(inventory={"Elders' Blood": 1}),
+                                     "Elders' Blood")) is True
+    assert asyncio.run(wait_for_item(Stub(), "Elders' Blood",
+                                     timeout_ms=1000)) is False
+    print("pickup     : held is immediate; a drop that never lands times out")
+
+    # --- Black Knight Orb (quest 318) -----------------------------------
+    from bot.core_farms import BLACK_KNIGHT_ORB_PIECES, black_knight_orb
+
+    have_orb = Stub(inventory={"Black Knight Orb": 1})
+    asyncio.run(black_knight_orb(have_orb))
+    assert have_orb.calls == [], have_orb.calls
+    print("blackknight: already held -> no calls")
+
+    refused_orb = Stub(accept=False)
+    asyncio.run(black_knight_orb(refused_orb))
+    assert ("ensure_accept_quest", 318) in refused_orb.calls, refused_orb.calls
+    assert "use_next_skill" not in refused_orb.kinds(), refused_orb.calls
+    print("blackknight: quest 318 refused -> reported, nothing killed")
+
+    orb = _HuntStub(connect_after=0)
+    asyncio.run(black_knight_orb(orb))
+    assert [c[1] for c in orb.calls if c[0] == "join_map"] == \
+        [piece[0] for piece in BLACK_KNIGHT_ORB_PIECES], orb.calls
+    assert ("ensure_turn_in_quest", 318) in orb.calls, orb.calls
+    print("blackknight: the four pieces in the four maps, then the turn-in")
+
+    # --- Elders' Blood (quest 802, one a day) ---------------------------
+    from bot.core_dailies import elders_blood
+
+    done_today = Stub(accept=False)
+    asyncio.run(elders_blood(done_today))
+    assert ("ensure_accept_quest", 802) in done_today.calls, done_today.calls
+    assert "use_next_skill" not in done_today.kinds(), done_today.calls
+    print("elders     : a refused accept is today's being done -- nothing killed")
+
+    full = Stub(inventory={"Elders' Blood": 20})
+    asyncio.run(elders_blood(full))
+    assert full.calls == [], full.calls
+    print("elders     : at the item's cap -> no calls")
+
+    blood = _HuntStub(connect_after=0, turn_in_rewards={802: "Elders' Blood"})
+    asyncio.run(elders_blood(blood))
+    assert ("join_map", "arcangrove") in blood.calls, blood.calls
+    assert ("jump_cell", "LeftBack", "Left") in blood.calls, blood.calls
+    assert ("add_drop", "Slain Gorillaphant") in blood.calls, blood.calls
+    assert ("ensure_accept_quest", 802) in blood.calls, blood.calls
+    assert ("ensure_turn_in_quest", 802) in blood.calls, blood.calls
+    assert blood.inv.get("Elders' Blood") == 1, blood.inv
+    print("elders     : quest 802 in /arcangrove LeftBack for the one Blood")
 
     print("\nfarm tests OK")
 

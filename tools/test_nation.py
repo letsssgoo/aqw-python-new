@@ -288,8 +288,8 @@ class Stub:
         self.calls.append(("can_turnin_quest", quest_id))
         return False
 
-    async def buy_item(self, shop_id, item_name, qty=1):
-        self.calls.append(("buy_item", shop_id, item_name, qty))
+    async def buy_item(self, shop_id, item_name, qty=1, shop_item_id=0):
+        self.calls.append(("buy_item", shop_id, item_name, qty, shop_item_id))
 
     async def ensure_load_shop(self, shop_id):
         self.calls.append(("ensure_load_shop", shop_id))
@@ -799,6 +799,81 @@ def main() -> None:
     assert "use_next_skill" not in rewardless.kinds(), rewardless.calls
     print("proof      : chain done, quest 4785 reports no rewards and stops")
 
+    # --- VHL: the guards that stop it before it farms -------------------
+    from bot.nation.vhl import core_vhl
+
+    # the reference's own numbers, pinned: 15 tokens for the class itself, 25 for
+    # the challenge script, and the reward id its Sparrow pass asks for
+    assert (core_vhl.CITADEL_ITEM_ID, core_vhl.CITADEL_SHOP_ITEM_ID) == (38316, 22367)
+    assert core_vhl.SPARROW_ELDERS_BLOOD_ID == 5586
+    assert core_vhl.SWINDLE_REWARD_ID == 57446
+
+    # holding the class -> nothing to farm, rank-up aside
+    have_class = Stub(all_owned=True)
+    asyncio.run(core_vhl.get_vhl(have_class))
+    assert have_class.calls == [], have_class.calls
+    print("vhl        : the class is already held -> no calls at all")
+
+    crystals = Stub(inventory={"Void Crystal A": 1, "Void Crystal B": 1})
+    asyncio.run(core_vhl.vhl_crystals(crystals))
+    assert crystals.calls == [], crystals.calls
+    print("vhl        : both crystals held -> no calls at all")
+
+    # level 80 so the experience step returns before it touches anything, and a
+    # refused accept must stop the run instead of hunting for a quest that is
+    # not running
+    refused = Stub(level=80, accept=False)
+    asyncio.run(core_vhl.vhl_challenge(refused, 25))
+    assert ("ensure_accept_quest", 5660) in refused.calls, refused.calls
+    assert ("add_drop", "Hadean Onyx of Nulgath") not in refused.calls, \
+        refused.calls
+    assert ("jump_cell", "m4", "Right") not in refused.calls, refused.calls
+    print("vhl        : quest 5660 refused -> reported, no kill for its drop")
+
+    # the Sparrow pass: only members holding Crag & Bamboozle, and only while
+    # the Blood is still short, reach the daily
+    asked = []
+
+    async def _acab(cmd, reward_id=None):
+        asked.append(reward_id)
+
+    original_acab = core_vhl.assisting_crag_and_bamboozle
+    core_vhl.assisting_crag_and_bamboozle = _acab
+    try:
+        asyncio.run(core_vhl._sparrow_method(Stub(), 2))
+        assert asked == [], asked                       # not a member
+        asyncio.run(core_vhl._sparrow_method(Stub(member=True), 2))
+        assert asked == [], asked                       # no Crag & Bamboozle
+        asyncio.run(core_vhl._sparrow_method(
+            Stub(member=True, inventory={CRAG_PET: 1}), 2))
+        assert asked == [5586], asked                   # Elders' Blood, by id
+        asyncio.run(core_vhl._sparrow_method(
+            Stub(member=True,
+                 inventory={CRAG_PET: 1, "Elders' Blood": 2}), 2))
+        assert asked == [5586], asked                   # already enough blood
+    finally:
+        core_vhl.assisting_crag_and_bamboozle = original_acab
+    print("vhl        : the Sparrow pass needs the member, the pet, and the gap")
+
+    # quest 7551's reward 57446 is what FarmExtra swaps for: read from the
+    # payload once the quest is loaded, and reported when it is not there
+    class _Quest:
+        def __init__(self, entries):
+            self.reward_entries = entries
+
+    loaded = Stub(quests={7551: _Quest([(57446, "Voucher of Nulgath", 1)])})
+    assert asyncio.run(core_vhl._swindle_reward_name(loaded)) \
+        == "Voucher of Nulgath"
+    assert asyncio.run(core_vhl._swindle_reward_name(
+        Stub(quests={7551: _Quest([(1, "Something Else", 1)])}))) is None
+    assert asyncio.run(core_vhl._swindle_reward_name(Stub())) is None
+    print("vhl        : reward 57446 is read off quest 7551, or reported missing")
+
+    extra = Stub(all_owned=True)
+    asyncio.run(core_vhl.farm_extra(extra))
+    assert extra.calls == [], extra.calls
+    print("vhl        : farm_extra at its target -> no calls at all")
+
     # --- every wrapper is runnable, and no-ops when all is banked -----
     WRAPPERS = [
         "materials.0_max_bags", "materials.approval_and_favor",
@@ -854,6 +929,9 @@ def main() -> None:
         "evolved_orb.evolved_blood_orb",
         "evolved_orb.evolved_hex_orb",
         "evolved_orb.evolved_shadow_orb",
+        "vhl.0_void_highlord",
+        "vhl.void_crystals",
+        "vhl.void_highlords_challenge",
     ]
     #: ``leery_exchange_gold`` trades Unidentified 13 for gold: with a stub that
     #: owns everything and never spends it, the loop has no way to end -- give
