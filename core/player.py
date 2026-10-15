@@ -124,6 +124,7 @@ class Player:
                                             data=data, timeout=15)
                 for item in response.json():
                     self.BANK.append(ItemInventory(item))
+                print(f"bank: {len(self.BANK)} items loaded from the bank")
                 return True
             except (requests.exceptions.RequestException, ValueError) as error:
                 if attempt == 2:

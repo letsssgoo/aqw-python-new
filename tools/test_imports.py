@@ -75,6 +75,7 @@ ENTRY_MODULES = [
     "bot.nation.nation_loyalty_rewarded",
     "bot.nation.time_is_money",
     "bot.nation.voucher_item_choose",
+    "bot.bank_check",
 ]
 
 #: Modules that deliberately define no class -- they re-export one from
