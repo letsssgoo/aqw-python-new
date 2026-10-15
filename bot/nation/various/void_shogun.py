@@ -53,7 +53,7 @@ async def main(cmd: Command):
         cmd.add_drop(VOUCHER)
         await hunt_item(cmd, VOUCHER, VOUCHER_QTY, MONK_MAP, cell="r2",
                         pad="Left", monster_name="*", is_temp=False)
-        await buy_item(cmd, MONK_SHOP_ID, MONK)
+        await buy_item(cmd, MONK_SHOP_ID, MONK, map_name=MONK_MAP)
 
     await yokai_rep(cmd)
     await farm_voucher(cmd, False)

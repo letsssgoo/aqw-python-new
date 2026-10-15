@@ -9,8 +9,9 @@ from bot.nation.core_nation import (approval_and_favor,
                                     farm_tainted_gem, farm_totem_of_nulgath,
                                     farm_uni13_quest, farm_voucher)
 
-#: Shop and item.
+#: Shop, its map, and the item.
 SHOP_ID = 1211
+SHOP_MAP = "archportal"
 ITEM = "Evolved Hex Orb"
 
 #: Reference quantities, in the order the reference farms them.
@@ -30,4 +31,4 @@ async def main(cmd: Command):
     await farm_totem_of_nulgath(cmd, TOTEMS)
     await farm_dark_crystal_shard(cmd, SHARDS)
     await farm_tainted_gem(cmd, TAINTED)
-    await buy_item(cmd, SHOP_ID, ITEM)
+    await buy_item(cmd, SHOP_ID, ITEM, map_name=SHOP_MAP)

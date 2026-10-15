@@ -35,4 +35,4 @@ async def main(cmd: Command):
     await hunt_item(cmd, "Letter from Asuka and Tendou", 1, "Citadel",
                     monster_name="Burning Witch", is_temp=False)
     await farm_gold(cmd, GOLD)
-    await buy_item(cmd, SHOP_ID, ITEM)
+    await buy_item(cmd, SHOP_ID, ITEM, map_name="archportal")

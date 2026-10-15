@@ -970,20 +970,42 @@ async def sell_voucher_of_nulgath(cmd: Command, sell_mem_voucher: bool = True,
 def _log_supplies_config(item: Optional[str], quant: int, ultra_alteon: bool,
                          hydra: bool, keep_voucher: bool,
                          sell_mem_voucher: bool, assistant: bool,
-                         return_policy: bool, return_item: Optional[str]) -> None:
-    """Print the settings the Supplies route resolved to (the C# logs the same)."""
-    def flag(value: bool) -> str:
-        return "True" if value else "False"
+                         return_policy: bool, return_item: Optional[str],
+                         voucher_item_during: bool = False) -> None:
+    """Print what the Supplies route resolved to, and what each setting does.
+
+    The reference logs the same settings as bare flags; the labels here say what
+    each one means, because the flags are what decides how a long run behaves.
+    """
+    route = ("the Hydra Challenge" if hydra
+             else "Ultra Alteon" if ultra_alteon
+             else "Escherion, the base quest")
+    if keep_voucher:
+        voucher = "kept -- never sold, whatever the gold"
+    elif sell_mem_voucher:
+        voucher = "the member voucher is sold once the account is past 100M gold"
+    else:
+        voucher = "kept -- after 100M gold the member voucher is not sold"
 
     print("[nation] [Supplies] =========================")
-    print(f"[nation] item      : {item or 'All'} x{quant}")
-    print(f"[nation] ultra     : {flag(ultra_alteon)}")
-    print(f"[nation] hydra     : {flag(hydra)}")
-    print(f"[nation] voucher K : {flag(keep_voucher)}")
-    print(f"[nation] voucher S : {flag(sell_mem_voucher)}")
-    print(f"[nation] assist    : {flag(assistant)}")
-    print(f"[nation] return    : {flag(return_policy)}")
-    print(f"[nation] return it : {return_item or 'None'}")
+    print("[nation] [Supplies] target      : "
+          + (f"{item} x{quant}" if item
+             else "every principal reward, each to its max stack"))
+    print(f"[nation] [Supplies] relic route : {route} -- where each turn-in's "
+          f"Relic of Chaos comes from")
+    print(f"[nation] [Supplies] voucher     : {voucher}")
+    print("[nation] [Supplies] conversions : "
+          + ("spare vouchers are traded for the totem or gem that is short "
+             "during the farm" if voucher_item_during
+             else "spare vouchers are only converted at the end of a pass"))
+    print("[nation] [Supplies] assistant   : "
+          + ("War-Torn Memorabilia is bought with spare gold each pass"
+             if assistant else "off"))
+    print("[nation] [Supplies] swindle     : "
+          + ("quest 7551 (Swindle's Return Policy) runs each pass"
+             if return_policy else "off")
+          + (f", asking for {return_item}" if return_policy and return_item
+             else ""))
     print("[nation] [Supplies] =========================")
 
 
@@ -1066,7 +1088,8 @@ async def assistant_during_supplies(cmd: Command, assist: bool = True) -> None:
         await cmd.jump_cell("Enter", "Spawn")
     quantity = min(gold // 100_000, 250)
     await cmd.ensure_accept_quest(2859)
-    await buy_item(cmd, 41, "War-Torn Memorabilia", quantity)
+    await buy_item(cmd, 41, "War-Torn Memorabilia", quantity,
+                      map_name="yulgar")
     await cmd.ensure_turn_in_quest(2859, -1, quantity)
 
 
@@ -1142,7 +1165,7 @@ async def supplies(cmd: Command, item: Optional[str] = None, quant: int = 1,
 
     _log_supplies_config(item, quant, ultra_alteon, hydra_challenge,
                          keep_voucher, sell_mem_voucher, assistant_during,
-                         return_policy, return_item)
+                         return_policy, return_item, voucher_item_during)
 
     quests = [2857]
     if item != uni(13) and await cmd.has_item_id(38261):
@@ -2021,7 +2044,7 @@ async def _assistant_step(cmd: Command, item: Optional[str],
                           reward: Optional[str], return_policy: bool) -> None:
     """One Assistant turn-in: buy 10 memorabilia, hand them over, then tidy up."""
     await cmd.ensure_accept_quest(2859)
-    await buy_item(cmd, 41, "War-Torn Memorabilia", 10)
+    await buy_item(cmd, 41, "War-Torn Memorabilia", 10, map_name="yulgar")
     await cmd.ensure_turn_in_quest(2859)
     await do_swindles_return_area(cmd, return_policy, reward)
     await handle_voucher_conversions(cmd, item or "")
@@ -2443,7 +2466,8 @@ async def gem_stone_receipt_of_nulgath(cmd: Command, quant: int = 10) -> None:
 
         if not await cmd.has_item_id(RECEIPT_OF_NULGATH_ID):
             await dwobo_coin(cmd, 100)
-            await buy_item(cmd, 1212, RECEIPT_OF_NULGATH)
+            await buy_item(cmd, 1212, RECEIPT_OF_NULGATH,
+                          map_name="crashedruins")
 
         await cmd.ensure_accept_quest(RECEIPT_OF_NULGATH_QUEST)
         await approval_and_favor(cmd, 0, 100)
@@ -2453,7 +2477,8 @@ async def gem_stone_receipt_of_nulgath(cmd: Command, quant: int = 10) -> None:
         await dwobo_coin(cmd, 10)
         await essence_of_nulgath(cmd, 10)
         await farm_gold(cmd, 1_500_000)
-        await buy_item(cmd, 68, "Blade of Affliction")
+        await buy_item(cmd, 68, "Blade of Affliction",
+                          map_name="Tercessuinotlim")
         await cmd.ensure_turn_in_quest(RECEIPT_OF_NULGATH_QUEST)
 
         await farm_voucher(cmd, True, True)

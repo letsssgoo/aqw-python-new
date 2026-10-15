@@ -51,7 +51,7 @@ async def behemoth_blade_of(cmd: Command, blade: str) -> None:
     for part in PARTS:
         if not await cmd.has_item(part):
             await bludrut_brawl_boss(cmd, quant=PART_TROPHIES)
-            await buy_item(cmd, SHOP_ID, part)
+            await buy_item(cmd, SHOP_ID, part, map_name=SHOP_MAP)
 
     await bludrut_brawl_boss(cmd, quant=BLADE_TROPHIES)
-    await buy_item(cmd, SHOP_ID, item)
+    await buy_item(cmd, SHOP_ID, item, map_name=SHOP_MAP)

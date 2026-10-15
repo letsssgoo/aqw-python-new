@@ -566,6 +566,23 @@ def main() -> None:
         stocked.calls
     print("buy_item   : shop loaded and stocked -> bought once")
 
+    # a shop only loads in its own map, so the map comes first
+    mapped = Stub()
+    mapped.bot.loaded_shop_datas.append(_Shop(89, ["Shadow Lich"]))
+    assert asyncio.run(buy_item(mapped, 89, "Shadow Lich",
+                                map_name="shadowfall")) is True
+    kinds = mapped.kinds()
+    assert "join_map" in kinds and "ensure_load_shop" in kinds, mapped.calls
+    assert kinds.index("join_map") < kinds.index("ensure_load_shop"), kinds
+    print("buy_item   : joins the shop's map before loading the shop")
+
+    unreachable = Stub()
+    unreachable._connected = False
+    assert asyncio.run(buy_item(unreachable, 89, "Shadow Lich",
+                                map_name="shadowfall")) is False
+    assert "buy_item" not in unreachable.kinds(), unreachable.calls
+    print("buy_item   : a dropped connection stops before the shop")
+
     # --- ensure_load_shop is bounded ------------------------------------
     # it used to be `while True`, so a shop the server never sends hung the bot
     # with no message at all

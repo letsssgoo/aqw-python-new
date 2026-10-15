@@ -60,7 +60,7 @@ async def main(cmd: Command):
 
     if await cmd.has_item(INSIGNIA, INSIGNIA_QUANT):
         print(f"[nation] merging {ITEM} from shop {SHOP_ID}")
-        await buy_item(cmd, SHOP_ID, ITEM)
+        await buy_item(cmd, SHOP_ID, ITEM, map_name="ultranulgath")
     else:
         missing = INSIGNIA_QUANT - cmd.get_quant_item(INSIGNIA)
         print(f"[nation] missing {missing}/{INSIGNIA_QUANT} {INSIGNIA}; the "

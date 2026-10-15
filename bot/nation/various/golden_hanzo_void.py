@@ -31,4 +31,4 @@ async def main(cmd: Command):
     await the_assistant(cmd, "Dark Crystal Shard", SHARDS)
     await farm_diamond_of_nulgath(cmd, DIAMONDS)
     await farm_voucher(cmd, False)
-    await buy_item(cmd, SHOP_ID, ITEM)
+    await buy_item(cmd, SHOP_ID, ITEM, map_name="evilwarnul")

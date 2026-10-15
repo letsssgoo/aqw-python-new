@@ -32,10 +32,11 @@ FACE_SHARDS = 5
 FACE_TAINTED = 5
 FACE_DIAMONDS = 1
 
-#: Runs to buy every pass, as ``(shop_id, name, qty)``.
+#: Runs to buy every pass, as ``(shop_id, name, qty, map)`` -- each shop only
+#: loads in its own map.
 RUNS = (
-    (89, "Shadow Lich", 1),
-    (214, "Mystic Tribal Sword", 1),
+    (89, "Shadow Lich", 1, "shadowfall"),
+    (214, "Mystic Tribal Sword", 1, "arcangrove"),
 )
 
 #: Reagents topped up from the Tercessuinotlim shop when short.
@@ -60,18 +61,20 @@ async def main(cmd: Command):
     while cmd.is_still_connected() and not await cmd.has_item(REWARD, QUANT):
         await cmd.ensure_accept_quest(QUEST_ID)
 
-        for shop_id, name, qty in RUNS:
-            await buy_item(cmd, shop_id, name, qty)
+        for shop_id, name, qty, map_name in RUNS:
+            await buy_item(cmd, shop_id, name, qty, map_name=map_name)
 
         if not await cmd.has_item(uni(19)):
             if cmd.get_player().is_member:
-                await buy_item(cmd, 1951, uni(19))
+                await buy_item(cmd, 1951, uni(19),
+                                map_name="tercessuinotlim")
             else:
                 await supplies(cmd, uni(19))
 
         for name, qty in REAGENTS:
             if not await cmd.has_item(name, 5):
-                await buy_item(cmd, 1951, name, qty)
+                await buy_item(cmd, 1951, name, qty,
+                                map_name="tercessuinotlim")
 
         if not await cmd.has_item_id(FACE_ID):
             await _facebreakers(cmd)

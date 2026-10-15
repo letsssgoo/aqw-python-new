@@ -74,7 +74,7 @@ async def main(cmd: Command):
                         monster_name="Flame Soldier", is_temp=False)
         await cmd.jump_cell("Enter", "Spawn")
         await farm_gold(cmd, GOLD)
-        await buy_item(cmd, CLOAK_SHOP_ID, CLOAK)
+        await buy_item(cmd, CLOAK_SHOP_ID, CLOAK, map_name="tercessuinotlim")
 
         if reward_id is not None:
             await cmd.ensure_turn_in_quest(QUEST_ID, reward_id)

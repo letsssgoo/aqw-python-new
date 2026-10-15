@@ -38,4 +38,4 @@ async def main(cmd: Command):
     await farm_diamond_of_nulgath(cmd, DIAMONDS)
     await farm_uni13_quest(cmd, UNI_13)
     await farm_voucher(cmd, False)
-    await buy_item(cmd, SHOP_ID, ITEM)
+    await buy_item(cmd, SHOP_ID, ITEM, map_name="archportal")

@@ -54,26 +54,37 @@ def _find_shop(cmd: Command, shop_id: int):
 
 
 async def buy_item(cmd: Command, shop_id: int, item_name: str,
-                   qty: int = 1) -> bool:
-    """Buy an item from a shop, once the shop is loaded and carries it.
+                   qty: int = 1, map_name: Optional[str] = None) -> bool:
+    """Buy an item from a shop, in the map that shop lives in.
 
-    ``CoreBots.BuyItem`` waits for the shop and then buys.  This engine splits
-    that in two -- ``Command.ensure_load_shop`` for the wait and
-    ``Command.buy_item`` for the buy -- and ``Command.buy_item`` on its own does
-    the *first* half when it has not seen the shop: it asks the server for it and
-    returns, so that call buys nothing, silently.  This is the whole of it, plus
-    the check the engine does without: whether the shop carries the name at all.
+    ``CoreBots.BuyItem(map, shopID, item)`` joins the map before anything else --
+    a shop only loads where it is, and ``_BuyItem`` says so outright
+    (``if Bot.Map.Name != map: Join(map)``).  This engine's ``Command.buy_item``
+    does not, so from any other map it asks for a shop the server never sends,
+    and the purchase quietly does not happen.
 
     Args:
         cmd (Command): Facade to act through.
         shop_id (int): Shop to buy from.
         item_name (str): Item to buy; must be in the shop.
         qty (int): How many to buy.
+        map_name (str | None): Map the shop is in.  Without it the shop is asked
+            for wherever the character happens to be.
 
     Returns:
         bool: True when the buy packet was sent.  False is reported, with the
-        reason: a shop that never loaded, or an item the shop does not carry.
+        reason: the map could not be reached, the shop never loaded, or the item
+        is not in it.
     """
+    if map_name:
+        while cmd.is_still_connected() and cmd.is_not_in_map(map_name):
+            await cmd.join_map(map_name)
+            await cmd.sleep(1000)
+        if not cmd.is_still_connected():
+            print(f"[core] disconnected while joining {map_name}; {item_name!r} "
+                  f"was not bought.")
+            return False
+
     if not await cmd.ensure_load_shop(shop_id):
         print(f"[core] shop {shop_id} never loaded; {item_name!r} was not bought.")
         return False
