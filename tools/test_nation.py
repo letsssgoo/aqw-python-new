@@ -17,10 +17,13 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from bot.nation.core_nation import (  # noqa: E402
-    approval_and_favor, bloody_chaos, blood_from_the_void, can_we_aggro,
-    crags_thirst, dark_makai_item, equip_class, essence_of_defeat_reagent,
-    fiend_emblem, has_any_item, has_any_item_id, has_item_id, kill_escherion,
-    kill_vath, new_worlds_new_opportunities, uni, void_knight_sword_quest)
+    approval_and_favor, assistant_during_supplies, bamboozle_vs_drudge,
+    bloody_chaos, blood_from_the_void, can_we_aggro, crags_thirst,
+    dark_makai_item, do_swindles_return_area, equip_class,
+    essence_of_defeat_reagent, fiend_emblem, get_pcod,
+    handle_voucher_conversions, has_any_item, has_any_item_id, has_item_id,
+    kill_escherion, kill_vath, new_worlds_new_opportunities,
+    sell_voucher_of_nulgath, supplies, uni, void_knight_sword_quest)
 
 
 class _Other:
@@ -29,11 +32,13 @@ class _Other:
 
 
 class _Player:
-    def __init__(self, member=False, items_by_id=None, level=0):
+    def __init__(self, member=False, items_by_id=None, level=0, gold=0,
+                 good_rank=0):
         self.USER = "me"
         self.CELL = "r9"
         self.is_member = member
         self.LEVEL = level
+        self.GOLD = gold
         self._by_id = {str(k): v for k, v in (items_by_id or {}).items()}
 
     def get_item_inventory_by_id(self, item_id):
@@ -49,13 +54,15 @@ class Stub:
     """Duck-typed Command: records calls, never touches the network."""
 
     def __init__(self, inventory=None, member=False, completed=(),
-                 others=(), connected=True, items_by_id=None, level=0):
+                 others=(), connected=True, items_by_id=None, level=0,
+                 gold=0, good_rank=0):
         self.inv = dict(inventory or {})
         self.calls = []
-        self.player = _Player(member, items_by_id, level)
+        self.player = _Player(member, items_by_id, level, gold)
         self.bot = _Bot(others)
         self._completed = set(completed)
         self._connected = connected
+        self._good_rank = good_rank
         self.fill_inventory_on_skill = False
 
     # --- sync predicates ------------------------------------------------
@@ -137,6 +144,22 @@ class Stub:
     def get_loaded_quest(self, quest_id):
         self.calls.append(("get_loaded_quest", quest_id))
         return None
+
+    def get_quant_item(self, name):
+        return self.inv.get(name, 0)
+
+    def get_faction_rank(self, name):
+        return self._good_rank
+
+    async def sell_item(self, name, qty=1):
+        self.calls.append(("sell_item", name, qty))
+
+    def can_turnin_quest(self, quest_id):
+        self.calls.append(("can_turnin_quest", quest_id))
+        return False
+
+    async def buy_item(self, shop_id, item_name, qty=1):
+        self.calls.append(("buy_item", shop_id, item_name, qty))
 
     def kinds(self):
         return [c[0] for c in self.calls]
@@ -277,6 +300,59 @@ def main() -> None:
     assert unknown.calls == [], unknown.calls
     assert "register_quest" not in unknown.kinds(), unknown.kinds()
     print("chaos      : unknown level is not 'too low'; full stack still stops it")
+
+    # --- the Supplies cluster ------------------------------------------
+    have_it = Stub({"Diamond of Nulgath": 5})
+    asyncio.run(supplies(have_it, "Diamond of Nulgath", 5))
+    assert have_it.calls == [], have_it.calls
+    print("supplies   : item already full -> returns without a single call")
+
+    no_sell = Stub({"Voucher of Nulgath": 3})
+    asyncio.run(sell_voucher_of_nulgath(no_sell, False))
+    assert no_sell.calls == [], no_sell.calls
+    print("voucher    : sell flag off -> returns without a single call")
+
+    no_assist = Stub(gold=10 ** 9)
+    asyncio.run(assistant_during_supplies(no_assist, False))
+    assert no_assist.calls == [], no_assist.calls
+    print("assist     : assist flag off -> returns without a single call")
+
+    poor = Stub(gold=99_999)
+    asyncio.run(assistant_during_supplies(poor, True))
+    assert poor.calls == [], poor.calls
+    print("assist     : under 100k gold -> returns without a single call")
+
+    no_return = Stub({"Unidentified 1": 1, "Unidentified 6": 1,
+                      "Unidentified 9": 1, "Unidentified 16": 1,
+                      "Unidentified 20": 1})
+    asyncio.run(do_swindles_return_area(no_return, False))
+    assert no_return.calls == [], no_return.calls
+    print("swindles   : policy off -> returns without a single call")
+
+    no_target = Stub()
+    asyncio.run(bamboozle_vs_drudge(no_target))
+    assert no_target.calls == [], no_target.calls
+    print("bamboozle  : no item -> stops instead of looping forever")
+
+    owned = Stub({"Tainted Gem": 1000})
+    asyncio.run(bamboozle_vs_drudge(owned, "Tainted Gem", 1000))
+    assert owned.calls == [], owned.calls
+    print("bamboozle  : item already owned -> returns without a single call")
+
+    no_voucher = Stub()
+    asyncio.run(handle_voucher_conversions(no_voucher, "Tainted Gem"))
+    assert no_voucher.calls == [], no_voucher.calls
+    print("conversion : no spare voucher -> returns without a single call")
+
+    pcod_have = Stub({"Purified Claymore of Destiny": 1})
+    assert asyncio.run(get_pcod(pcod_have)) is True
+    assert pcod_have.calls == [], pcod_have.calls
+    print("pcod       : already owned -> True, no calls")
+
+    pcod_low = Stub(good_rank=3, level=40)
+    assert asyncio.run(get_pcod(pcod_low)) is False
+    assert pcod_low.calls == [], pcod_low.calls
+    print("pcod       : Good rank 3 -> False, stops instead of farming nothing")
 
     print("\nnation tests OK")
 

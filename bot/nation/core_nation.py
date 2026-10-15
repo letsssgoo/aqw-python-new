@@ -53,7 +53,7 @@ Porting notes that apply throughout:
 from __future__ import annotations
 
 import random
-from typing import Optional, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 from core.command import Command
 from templates.hunt import DEFAULT_SKILL_LIST, hunt_item
@@ -93,7 +93,7 @@ VOID_KNIGHT_SWORDS: Tuple[int, ...] = (38275, 38254)
 
 #: The Crag & Bamboozle pet, which gates several of the cheapest farm methods.
 #: (The C# source spells it ``Crag &amp; Bamboozle`` -- an HTML escape that got
-#: baked into the string literal, so Skua's own Crag checks can never match.)
+#: baked into the string literal, so the reference bot's own Crag checks can never match.)
 CRAG_PET = "Crag & Bamboozle"
 
 #: Extra drops handed out while Bloody Chaos is running with the relic branch.
@@ -119,6 +119,34 @@ ESCHERION_STAFF = "id.2"
 ESCHERION_BOSS = "id.3"
 VATH_BOSS = "id.7"
 STALAGBITE = "id.8"
+
+#: The ten drops the Supplies route cares about -- ``bagDrops`` minus the
+#: eleven extras that follow them in the C# array.
+BAG_DROPS_PRINCIPAL: Tuple[str, ...] = BAG_DROPS[:10]
+
+#: Rewards handed out by the Supplies quest.
+SUPPLIES_REWARDS: Tuple[str, ...] = (
+    "Tainted Gem",
+    "Dark Crystal Shard",
+    "Diamond of Nulgath",
+    "Voucher of Nulgath",
+    "Voucher of Nulgath (non-mem)",
+    "Gem of Nulgath",
+    "Unidentified 10",
+    "Essence of Nulgath",
+    "Receipt of Swindle",
+)
+
+#: The two pets that stand in for the OBoN (member-only).
+OBO_PETS: Tuple[int, ...] = (4809, 5373)
+
+#: Quest 7551 offers one reward that must never be picked here.
+SWINDLES_EXCLUDED_REWARD = 57446
+
+#: Voucher quest whose two rewards (totem / diamond) are swapped once maxed.
+VOUCHER_CONVERSION_QUEST = 4778
+TOTEM_OF_NULGATH = 5357
+GEM_OF_NULGATH = 6136
 
 
 def uni(nr: int) -> str:
@@ -715,3 +743,422 @@ async def dirty_deeds_done_dirt_cheap(cmd: Command, quant: int = 1000,
                         is_temp=True)
         await cmd.ensure_turn_in_quest(7818)
         cmd.farming_logger("Unidentified 10", quant)
+
+
+def has_obon_pet(cmd: Command) -> bool:
+    """True for members holding one of the two OBoN stand-in pets."""
+    return bool(cmd.get_player().is_member) and has_any_item_id(cmd, OBO_PETS)
+
+
+async def _kill_once(cmd: Command, map_name: str, cell: str, pad: str,
+                     monster: str) -> None:
+    """Fight one spawn in ``map_name``/``cell`` to the death.
+
+    The reference bot's ``Core.KillMonster`` without an item is a single kill, and its
+    callers' outer loops are what repeat it -- so this does the same rather
+    than looping internally.
+    """
+    while cmd.is_still_connected() and not await _travel(cmd, map_name, cell, pad):
+        pass
+    # wait for the spawn, so this cannot return before the fight even started
+    for _ in range(20):
+        if cmd.is_monster_alive(monster) or cmd.is_monster_alive("*"):
+            break
+        await cmd.sleep(500)
+    while cmd.is_still_connected() and cmd.is_monster_alive("*"):
+        await cmd.use_next_skill(DEFAULT_SKILL_LIST, monster)
+
+
+async def sell_voucher_of_nulgath(cmd: Command, sell_mem_voucher: bool = True,
+                                  item: Optional[str] = None) -> None:
+    """Sell the member Voucher of Nulgath, unless it is what is being farmed.
+
+    The reference bot reads the flag from its persisted option store; here it is a
+    parameter and the caller passes what it has.
+    """
+    if not sell_mem_voucher or item == "Voucher of Nulgath":
+        return
+    if not cmd.is_in_inventory("Voucher of Nulgath"):
+        return
+    if cmd.is_not_in_cell("Enter"):
+        await cmd.jump_cell("Enter", "Spawn")
+    await cmd.sell_item("Voucher of Nulgath",
+                        cmd.get_quant_item("Voucher of Nulgath"))
+
+
+def _log_supplies_config(item: Optional[str], quant: int, ultra_alteon: bool,
+                         hydra: bool, keep_voucher: bool,
+                         sell_mem_voucher: bool, assistant: bool,
+                         return_policy: bool, return_item: Optional[str]) -> None:
+    """Print the settings the Supplies route resolved to (the C# logs the same)."""
+    def flag(value: bool) -> str:
+        return "True" if value else "False"
+
+    print("[nation] [Supplies] =========================")
+    print(f"[nation] item      : {item or 'All'} x{quant}")
+    print(f"[nation] ultra     : {flag(ultra_alteon)}")
+    print(f"[nation] hydra     : {flag(hydra)}")
+    print(f"[nation] voucher K : {flag(keep_voucher)}")
+    print(f"[nation] voucher S : {flag(sell_mem_voucher)}")
+    print(f"[nation] assist    : {flag(assistant)}")
+    print(f"[nation] return    : {flag(return_policy)}")
+    print(f"[nation] return it : {return_item or 'None'}")
+    print("[nation] [Supplies] =========================")
+
+
+async def kill_hydra(cmd: Command) -> None:
+    """Kill one Hydra Head in ``/hydrachallenge`` h90, for one Relic of Chaos.
+
+    The C# re-reads the relic count each pass and stops as soon as it goes up,
+    which is what "one kill" means here too.
+    """
+    if cmd.is_not_in_map("hydrachallenge"):
+        await cmd.join_map("hydrachallenge")
+    before = cmd.get_quant_item("Relic of Chaos")
+
+    while (cmd.is_still_connected()
+           and cmd.get_quant_item("Relic of Chaos") == before):
+        if cmd.is_not_in_cell("h90"):
+            await cmd.jump_cell("h90", "Left")
+            await cmd.sleep(500)
+            continue
+        can_we_aggro(cmd)
+        await cmd.use_next_skill(DEFAULT_SKILL_LIST, "*")
+
+
+async def do_swindles_return_area(cmd: Command, return_policy_active: bool,
+                                  item: Optional[str] = None) -> None:
+    """Complete quest 7551 (Swindle's Return Policy) for ``item`` or the first gap.
+
+    The C# gates on its own client-side "can complete" check; the equivalent
+    here is ``can_turnin_quest``, which tests the turn-in requirements against
+    the inventory.
+    """
+    if not return_policy_active:
+        return
+    if not all(cmd.is_in_inventory(uni(n)) for n in (1, 6, 9, 16, 20)):
+        return
+
+    await cmd.ensure_accept_quest(7551)
+    quest = cmd.get_loaded_quest(7551)
+    if quest is None or not quest.reward_entries:
+        print("[nation] quest 7551 did not load with rewards; skipping the "
+              "Swindle's Return turn-in.")
+        return
+
+    candidates = [entry for entry in quest.reward_entries
+                  if entry[0] != SWINDLES_EXCLUDED_REWARD]
+    if item is not None:
+        wanted = [entry for entry in candidates if entry[1] == item]
+        if not wanted:
+            print(f"[nation] {item!r} is not a quest 7551 reward; skipping.")
+            return
+        if cmd.is_in_inventory(wanted[0][1], wanted[0][2]):
+            return
+    elif all(cmd.is_in_inventory(name, stack)
+             for _, name, stack in candidates):
+        return
+
+    await dark_makai_item(cmd, "Dark Makai Rune")
+
+    if not cmd.can_turnin_quest(7551):
+        print("[nation] quest 7551 is not completable yet; skipping the turn-in.")
+        return
+
+    chosen = None
+    if item is not None:
+        chosen = next((e for e in candidates if e[1] == item), None)
+    else:
+        chosen = next((e for e in candidates
+                       if not cmd.is_in_inventory(e[1], e[2])), None)
+
+    await cmd.ensure_turn_in_quest(7551, chosen[0] if chosen else -1)
+
+
+async def assistant_during_supplies(cmd: Command, assist: bool = True) -> None:
+    """Spend spare gold on War-Torn Memorabilia (quest 2859).
+
+    Only runs past 100k gold; buys up to 250 at a time.
+    """
+    if not assist:
+        return
+    gold = cmd.get_player().GOLD
+    if gold < 100_000:
+        return
+    if cmd.is_not_in_cell("Enter"):
+        await cmd.jump_cell("Enter", "Spawn")
+    quantity = min(gold // 100_000, 250)
+    await cmd.ensure_accept_quest(2859)
+    await cmd.buy_item(41, "War-Torn Memorabilia", quantity)
+    await cmd.ensure_turn_in_quest(2859, -1, quantity)
+
+
+async def get_pcod(cmd: Command) -> bool:
+    """Obtain the Purified Claymore of Destiny (quest 548).
+
+    Returns:
+        bool: True when the claymore is held afterwards, False when a
+        prerequisite is missing.
+
+    Note:
+        The C# first runs ``Farm.Experience(15)`` and ``Farm.GoodREP(8)``.  Those
+        two rep/exp farms are not ported, so this checks the state they would
+        produce and stops with a message when it is not met -- rather than
+        silently farming nothing.
+    """
+    if cmd.is_in_inventory("Purified Claymore of Destiny"):
+        return True
+
+    rank = cmd.get_faction_rank("Good")
+    level = cmd.get_player().LEVEL
+    if rank < 8 or (level and level < 15):
+        print(f"[nation] the Purified Claymore needs Good rank 8 and level 15 "
+              f"(have rank {rank}, level {level or 'unknown'}). The rep/exp "
+              f"farms are not ported yet, so this stops here.")
+        return False
+
+    cmd.add_drop("Purified Claymore of Destiny")
+    await cmd.ensure_accept_quest(548)
+    await hunt_item(cmd, "Warrior Claymore Blade", 1, "battleundera",
+                    monster_name="Undead Berserker", is_temp=False)
+    await cmd.ensure_turn_in_quest(548)
+    return True
+
+
+async def supplies(cmd: Command, item: Optional[str] = None, quant: int = 1,
+                   ultra_alteon: bool = False, keep_voucher: bool = False,
+                   assistant_during: bool = False,
+                   return_item: Optional[str] = None,
+                   return_policy: bool = False,
+                   voucher_item_during: bool = False,
+                   hydra_challenge: bool = False,
+                   sell_mem_voucher: bool = False) -> None:
+    """Farm Supplies to Spin the Wheel of Chance (quest 2857) and its extras.
+
+    The broadest Nation route: with ``item`` it farms that one reward, without
+    it, every reward the quest offers.
+
+    Note:
+        ``sell_mem_voucher`` is the C# struct field ``sellMemVoucher``, which
+        it fills from its persisted option store.  This engine has no such
+        store, so it is a parameter here instead -- which is the substitution
+        the whole ``CBOBool`` family gets.
+    """
+    if item and cmd.is_in_inventory(item, quant):
+        return
+
+    # with no target, stop once every principal drop is already maxed
+    if item is None:
+        await cmd.ensure_accept_quest(2857)
+        quest = cmd.get_loaded_quest(2857)
+        if quest is not None and quest.reward_entries:
+            stacks = {name: stack for _, name, stack in quest.reward_entries}
+            if all(cmd.is_in_inventory(drop, stacks.get(drop, 1))
+                   for drop in BAG_DROPS_PRINCIPAL):
+                return
+
+    if keep_voucher:
+        sell_mem_voucher = False
+    elif sell_mem_voucher and cmd.get_player().GOLD >= 100_000_000:
+        sell_mem_voucher = False
+
+    _log_supplies_config(item, quant, ultra_alteon, hydra_challenge,
+                         keep_voucher, sell_mem_voucher, assistant_during,
+                         return_policy, return_item)
+
+    quests = [2857]
+    if item != uni(13) and has_item_id(cmd, 38261):
+        quests.append(9542)
+    if cmd.is_in_inventory("Drudgen the Assistant"):
+        quests.append(870)
+    for quest_id in quests:
+        await cmd.register_quest(quest_id)
+
+    drops: List[str] = []
+    if item:
+        drops.append(item)
+    if return_item:
+        drops.append(return_item)
+    drops.extend(cmd.get_quest_rewards(9542))
+    drops.extend(SUPPLIES_REWARDS)
+    if sell_mem_voucher:
+        drops.append("Voucher of Nulgath")
+    drops.append("Relic of Chaos")
+    if return_policy:
+        drops.extend([uni(1), uni(6), uni(9), uni(16), uni(20),
+                      "Receipt of Swindle"])
+    cmd.add_drop(drops)
+    await equip_class(cmd, solo=True)
+
+    if item is None or item == "All":
+        await _farm_all_supplies(cmd, ultra_alteon, hydra_challenge,
+                                 keep_voucher, assistant_during, return_item,
+                                 return_policy, sell_mem_voucher)
+    else:
+        await _farm_single_supply(cmd, item, quant, ultra_alteon,
+                                  hydra_challenge, keep_voucher,
+                                  assistant_during, return_item, return_policy,
+                                  voucher_item_during, sell_mem_voucher)
+
+    cmd.cancel_registered_quests()
+
+
+async def _farm_all_supplies(cmd: Command, ultra_alteon: bool, hydra: bool,
+                             keep_voucher: bool, assistant_during: bool,
+                             return_item: Optional[str], return_policy: bool,
+                             sell_mem_voucher: bool) -> None:
+    """Max every Supplies reward, pet route first when a pet is owned."""
+    for thing in SUPPLIES_REWARDS:
+        if not cmd.is_still_connected():
+            return
+        quest = cmd.get_loaded_quest(2857)
+        entry = next((e for e in (quest.reward_entries if quest else [])
+                      if e[1] == thing), None)
+        if entry is None:
+            continue
+        _, name, max_stack = entry
+
+        if not ultra_alteon and not hydra and (cmd.is_in_inventory(CRAG_PET)
+                                               or has_obon_pet(cmd)):
+            await bamboozle_vs_drudge(cmd, name, max_stack, keep_voucher,
+                                      assistant_during, return_item,
+                                      came_from_supplies=True,
+                                      sell_mem_voucher=sell_mem_voucher,
+                                      return_policy=return_policy)
+            continue
+
+        while (cmd.is_still_connected()
+               and not cmd.is_in_inventory(name, max_stack)):
+            if hydra:
+                await kill_hydra(cmd)
+            elif ultra_alteon:
+                await hunt_item(cmd, "Relic of Chaos", 1, "ultraalteon",
+                                cell="r10", pad="Left",
+                                monster_name="Ultra Chaos Alteon",
+                                is_temp=False)
+            else:
+                await kill_escherion(cmd, "Relic of Chaos", is_temp=False,
+                                     log=False)
+            await sell_voucher_of_nulgath(cmd, sell_mem_voucher, None)
+            await assistant_during_supplies(cmd, assistant_during)
+            await do_swindles_return_area(cmd, return_policy, return_item)
+            await handle_voucher_conversions(cmd, name)
+
+
+async def _farm_single_supply(cmd: Command, item: str, quant: int,
+                              ultra_alteon: bool, hydra: bool,
+                              keep_voucher: bool, assistant_during: bool,
+                              return_item: Optional[str], return_policy: bool,
+                              voucher_item_during: bool,
+                              sell_mem_voucher: bool) -> None:
+    """Farm one Supplies reward up to ``quant``."""
+    if not ultra_alteon and not hydra and (cmd.is_in_inventory(CRAG_PET)
+                                           or has_obon_pet(cmd)):
+        await bamboozle_vs_drudge(cmd, item, quant, keep_voucher,
+                                  assistant_during, return_item,
+                                  came_from_supplies=True,
+                                  sell_mem_voucher=sell_mem_voucher,
+                                  return_policy=return_policy)
+        return
+
+    while cmd.is_still_connected() and not cmd.is_in_inventory(item, quant):
+        if hydra:
+            await kill_hydra(cmd)
+        elif ultra_alteon:
+            await hunt_item(cmd, "Relic of Chaos", 1, "ultraalteon",
+                            cell="r10", pad="Left",
+                            monster_name="Ultra Chaos Alteon", is_temp=False)
+        else:
+            await kill_escherion(cmd, log=False)
+        await sell_voucher_of_nulgath(cmd, sell_mem_voucher, item)
+        await assistant_during_supplies(cmd, assistant_during)
+        await do_swindles_return_area(cmd, return_policy, return_item)
+        if voucher_item_during:
+            await handle_voucher_conversions(cmd, item)
+
+
+async def handle_voucher_conversions(cmd: Command, item: str) -> None:
+    """Trade spare Vouchers for the totem or gem that is not maxed yet.
+
+    Quest 4778 hands out one or the other; the C# picks the *other* one so the
+    two keep pace with each other.
+    """
+    if (not cmd.is_in_inventory("Voucher of Nulgath (non-mem)")
+            or not cmd.is_in_inventory("Essence of Nulgath", 60)):
+        return
+
+    diamonds_maxed = cmd.is_in_inventory("Diamond of Nulgath", 1000)
+    totems_maxed = cmd.is_in_inventory("Totem of Nulgath", 100)
+
+    if item.lower() == "diamond of nulgath":
+        if diamonds_maxed and not totems_maxed:
+            await cmd.ensure_turn_in_quest(VOUCHER_CONVERSION_QUEST,
+                                           TOTEM_OF_NULGATH, 100)
+    elif item.lower() == "totem of nulgath":
+        if totems_maxed and not diamonds_maxed:
+            await cmd.ensure_turn_in_quest(VOUCHER_CONVERSION_QUEST,
+                                           GEM_OF_NULGATH, 1000)
+    elif not totems_maxed:
+        await cmd.ensure_turn_in_quest(VOUCHER_CONVERSION_QUEST,
+                                       TOTEM_OF_NULGATH, 100)
+    elif not diamonds_maxed:
+        await cmd.ensure_turn_in_quest(VOUCHER_CONVERSION_QUEST,
+                                       GEM_OF_NULGATH, 1000)
+
+
+async def bamboozle_vs_drudge(cmd: Command, item: Optional[str] = None,
+                              quant: int = 1, keep_voucher: bool = False,
+                              assistant_during: bool = False,
+                              return_item: Optional[str] = None,
+                              came_from_supplies: bool = False,
+                              sell_mem_voucher: bool = False,
+                              return_policy: bool = False) -> None:
+    """The Bamboozle-vs-Drudge route: kill Tainted Elementals in ``/evilmarsh``.
+
+    Note:
+        The C# accepts ``item = null`` and then loops on
+        ``!CheckInventory(null, quant)``, which never becomes true -- it spins
+        until the bot is stopped.  Rather than reproduce that, ``item`` is
+        required here and a null one stops with a message.  Every real caller
+        (``Supplies``) passes a name.
+    """
+    if item is None:
+        print("[nation] bamboozle_vs_drudge needs an item; the C# version "
+              "accepts null and then loops forever. Nothing farmed.")
+        return
+    if cmd.is_in_inventory(item, quant):
+        print(f"[nation] {item} x{quant} already owned.")
+        return
+
+    cmd.add_drop(["Relic of Chaos", "Tainted Core", item])
+    if return_policy:
+        cmd.add_drop([uni(1), uni(6), uni(9), uni(16), uni(20)])
+    if not came_from_supplies:
+        print(f"[nation] bamboozle mode: item {item} | keep {keep_voucher} "
+              f"| assist {assistant_during}")
+
+    cmd.farming_logger(item, quant)
+
+    quests = [2857]
+    if cmd.is_in_inventory(CRAG_PET):
+        quests.append(609)
+    if has_obon_pet(cmd):
+        cmd.add_drop("Tainted Soul")
+        quests.append(599 if has_item_id(cmd, 4809) else 2561)
+    if has_item_id(cmd, 38261):
+        quests.append(9542)
+    for quest_id in dict.fromkeys(quests):
+        await cmd.register_quest(quest_id)
+
+    await equip_class(cmd, solo=True)
+
+    while cmd.is_still_connected() and not cmd.is_in_inventory(item, quant):
+        await _kill_once(cmd, "evilmarsh", "End", "Left", "Tainted Elemental")
+        await sell_voucher_of_nulgath(cmd, sell_mem_voucher, item)
+        await assistant_during_supplies(cmd, assistant_during)
+        if return_item:
+            await do_swindles_return_area(cmd, return_policy, return_item)
+        await handle_voucher_conversions(cmd, item)
+        if (return_policy and item in (None, "Diamond of Nulgath")
+                and not cmd.is_in_inventory("Diamond of Nulgath", 1000)):
+            await crags_thirst(cmd)
