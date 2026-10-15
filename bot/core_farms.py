@@ -34,6 +34,9 @@ DEFAULT_GOLD = 100_000_000
 #: Levels below this are farmed through the story chain, not the arena.
 _ICESTORM_FROM = 20
 
+#: The monster ``CoreFarms.CraggleRockREP`` hunts in /wanders, by its own id.
+CRAGGLE_ROCK_ID = 560
+
 
 async def farm_until(
         cmd: Command,
@@ -411,12 +414,119 @@ async def vampire_rep(cmd: Command, rank: int = 10) -> None:
                      drops=["Twisted Paw's Head"])
 
 
+async def yokai_rep(cmd: Command, rank: int = 10) -> None:
+    """``CoreFarms.YokaiREP``: quest 383 in /dragonkoiz."""
+    if cmd.get_faction_rank("Yokai") >= rank:
+        return
+    print(f"[farm] farming Yokai reputation to rank {rank}")
+    await farm_until(cmd, _rep_done(cmd, "Yokai", rank), "dragonkoiz",
+                     monster="Pockey Chew", quests=(383,),
+                     drops=["Piece of Pockey"])
+
+
+async def evil_rep(cmd: Command, rank: int = 10) -> None:
+    """``CoreFarms.EvilREP``: quest 364 to rank 4, then 367 (366 for members)."""
+    if cmd.get_faction_rank("Evil") >= rank:
+        return
+
+    await change_alignment(cmd, Alignment.EVIL)
+    print(f"[farm] farming Evil reputation to rank {rank}")
+
+    await farm_until(cmd, _rep_done(cmd, "Evil", 4), "swordhavenbridge",
+                     monster="Slime", quests=(364,), drops=["Youthanize"])
+    if cmd.get_faction_rank("Evil") >= rank:
+        return
+
+    # the reference registers 367 for both routes and, for members, turns 366 in
+    # on every pass as well
+    await cmd.register_quest(367)
+    if cmd.get_player().is_member:
+        while (cmd.is_still_connected()
+               and cmd.get_faction_rank("Evil") < rank):
+            await cmd.ensure_accept_quest(366)
+            await hunt_item(cmd, "Chair", 4, "sleuthhound",
+                            monster_name="Chair", is_temp=False)
+            await hunt_item(cmd, "Table", 2, "sleuthhound",
+                            monster_name="Table", is_temp=False)
+            await hunt_item(cmd, "Bookcase", 1, "sleuthhound",
+                            monster_name="Bookcase", is_temp=False)
+            await cmd.ensure_turn_in_quest(366)
+    else:
+        await farm_until(cmd, _rep_done(cmd, "Evil", rank), "castleundead",
+                         cell="Enter", pad="Left", monster="*")
+    cmd.cancel_registered_quests()
+
+
+async def chronospan_rep(cmd: Command, rank: int = 10) -> None:
+    """``CoreFarms.ChronoSpanREP``: quest 2204's three drops in /thespan."""
+    if cmd.get_faction_rank("ChronoSpan") >= rank:
+        return
+
+    print(f"[farm] farming ChronoSpan reputation to rank {rank}")
+    await equip_class(cmd)
+    await cmd.register_quest(2204)
+
+    while (cmd.is_still_connected()
+           and cmd.get_faction_rank("ChronoSpan") < rank):
+        await hunt_item(cmd, "Tin of Ghost Dust", 2, "thespan", cell="r6",
+                        pad="Left", monster_name="Moglin Ghost", is_temp=False)
+        await hunt_item(cmd, "8 oz Fairy Glitter", 3, "thespan", cell="r4",
+                        pad="Left", monster_name="Minx Fairy", is_temp=False)
+        await hunt_item(cmd, "Tog Fang", 4, "thespan", cell="r4", pad="Left",
+                        monster_name="Tog", is_temp=False)
+
+    cmd.cancel_registered_quests()
+
+
+def monster_by_definition_id(cmd: Command, mon_id: int):
+    """The map monster whose definition id is ``mon_id``.
+
+    Skua's ``Monster.ID`` is the monster's own id; ``MapID`` is the per-map one
+    (``z_CompiledScript.cs`` compares against both).  This engine keeps them as
+    ``mon_id`` and ``mon_map_id``.
+    """
+    for monster in cmd.bot.monsters:
+        if str(monster.mon_id) == str(mon_id):
+            return monster
+    return None
+
+
+async def craggle_rock_rep(cmd: Command, rank: int = 10) -> None:
+    """``CoreFarms.CraggleRockREP``: quest 7277, chasing one monster id."""
+    if cmd.get_faction_rank("CraggleRock") >= rank:
+        return
+
+    print(f"[farm] farming CraggleRock reputation to rank {rank}")
+    cmd.add_drop("Empowered Voidstone")
+    await cmd.register_quest(7277)
+    await equip_class(cmd, solo=True)
+
+    while (cmd.is_still_connected()
+           and cmd.get_faction_rank("CraggleRock") < rank):
+        monster = monster_by_definition_id(cmd, CRAGGLE_ROCK_ID)
+        if monster is None:
+            print(f"[farm] monster id {CRAGGLE_ROCK_ID} is not in /wanders, so "
+                  f"CraggleRock cannot be farmed. Stopping.")
+            cmd.cancel_registered_quests()
+            return
+        while cmd.is_still_connected() and cmd.is_not_in_cell(monster.frame):
+            await cmd.jump_cell(monster.frame, "Left")
+            await cmd.sleep(500)
+        await cmd.use_next_skill(DEFAULT_SKILL_LIST,
+                                f"id.{monster.mon_map_id}")
+
+    cmd.cancel_registered_quests()
+
+
 #: Faction name -> the ported method, mirroring ``CoreFarms.<Name>REP``.
 FACTION_FARMS = {
     "Good": good_rep,
     "Vampire": vampire_rep,
+    "Yokai": yokai_rep,
+    "Evil": evil_rep,
+    "ChronoSpan": chronospan_rep,
+    "CraggleRock": craggle_rock_rep,
 }
-
 
 async def farm_faction(cmd: Command, faction: str, rank: int = 10) -> bool:
     """Farm ``faction`` to ``rank`` with the method for that name.

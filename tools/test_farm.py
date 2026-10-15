@@ -45,6 +45,7 @@ class _Bot:
         self.areaId = "evilwarnul-9909"
         self.sent = []
         self.loaded_shop_datas = []
+        self.monsters = []
 
     def write_message(self, msg):
         self.sent.append(msg)
@@ -98,7 +99,7 @@ class Stub:
     """Duck-typed Command: records calls, never touches the network."""
 
     def __init__(self, level=1, gold=0, member=False, others=(),
-                 completed=(691,), good_rank=0, vampire_rank=0,
+                 completed=(691,), good_rank=0, vampire_rank=0, ranks=None,
                  connect_after=1, accept=True, inventory=None):
         self.player = _Player(level, gold, member)
         self.bot = _Bot(others)
@@ -108,6 +109,8 @@ class Stub:
         self._completed = set(completed)
         self._accept = accept
         self._good_rank = good_rank
+        self._ranks = {"Good": good_rank, "Vampire": vampire_rank,
+                       **(ranks or {})}
         self._vampire_rank = vampire_rank
         #: how many skill casts it takes to end the run (0 = never disconnects)
         self._casts_left = connect_after
@@ -137,8 +140,7 @@ class Stub:
         return "Solo Class"
 
     def get_faction_rank(self, name):
-        return {"Good": self._good_rank, "Vampire": self._vampire_rank}.get(
-            name, 0)
+        return self._ranks.get(name, 0)
 
     def get_quant_item(self, name):
         return self.inv.get(name, 0)
@@ -262,6 +264,29 @@ def _level_gain(stub, amount):
         stub.player.LEVEL += amount
 
     stub.use_next_skill = cast
+
+
+def _rank_gain(stub, faction, amount):
+    """A skill cast raises a faction rank -- the rewards the quest task would
+    hand over, without simulating the task itself."""
+    original = stub.use_next_skill
+
+    async def cast(*args, **kwargs):
+        await original(*args, **kwargs)
+        stub._ranks[faction] = stub._ranks.get(faction, 0) + amount
+
+    stub.use_next_skill = cast
+
+
+def _rank_on_turn_in(stub, faction, amount):
+    original = stub.ensure_turn_in_quest
+
+    async def turn_in(quest_id, item_id=-1, quantity=1):
+        result = await original(quest_id, item_id, quantity)
+        stub._ranks[faction] = stub._ranks.get(faction, 0) + amount
+        return result
+
+    stub.ensure_turn_in_quest = turn_in
 
 
 def main() -> None:
@@ -463,9 +488,11 @@ def main() -> None:
 
     # --- the dispatcher -------------------------------------------------
     unknown = Stub()
-    assert asyncio.run(farm_faction(unknown, "Yokai", 10)) is False
+    assert asyncio.run(farm_faction(unknown, "Arcangrove", 10)) is False
     assert unknown.calls == [], unknown.calls          # reported, never farmed
-    assert set(FACTION_FARMS) == {"Good", "Vampire"}, sorted(FACTION_FARMS)
+    assert set(FACTION_FARMS) == {"Good", "Vampire", "Yokai", "Evil",
+                                  "ChronoSpan", "CraggleRock"}, \
+        sorted(FACTION_FARMS)
     known = Stub(vampire_rank=10)
     assert asyncio.run(farm_faction(known, "Vampire", 10)) is True
     print("dispatch   : ported factions run, the rest are named and refused")
@@ -522,6 +549,74 @@ def main() -> None:
         print("shop       : one request, then the reply is in the cache")
     finally:
         asyncio.sleep = real_sleep
+
+    # --- the four newer reputation methods -----------------------------
+    from bot.core_farms import (chronospan_rep, craggle_rock_rep, evil_rep,
+                                monster_by_definition_id, yokai_rep)
+
+    for name, farm in (("Yokai", yokai_rep), ("Evil", evil_rep),
+                       ("ChronoSpan", chronospan_rep),
+                       ("CraggleRock", craggle_rock_rep)):
+        done = Stub(ranks={name: 10})
+        asyncio.run(farm(done, 10))
+        assert done.calls == [], (name, done.calls)
+    print("rep        : all four stop when the rank is already there")
+
+    yokai = Stub()
+    asyncio.run(yokai_rep(yokai, 10))
+    assert ("join_map", "dragonkoiz") in yokai.calls, yokai.calls
+    assert ("register_quest", 383) in yokai.calls, yokai.calls
+    assert ("add_drop", ("Piece of Pockey",)) in yokai.calls, yokai.calls
+    print("yokai      : quest 383 in /dragonkoiz")
+
+    evil_f2p = Stub(connect_after=0)
+    _rank_gain(evil_f2p, "Evil", 4)
+    asyncio.run(evil_rep(evil_f2p, 10))
+    assert evil_f2p.bot.sent[0].endswith("%41%2%"), evil_f2p.bot.sent
+    assert ("join_map", "swordhavenbridge") in evil_f2p.calls, evil_f2p.calls
+    assert ("register_quest", 367) in evil_f2p.calls, evil_f2p.calls
+    assert ("join_map", "castleundead") in evil_f2p.calls, evil_f2p.calls
+    assert ("ensure_accept_quest", 366) not in evil_f2p.calls, evil_f2p.calls
+    print("evil       : Evil alignment, 364 then 367 in /castleundead")
+
+    evil_mem = Stub(member=True, ranks={"Evil": 4},
+                    inventory={"Chair": 4, "Table": 2, "Bookcase": 1})
+    _rank_on_turn_in(evil_mem, "Evil", 6)
+    asyncio.run(evil_rep(evil_mem, 10))
+    assert ("ensure_accept_quest", 366) in evil_mem.calls, evil_mem.calls
+    assert ("ensure_turn_in_quest", 366) in evil_mem.calls, evil_mem.calls
+    assert ("join_map", "castleundead") not in evil_mem.calls, evil_mem.calls
+    assert evil_mem._ranks["Evil"] == 10, evil_mem._ranks
+    print("evil       : members run quest 366, not /castleundead")
+
+    chrono = Stub()
+    asyncio.run(chronospan_rep(chrono, 10))
+    assert ("register_quest", 2204) in chrono.calls, chrono.calls
+    assert ("jump_cell", "r6", "Left") in chrono.calls, chrono.calls
+    assert ("jump_cell", "r4", "Left") in chrono.calls, chrono.calls
+    print("chronospan : quest 2204 across thespan r6 and r4")
+
+    no_monster = Stub()
+    asyncio.run(craggle_rock_rep(no_monster, 10))
+    assert ("register_quest", 7277) in no_monster.calls, no_monster.calls
+    assert ("cancel_registered_quests",) in no_monster.calls, no_monster.calls
+    assert "use_next_skill" not in no_monster.kinds(), no_monster.calls
+    print("craggle    : no monster 560 -> reported, nothing attacked")
+
+    class _Mon:
+        def __init__(self, mon_id, frame, map_id):
+            self.mon_id = monster_id = mon_id
+            self.frame = frame
+            self.mon_map_id = map_id
+
+    hunted = Stub()
+    hunted.bot.monsters.append(_Mon(560, "r2", "7"))
+    asyncio.run(craggle_rock_rep(hunted, 10))
+    assert ("jump_cell", "r2", "Left") in hunted.calls, hunted.calls
+    assert ("use_next_skill",) in hunted.calls, hunted.calls
+    assert monster_by_definition_id(hunted, 560) is hunted.bot.monsters[0]
+    assert monster_by_definition_id(hunted, 561) is None
+    print("craggle    : monster id 560 -> jumps to its cell and hits it")
 
     print("\nfarm tests OK")
 

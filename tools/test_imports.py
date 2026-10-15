@@ -96,6 +96,8 @@ ENTRY_MODULES = [
     "bot.nation.various.taros_manslayer",
     "bot.nation.various.taros_prismatic_manslayers",
     "bot.nation.various.impossible_empowered_items_of_nulgath",
+    "bot.nation.various.tainted_claymore",
+    "bot.nation.various.void_shogun",
     "bot.nation.afdl.willpower_extraction",
     "bot.nation.evolved_orb.evolved_blood_orb",
     "bot.nation.evolved_orb.evolved_hex_orb",

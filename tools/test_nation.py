@@ -205,6 +205,9 @@ class Stub:
     async def inv_to_bank(self, names):
         self.calls.append(("inv_to_bank", names))
 
+    async def get_map_item(self, map_item_id, qty=1):
+        self.calls.append(("get_map_item", map_item_id, qty))
+
     # --- async bank-aware predicates (mirror Command.has_item & co) -------
     async def has_item(self, name, qty=1, operator=">=", isTemp=False):
         if not isTemp and self.is_in_bank(name):
@@ -814,6 +817,8 @@ def main() -> None:
         "various.taros_manslayer",
         "various.taros_prismatic_manslayers",
         "various.impossible_empowered_items_of_nulgath",
+        "various.tainted_claymore",
+        "various.void_shogun",
         "afdl.willpower_extraction",
         "evolved_orb.evolved_blood_orb",
         "evolved_orb.evolved_hex_orb",
