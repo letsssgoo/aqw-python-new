@@ -86,6 +86,18 @@ class Command:
     # Latency allowance handed to Player.updateNextUse -- see its docstring.
     CD_START_DELAY_MS: int = 200
 
+    #: How many times ``ensure_accept_quest`` / ``ensure_turn_in_quest`` will
+    #: retry before giving up and saying so.  One second per pass, so the
+    #: default is about a minute.
+    #:
+    #: These loops used to be unbounded, which is fine while the server is
+    #: merely slow and fatal when it is never going to answer: a quest whose
+    #: requirements cannot be met stays in progress forever, so the loop hangs
+    #: the bot with no error at all.  Nothing else would have ended it --
+    #: "Missing Turn In Item" only fills ``bot.missing_turn_in_item_questid``,
+    #: which no bail-out consults.
+    ENSURE_MAX_ATTEMPTS: int = 60
+
     def __init__(self, bot, init_handler = False):
         from core.bot import Bot
         self.bot: Bot = bot
@@ -108,39 +120,76 @@ class Command:
             return False
 
     @check_alive
-    async def ensure_accept_quest(self, quest_id: int) -> None:
+    async def ensure_accept_quest(self, quest_id: int,
+                                  max_attempts: int = ENSURE_MAX_ATTEMPTS
+                                  ) -> bool:
         """Keep accepting a quest until it is in progress or the client disconnects.
 
         Args:
             quest_id (int): Identifier of the quest to accept.
+            max_attempts (int): Give up after this many tries and report.
 
         Returns:
-            None: Exits once the quest is tracked or a failure is recorded."""
+            bool: True once the quest is tracked as in progress, False when it
+            never got there -- the caller can then stop instead of assuming the
+            farm is under way.
+        """
         quest_id = normalize_quest_id(quest_id)
+        attempts = 0
         while self.quest_not_in_progress(quest_id) and self.is_still_connected():
+            if quest_id in self.bot.failed_get_quest_datas:
+                print(Fore.YELLOW + f"[accept] quest {quest_id} was refused by "
+                      f"the server; stopping." + Fore.RESET)
+                return False
+            attempts += 1
+            if attempts > max_attempts:
+                print(Fore.YELLOW + f"[accept] quest {quest_id} is still not in "
+                      f"progress after {max_attempts} attempts; stopping."
+                      + Fore.RESET)
+                return False
             await self.accept_quest(quest_id)
             await self.sleep(1000)
-            if quest_id in self.bot.failed_get_quest_datas:
-                return
+        return self.quest_in_progress(quest_id)
 
     @check_alive
-    async def ensure_turn_in_quest(self, quest_id: int, item_id = -1, amount = 1) -> None:
-        """Attempt to turn in a quest until it completes or the client disconnects.
+    async def ensure_turn_in_quest(self, quest_id: int, item_id: int = -1,
+                                   amount: int = 1,
+                                   max_attempts: int = ENSURE_MAX_ATTEMPTS
+                                   ) -> bool:
+        """Attempt to turn in a quest until it leaves the in-progress list.
 
         Args:
             quest_id (int): Identifier of the quest to complete.
             item_id (int): Required item id for turn-in when applicable.
             amount (int): Quantity of the required item.
+            max_attempts (int): Give up after this many tries and report.
 
         Returns:
-            None: Stops when the quest leaves the progress list or fails."""
+            bool: True when the quest left the progress list, False when it
+            could not be turned in.  Stops early -- without sending anything --
+            when the turn-in requirements are not in the inventory, because the
+            server would only answer "Missing Turn In Item" again.
+        """
         quest_id = normalize_quest_id(quest_id)
+        attempts = 0
         while self.quest_in_progress(quest_id) and self.is_still_connected():
-            await self.turn_in_quest(quest_id, item_id,amount)
-            await self.sleep(1000)
             if quest_id in self.bot.failed_get_quest_datas:
-                return
-        print("quest turned in:", quest_id, item_id)
+                print(Fore.YELLOW + f"[turn-in] quest {quest_id} was refused by "
+                      f"the server; stopping." + Fore.RESET)
+                return False
+            if not self.can_turnin_quest(quest_id):
+                print(Fore.YELLOW + f"[turn-in] quest {quest_id} is in progress "
+                      f"but its requirements are not met; stopping." + Fore.RESET)
+                return False
+            attempts += 1
+            if attempts > max_attempts:
+                print(Fore.YELLOW + f"[turn-in] quest {quest_id} did not leave "
+                      f"the progress list after {max_attempts} attempts; "
+                      f"stopping." + Fore.RESET)
+                return False
+            await self.turn_in_quest(quest_id, item_id, amount)
+            await self.sleep(1000)
+        return not self.quest_in_progress(quest_id)
 
     @check_alive
     async def accept_quest(self, quest_id: int) -> None:
@@ -439,7 +488,7 @@ class Command:
         return self.bot.player.get_item_inventory_by_id(itemId) is not None
 
     async def has_any_item(self, names: Sequence[str]) -> bool:
-        """True when at least one of ``names`` is held (``CheckInventory(â€¦, any)``)."""
+        """True when at least one of ``names`` is held (``CheckInventory(…, any)``)."""
         for name in names:
             if await self.has_item(name):
                 return True

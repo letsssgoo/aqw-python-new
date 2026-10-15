@@ -125,6 +125,59 @@ def main() -> None:
     bot.is_client_connected = False
     print("register  : '870' registered then unregistered as int")
 
+    # --- ensure_* give up instead of hanging ------------------------
+    # Both loops used to be unbounded: a quest the server never accepts (or
+    # never lets you turn in) hung the bot with no message at all.  They now
+    # stop after ``max_attempts`` and return False, and they must not send a
+    # turn-in the server would only refuse again.
+    bot.is_client_connected = True
+    bot.player.ISDEAD = False
+    accepts, turnins = [], []
+
+    async def _noop_accept(quest_id):
+        accepts.append(quest_id)
+
+    async def _noop_turn_in(quest_id, item_id=-1, amount=1):
+        turnins.append(quest_id)
+
+    async def _noop_sleep(ms):
+        pass                        # keep the 1 s pacing sleep out of the test
+
+    cmd.accept_quest = _noop_accept
+    cmd.turn_in_quest = _noop_turn_in
+    cmd.sleep = _noop_sleep
+
+    # accepted already (870 is in progress from above): nothing sent
+    assert asyncio.run(cmd.ensure_accept_quest(870)) is True
+    assert accepts == [], accepts
+    # never accepted: exactly max_attempts tries, then a reported False
+    assert asyncio.run(cmd.ensure_accept_quest(5150, max_attempts=3)) is False
+    assert accepts == [5150, 5150, 5150], accepts
+    # the server already refused it: stop at once, without retrying
+    accepts.clear()
+    assert asyncio.run(cmd.ensure_accept_quest(9999)) is False
+    assert accepts == [], accepts
+    print("ensure    : accept caps at max_attempts, refused id stops at once")
+
+    # not in progress -> nothing to do, and that counts as success
+    assert asyncio.run(cmd.ensure_turn_in_quest(99999)) is True
+    # in progress but the requirements are not held: refuse to send anything
+    bot.loaded_quest_datas.append(
+        _quest(4750, [{"ItemID": "22332", "iQty": "2"}]))
+    bot.player.INVENTORY[0].qty = 1              # one short of the two needed
+    assert cmd.can_turnin_quest(4750) is False
+    assert asyncio.run(cmd.ensure_turn_in_quest(4750, max_attempts=3)) is False
+    assert turnins == [], turnins
+    print("ensure    : turn-in with unmet requirements sends nothing")
+
+    # requirements met but the quest never leaves: capped, then reported
+    bot.player.INVENTORY[0].qty = 2
+    assert cmd.can_turnin_quest(4750) is True
+    assert asyncio.run(cmd.ensure_turn_in_quest(4750, max_attempts=3)) is False
+    assert turnins == [4750, 4750, 4750], turnins
+    print("ensure    : turn-in caps at max_attempts ->", turnins)
+    bot.is_client_connected = False
+
     print("\nquest tests OK")
 
 
