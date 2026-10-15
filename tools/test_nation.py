@@ -103,7 +103,7 @@ class Stub:
     def __init__(self, inventory=None, member=False, completed=(),
                  others=(), connected=True, items_by_id=None, level=0,
                  gold=0, good_rank=0, all_owned=False, quests=None,
-                 bank=None, bank_by_id=None):
+                 bank=None, bank_by_id=None, accept=True):
         self.inv = dict(inventory or {})
         self.calls = []
         self.player = _Player(member, items_by_id, level, gold,
@@ -113,6 +113,7 @@ class Stub:
         self._completed = set(completed)
         self._connected = connected
         self._good_rank = good_rank
+        self._accept = accept
         self._all_owned = all_owned
         self._quests = {str(k): v for k, v in (quests or {}).items()}
         self.fill_inventory_on_skill = False
@@ -190,6 +191,9 @@ class Stub:
     async def leave_combat(self, safe_leave=True):
         self.calls.append(("leave_combat",))
 
+    async def rest(self):
+        self.calls.append(("rest",))
+
     async def bank_to_inv(self, names):
         self.calls.append(("bank_to_inv",))
         for name in ([names] if isinstance(names, str) else names):
@@ -244,7 +248,7 @@ class Stub:
 
     async def ensure_accept_quest(self, quest_id, max_attempts=3):
         self.calls.append(("ensure_accept_quest", quest_id))
-        return True
+        return self._accept
 
     async def ensure_turn_in_quest(self, quest_id, item_id=-1, amount=1):
         self.calls.append(("ensure_turn_in_quest", quest_id))
@@ -695,6 +699,44 @@ def main() -> None:
     asyncio.run(forge_blood_gems(blood_done, 100))
     assert blood_done.calls == [], blood_done.calls
     print("forge blood: reward already at the target -> no calls")
+
+    # --- the two Forge guard readings, both kept from the reference ----
+    # ForgeTaintedGems refuses when *either* is missing ...
+    strict_gem = Stub(member=True)
+    asyncio.run(forge_tainted_gems(strict_gem, 100))
+    assert strict_gem.calls == [], strict_gem.calls
+    strict_member = Stub(inventory={"Gemstone of Nulgath": 1})
+    asyncio.run(forge_tainted_gems(strict_member, 100))
+    assert strict_member.calls == [], strict_member.calls
+    print("forge      : strict guard -> either one missing stops it")
+
+    # ... while the other three refuse only when *both* are missing, so a member
+    # without the gemstone still starts -- and so does a non-member with it.
+    # What the guard lets through is the point here, not how deep the farm gets.
+    loose = Stub(member=True)
+    asyncio.run(forge_dark_crystal_shards(loose, 1000))
+    assert loose.calls, "the loose guard should not have refused a member"
+    print("forge dcs  : loose guard -> a member without the gemstone starts")
+
+    loose_other = Stub(inventory={"Gemstone of Nulgath": 1})
+    asyncio.run(forge_dark_crystal_shards(loose_other, 1000))
+    assert loose_other.calls, "the loose guard should not have refused"
+    print("forge dcs  : loose guard -> a non-member with the gemstone too")
+
+    loose_none = Stub()
+    asyncio.run(forge_dark_crystal_shards(loose_none, 1000))
+    assert loose_none.calls == [], loose_none.calls
+    print("forge dcs  : loose guard -> missing both refuses")
+
+    # a quest the server will not accept must stop the loop, not spin it.  The
+    # two prerequisites are pre-held so the flow reaches the loop itself.
+    refused = Stub(member=True, accept=False, inventory={
+        "Gemstone of Nulgath": 1, "Gemstone Receipt of Nulgath": 1,
+        "Unidentified 5": 1})
+    asyncio.run(forge_tainted_gems(refused, 100))
+    assert refused.kinds().count("ensure_accept_quest") == 1, refused.calls
+    assert "use_next_skill" not in refused.kinds(), refused.calls
+    print("forge      : a refused quest stops after one report")
 
     bad_reward = Stub(member=True)
     asyncio.run(carve_uni_gem_stone(bad_reward, "Not A Reward", 10))

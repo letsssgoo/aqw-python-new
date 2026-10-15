@@ -56,10 +56,15 @@ rather than all at once.
 The member Forge chain (quests 4917-4924) is ported: ``dwobo_coin``,
 ``gem_stone_receipt_of_nulgath``, ``gem_stones_of_nulgath``, the four
 ``forge_*`` routines, ``carve_uni_gem_stone`` and ``leery_exchange_gold``.
-Four of those guards, and two of their item names, are broken in the reference
-(a ``&&`` where both conditions are required, and ``"Dark Crystal Shards"`` /
-``"Diamonds for Nulgath"`` where no item is named that); each one would farm
-forever, so the intent is followed and each slip is noted at the routine.
+
+Three reference slips are not reproduced, because each one farms forever:
+``"Dark Crystal Shards"`` (plural) and ``"Diamonds for Nulgath"`` name no item,
+and ``TendurrrTheAssistantQuests``' reward option holds indices where item ids
+are looked up.  Two slips *are* kept, because they are the reference's own
+behaviour and only cost a wasted start: its four loose ``&&`` Forge guards, and
+``CarveUniGemStone``'s endless "All" loop (bounded here to every reward's max
+stack).  Where a kept slip makes the server refuse a quest, the loop reports the
+refusal instead of spinning -- see ``_forge_ready`` and ``_forge_gem``.
 
 Folder layout mirrors the reference tree: the ``Nation/`` root wrappers and
 this file sit in ``bot/nation/``, and each subfolder that exists so far --
@@ -306,6 +311,17 @@ GEMSTONE_COUNTERS: Tuple[str, ...] = (
     "Tanzanite of Nulgath",
 )
 UNI_GEMSTONE_OF_NULGATH = "Unidentified Gemstone of Nulgath"
+
+#: What the two Forge stop conditions should read.  The reference checks
+#: ``"Dark Crystal Shards"`` and ``"Diamonds for Nulgath"``; nothing in the tree
+#: -- no item, no other file -- is named either of those, and the item every
+#: other routine names is here.  Named constants so a live check can flip one
+#: line rather than edit the routine.
+#:
+#: To verify: accept quest 4920 or 4921 and read the reward names the server
+#: sends (``bot.nation.core_nation``'s docstring covers the payload).
+FORGE_DCRYSTAL_REWARD = "Dark Crystal Shard"
+FORGE_DIAMOND_REWARD = "Diamond of Nulgath"
 
 
 def uni(nr: int) -> str:
@@ -2351,19 +2367,33 @@ async def assisting_crag_and_bamboozle(cmd: Command,
 # The member Forge chain (quests 4917-4924)
 # ----------------------------------------------------------------------------
 
-def _forge_ready(cmd: Command, what: str) -> bool:
-    """Membership plus the Gemstone of Nulgath -- what every Forge quest needs.
+def _forge_ready(cmd: Command, what: str, strict: bool) -> bool:
+    """The reference's own Forge guard, both readings of it kept.
 
-    The reference writes this guard five times, and four of those use ``&&``
-    where the message next to it says both are required, so it would start a
-    farm that can never turn in.  Both are required here, and a refusal says
-    which one is missing.
+    ``CoreFarms``-style guards for the Forge chain require membership and the
+    Gemstone of Nulgath, but the reference writes them two different ways:
+    ``ForgeTaintedGems`` refuses when *either* is missing (``||``) while the
+    other four refuse only when *both* are (``&&``).  ``strict`` picks which:
+    True for the ``||`` guard, False for the ``&&`` one.
+
+    Where the loose guard lets a farm start that the server will then refuse, the
+    caller's loop is what notices -- see :func:`_forge_gem`.
     """
-    if not cmd.get_player().is_member:
-        print(f"[nation] {what} needs membership; nothing farmed.")
-        return False
-    if not cmd.is_in_inventory(GEMSTONE_OF_NULGATH):
-        print(f"[nation] {what} needs {GEMSTONE_OF_NULGATH!r}; nothing farmed.")
+    member = bool(cmd.get_player().is_member)
+    has_gemstone = cmd.is_in_inventory(GEMSTONE_OF_NULGATH)
+    if strict:
+        if not member:
+            print(f"[nation] {what} needs membership; nothing farmed.")
+            return False
+        if not has_gemstone:
+            print(f"[nation] {what} needs {GEMSTONE_OF_NULGATH!r}; nothing "
+                  f"farmed.")
+            return False
+        return True
+
+    if not member and not has_gemstone:
+        print(f"[nation] {what} needs membership and "
+              f"{GEMSTONE_OF_NULGATH!r} -- it has neither; nothing farmed.")
         return False
     return True
 
@@ -2456,7 +2486,7 @@ async def gem_stones_of_nulgath(cmd: Command, bloodstone: int = 100,
     Unlocks quests 374 / 375 / 376 in ``/battleundera`` first when they are not
     done, because 4918 needs them.
     """
-    if not _forge_ready(cmd, "Gemstones of Nulgath"):
+    if not _forge_ready(cmd, "Gemstones of Nulgath", strict=False):
         return
 
     wanted = [(name, qty) for name, qty in
@@ -2510,12 +2540,19 @@ async def gem_stones_of_nulgath(cmd: Command, bloodstone: int = 100,
 
 async def _forge_gem(cmd: Command, what: str, quest_id: int, reward: str,
                      gem_of_nulgath: int, counters: Tuple[int, int, int, int],
-                     quant: int) -> None:
+                     quant: int, strict: bool) -> None:
     """One Forge quest: accept, gather, turn in, until ``reward`` is full.
 
-    The four Forge routines differ only in these numbers, so they share this.
+    The four Forge routines differ only in these numbers and their guard, so they
+    share this.  ``strict`` is the guard's flavour, as :func:`_forge_ready`
+    explains.
+
+    The reference loops on ``!Bot.ShouldExit`` alone, so a guard that let it
+    through without the membership or the gemstone leaves it farming a quest the
+    server refuses, forever.  The refusal is caught here instead -- the guard
+    itself is untouched.
     """
-    if not _forge_ready(cmd, what):
+    if not _forge_ready(cmd, what, strict):
         return
     if await cmd.has_item(reward, quant):
         return
@@ -2526,7 +2563,10 @@ async def _forge_gem(cmd: Command, what: str, quest_id: int, reward: str,
     cmd.add_drop([reward, UNI_GEMSTONE_OF_NULGATH])
 
     while cmd.is_still_connected() and not await cmd.has_item(reward, quant):
-        await cmd.ensure_accept_quest(quest_id)
+        if not await cmd.ensure_accept_quest(quest_id):
+            print(f"[nation] quest {quest_id} cannot be accepted, so {reward} "
+                  f"cannot be forged. Stopping.")
+            return
         await farm_gem_of_nulgath(cmd, gem_of_nulgath)
         await gem_stones_of_nulgath(cmd, *counters)
         await cmd.ensure_turn_in_quest(quest_id)
@@ -2536,42 +2576,50 @@ async def forge_tainted_gems(cmd: Command, quant: int = 1000) -> None:
     """``CoreNation.ForgeTaintedGems``: quest 4919.
 
     Note:
-        The reference names this one's reward correctly; its three siblings do
-        not, so see :func:`forge_dark_crystal_shards` and friends.
+        Its guard is the strict one -- membership *and* the Gemstone of Nulgath --
+        which is how the reference writes this one, unlike its three siblings.
     """
     await _forge_gem(cmd, "Forge Tainted Gems", FORGE_TAINTED_GEMS_QUEST,
-                     "Tainted Gem", 1, (0, 3, 1, 0), quant)
+                     "Tainted Gem", 1, (0, 3, 1, 0), quant, strict=True)
 
 
 async def forge_dark_crystal_shards(cmd: Command, quant: int = 1000) -> None:
     """``CoreNation.ForgeDarkCrystalShards``: quest 4920.
 
     Note:
-        The reference checks for ``"Dark Crystal Shards"`` -- plural, which no
-        other file in the tree uses and no item is named.  Its stop condition
-        would never fire, so the singular is used here.
+        Two reference slips, kept out of the port rather than copied:
+
+        * the guard is the *loose* one, ``!gemstone && !member``, so it starts on
+          a character that has only one of the two -- the reference's own message
+          says both are required.  That reading is kept, and the loop reports the
+          server's refusal when it comes.
+        * it checks for ``"Dark Crystal Shards"`` -- plural, which no other file
+          in the tree uses and no item is named.  The stop condition would never
+          fire, so :data:`FORGE_DCRYSTAL_REWARD` names the real item.
     """
     await _forge_gem(cmd, "Forge Dark Crystal Shards",
-                     FORGE_DARK_CRYSTAL_SHARDS_QUEST, "Dark Crystal Shard", 1,
-                     (0, 5, 2, 0), quant)
+                     FORGE_DARK_CRYSTAL_SHARDS_QUEST, FORGE_DCRYSTAL_REWARD, 1,
+                     (0, 5, 2, 0), quant, strict=False)
 
 
 async def forge_diamonds_of_nulgath(cmd: Command, quant: int = 1000) -> None:
     """``CoreNation.ForgeDiamondsOfNulgath``: quest 4921.
 
     Note:
-        The reference checks for ``"Diamonds for Nulgath"``, which appears only
-        in this method; the item every other file names is ``Diamond of
-        Nulgath``, so that is what is used and what the stop condition reads.
+        The same loose guard as its sibling above, and it checks for
+        ``"Diamonds for Nulgath"``, which appears nowhere else in the tree; every
+        other file names ``Diamond of Nulgath``, so that is what
+        :data:`FORGE_DIAMOND_REWARD` holds.
     """
     await _forge_gem(cmd, "Forge Diamonds of Nulgath", FORGE_DIAMONDS_QUEST,
-                     "Diamond of Nulgath", 1, (0, 2, 0, 0), quant)
+                     FORGE_DIAMOND_REWARD, 1, (0, 2, 0, 0), quant, strict=False)
 
 
 async def forge_blood_gems(cmd: Command, quant: int = 100) -> None:
-    """``CoreNation.ForgeBloodGems``: quest 4922."""
+    """``CoreNation.ForgeBloodGems``: quest 4922, with the loose guard."""
     await _forge_gem(cmd, "Forge Blood Gems", FORGE_BLOOD_GEMS_QUEST,
-                     "Blood Gem of the Archfiend", 7, (3, 5, 0, 0), quant)
+                     "Blood Gem of the Archfiend", 7, (3, 5, 0, 0), quant,
+                     strict=False)
 
 
 async def carve_uni_gem_stone(cmd: Command, item: Optional[str] = None,
