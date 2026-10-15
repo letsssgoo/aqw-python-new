@@ -14,7 +14,7 @@ rather than all at once.
 ``equip_class``           farm / solo class, from ``Bot(...)``
 ``can_we_aggro``          aggro while someone else shares the cell
 ``join_swf``              enter a map whose retired SWF is client-loaded
-``has_any_item`` / ``has_item_id`` / ``has_any_item_id``  inventory checks
+``all_owned`` / ``first_missing``  bank-aware inventory checks
 ``kill_escherion``        the Escherion fight, staff-aware
 ``kill_vath``             the Stalagbite / Vath fight
 ``dark_makai_item``       Dark Makai drops, one of two maps at random
@@ -329,8 +329,8 @@ async def approval_and_favor(cmd: Command, quant_approval: int = 5000,
         favor is short.  That precedence bug is not reproduced; the loop here
         stops on disconnect, as intended.
     """
-    if (cmd.is_in_inventory("Nulgath's Approval", quant_approval)
-            and cmd.is_in_inventory("Archfiend's Favor", quant_favor)):
+    if (await cmd.has_item("Nulgath's Approval", quant_approval)
+            and await cmd.has_item("Archfiend's Favor", quant_favor)):
         return
 
     cmd.add_drop(["Nulgath's Approval", "Archfiend's Favor"])
@@ -339,8 +339,8 @@ async def approval_and_favor(cmd: Command, quant_approval: int = 5000,
     await equip_class(cmd)
 
     while cmd.is_still_connected():
-        if (cmd.is_in_inventory("Nulgath's Approval", quant_approval)
-                and cmd.is_in_inventory("Archfiend's Favor", quant_favor)):
+        if (await cmd.has_item("Nulgath's Approval", quant_approval)
+                and await cmd.has_item("Archfiend's Favor", quant_favor)):
             break
         if cmd.is_not_in_map("evilwarnul"):
             await cmd.join_map("evilwarnul")
@@ -359,7 +359,7 @@ async def blood_from_the_void(cmd: Command, quant: int = 300) -> None:
     otherwise; both are registered, so the auto-quest task turns them in as the
     three Archfiend drops arrive.
     """
-    if cmd.is_in_inventory("Blood From the Void", quant):
+    if await cmd.has_item("Blood From the Void", quant):
         return
 
     if cmd.is_still_connected() and not await cmd.is_completed_before(10581):
@@ -373,7 +373,7 @@ async def blood_from_the_void(cmd: Command, quant: int = 300) -> None:
     cmd.farming_logger("Blood From the Void", quant)
 
     while (cmd.is_still_connected()
-           and not cmd.is_in_inventory("Blood From the Void", quant)):
+           and not await cmd.has_item("Blood From the Void", quant)):
         await hunt_item(cmd, "Rodeleros' Blade Shard", 1, "tercesinvasion",
                         monster_name="Archfiend Rodeleros", is_temp=True)
         await hunt_item(cmd, "Vigneron's Chalice", 1, "tercesinvasion",
@@ -391,13 +391,13 @@ async def fiend_emblem(cmd: Command, quant: int = 300) -> None:
     script holds its own logic rather than calling ``CoreNation``).  The class
     swaps between farm and solo per step, exactly as the reference bot does.
     """
-    if cmd.is_in_inventory("Fiend Emblem", quant):
+    if await cmd.has_item("Fiend Emblem", quant):
         print(f"You already have {quant} (max stack) Fiend Emblem")
         return
 
     cmd.add_drop("Fiend Emblem")
 
-    while cmd.is_still_connected() and not cmd.is_in_inventory("Fiend Emblem", quant):
+    while cmd.is_still_connected() and not await cmd.has_item("Fiend Emblem", quant):
         await cmd.ensure_accept_quest(7890)
 
         await equip_class(cmd)
@@ -436,31 +436,38 @@ async def join_swf(cmd: Command, map_name: str, cell: str = "Enter",
         await cmd.jump_cell(cell, pad)
 
 
-def has_any_item(cmd: Command, names: Sequence[str]) -> bool:
-    """True when the inventory holds at least one of ``names`` (``any: true``)."""
-    return any(cmd.is_in_inventory(name) for name in names)
+async def all_owned(cmd: Command, items: Sequence[Tuple[str, int]]) -> bool:
+    """True when every ``(name, qty)`` pair is held somewhere in the account.
 
-
-def has_item_id(cmd: Command, item_id: int) -> bool:
-    """True when the inventory holds ``item_id``.
-
-    the reference bot's ``Core.CheckInventory(int)`` overload; the id-based check is what the
-    Void Knight Sword quests gate on, since the two variants are not named
-    consistently enough to match by name.
+    The ``all(...)`` shape a generator cannot express once each check has to
+    await.  Every pair withdraws banked stock before it is counted, so the answer
+    is "do I own this", not "is it lying in my inventory".
     """
-    return cmd.get_player().get_item_inventory_by_id(item_id) is not None
+    for name, qty in items:
+        if not await cmd.has_item(name, qty):
+            return False
+    return True
 
 
-def has_any_item_id(cmd: Command, item_ids: Sequence[int]) -> bool:
-    """True when the inventory holds at least one of ``item_ids``."""
-    return any(has_item_id(cmd, item_id) for item_id in item_ids)
+async def first_missing(cmd: Command,
+                        candidates: Sequence[Tuple[int, str, int]]):
+    """First ``(id, name, qty)`` entry the account does not already hold.
+
+    An explicit loop rather than ``next(e for e in ...)``: once the ownership
+    test has to await, a generator expression becomes an *async* generator and
+    ``next()`` on it raises ``TypeError``.
+    """
+    for candidate in candidates:
+        if not await cmd.has_item(candidate[1], candidate[2]):
+            return candidate
+    return None
 
 
 async def _mobius_horns(cmd: Command, full: bool) -> None:
     """Farm the Slugfit / Cyclops horns the quest needs, in the old /mobius map."""
     horn, cyclops = (10, 6) if full else (5, 3)
-    if (cmd.is_in_inventory("Slugfit Horn", horn, isTemp=True)
-            and cmd.is_in_inventory("Cyclops Horn", cyclops, isTemp=True)):
+    if (await cmd.has_item("Slugfit Horn", horn, isTemp=True)
+            and await cmd.has_item("Cyclops Horn", cyclops, isTemp=True)):
         return
     await join_swf(cmd, "mobius", "Slugfit", "Bottom")
     await hunt_item(cmd, "Slugfit Horn", horn, "mobius",
@@ -487,12 +494,12 @@ async def new_worlds_new_opportunities(cmd: Command,
         only exists once the quest is accepted, so this registers the quest
         first and reads the rewards after -- same outcome, different order.
     """
-    if item and cmd.is_in_inventory(item, quant):
+    if item and await cmd.has_item(item, quant):
         return
-    if not has_any_item(cmd, NWNO_PETS):
+    if not await cmd.has_any_item(NWNO_PETS):
         return
 
-    quest_id = 6183 if cmd.is_in_inventory("Bounty Hunter's Drone Pet") else 6697
+    quest_id = 6183 if await cmd.has_item("Bounty Hunter's Drone Pet") else 6697
     await equip_class(cmd)
     await cmd.register_quest(quest_id)          # accepts, so rewards load
     cmd.add_quest_rewards(quest_id)
@@ -503,11 +510,11 @@ async def new_worlds_new_opportunities(cmd: Command,
             cmd.cancel_registered_quests()
             return
         for _, name, max_stack in quest.reward_entries:
-            if cmd.is_in_inventory(name, max_stack):
+            if await cmd.has_item(name, max_stack):
                 continue
             cmd.farming_logger(name, max_stack)
             while (cmd.is_still_connected()
-                   and not cmd.is_in_inventory(name, max_stack)):
+                   and not await cmd.has_item(name, max_stack)):
                 await _mobius_horns(cmd, full=True)
                 await hunt_item(cmd, "Makai Fang", 10, "tercessuinotlim",
                                 cell="m2", pad="Top",
@@ -521,7 +528,7 @@ async def new_worlds_new_opportunities(cmd: Command,
         print("[nation] all items maxed")
     else:
         cmd.farming_logger(item, quant)
-        while cmd.is_still_connected() and not cmd.is_in_inventory(item, quant):
+        while cmd.is_still_connected() and not await cmd.has_item(item, quant):
             await _mobius_horns(cmd, full=False)
             await hunt_item(cmd, "Makai Fang", 5, "tercessuinotlim",
                             cell="m2", pad="Top",
@@ -569,16 +576,16 @@ async def void_knight_sword_quest(cmd: Command, item: Optional[str] = None,
     Arguments and reward handling match
     :func:`new_worlds_new_opportunities`.
     """
-    if item and cmd.is_in_inventory(item, quant):
+    if item and await cmd.has_item(item, quant):
         return
-    if not has_any_item_id(cmd, VOID_KNIGHT_SWORDS):
+    if not await cmd.has_any_item_id(VOID_KNIGHT_SWORDS):
         return
 
     cmd.add_drop(BAG_DROPS)
     if item:
         cmd.add_drop(item)
 
-    quest_id = 5662 if has_item_id(cmd, 38275) else 5659
+    quest_id = 5662 if await cmd.has_item_id(38275) else 5659
     await cmd.ensure_accept_quest(quest_id)      # accepts, so rewards load
     cmd.add_quest_rewards(quest_id)
 
@@ -587,16 +594,16 @@ async def void_knight_sword_quest(cmd: Command, item: Optional[str] = None,
         if _quest_rewards_or_warn(quest_id, quest) is None:
             return
         for _, name, max_stack in quest.reward_entries:
-            if cmd.is_in_inventory(name, max_stack):
+            if await cmd.has_item(name, max_stack):
                 continue
             cmd.farming_logger(name, max_stack)
             while (cmd.is_still_connected()
-                   and not cmd.is_in_inventory(name, max_stack)):
+                   and not await cmd.has_item(name, max_stack)):
                 await _void_knight_step(cmd, quest_id)
         print("[nation] all items maxed")
     else:
         cmd.farming_logger(item, quant)
-        while cmd.is_still_connected() and not cmd.is_in_inventory(item, quant):
+        while cmd.is_still_connected() and not await cmd.has_item(item, quant):
             await _void_knight_step(cmd, quest_id)
 
 
@@ -632,7 +639,7 @@ async def kill_escherion(cmd: Command, item: Optional[str] = None,
 
     With ``item`` unset it fights one spawn to the death.
     """
-    if item and cmd.is_in_inventory(item, quant, isTemp=is_temp):
+    if item and await cmd.has_item(item, quant, isTemp=is_temp):
         return
     if item and not is_temp:
         cmd.add_drop(item)
@@ -646,12 +653,13 @@ async def kill_escherion(cmd: Command, item: Optional[str] = None,
             if not await _travel(cmd, "escherion", "Boss"):
                 continue
             await cmd.sleep(500)
-        goal = lambda: not cmd.is_monster_alive("*")            # noqa: E731
+        async def goal() -> bool:
+            return not cmd.is_monster_alive("*")
     else:
-        goal = lambda: cmd.is_in_inventory(item, quant,           # noqa: E731
-                                           isTemp=is_temp)
+        async def goal() -> bool:
+            return await cmd.has_item(item, quant, isTemp=is_temp)
 
-    while cmd.is_still_connected() and not goal():
+    while cmd.is_still_connected() and not await goal():
         if not await _travel(cmd, "escherion", "Boss"):
             continue
         staff = cmd.get_monster(ESCHERION_STAFF)
@@ -669,7 +677,7 @@ async def kill_vath(cmd: Command, item: Optional[str] = None, quant: int = 1,
     Stalagbite (``id.8``) takes the hits while it is alive and Vath (``id.7``)
     otherwise -- the same two choices the C# makes from the target's state.
     """
-    if item and cmd.is_in_inventory(item, quant, isTemp=is_temp):
+    if item and await cmd.has_item(item, quant, isTemp=is_temp):
         return
     if item and not is_temp:
         cmd.add_drop(item)
@@ -682,12 +690,13 @@ async def kill_vath(cmd: Command, item: Optional[str] = None, quant: int = 1,
             if not await _travel(cmd, "stalagbite", "r2"):
                 continue
             await cmd.sleep(500)
-        goal = lambda: not cmd.is_monster_alive("*")            # noqa: E731
+        async def goal() -> bool:
+            return not cmd.is_monster_alive("*")
     else:
-        goal = lambda: cmd.is_in_inventory(item, quant,           # noqa: E731
-                                           isTemp=is_temp)
+        async def goal() -> bool:
+            return await cmd.has_item(item, quant, isTemp=is_temp)
 
-    while cmd.is_still_connected() and not goal():
+    while cmd.is_still_connected() and not await goal():
         if not await _travel(cmd, "stalagbite", "r2"):
             continue
         stalagbite = cmd.get_monster(STALAGBITE)
@@ -703,7 +712,7 @@ async def dark_makai_item(cmd: Command, item: Optional[str] = "Dark Makai Rune",
     stays.  ``/Nulgath`` is the member variant of the drop's second home, with
     ``/evilmarsh`` replacing it otherwise.
     """
-    if not item or cmd.is_in_inventory(item, quantity, isTemp=is_temp):
+    if not item or await cmd.has_item(item, quantity, isTemp=is_temp):
         return
 
     member = bool(cmd.get_player().is_member)
@@ -713,7 +722,7 @@ async def dark_makai_item(cmd: Command, item: Optional[str] = "Dark Makai Rune",
     ])
 
     while (cmd.is_still_connected()
-           and not cmd.is_in_inventory(item, quantity, isTemp=is_temp)):
+           and not await cmd.has_item(item, quantity, isTemp=is_temp)):
         if not await _travel(cmd, map_name, cell):
             continue
         await cmd.use_next_skill(DEFAULT_SKILL_LIST, "Dark Makai")
@@ -727,15 +736,15 @@ async def crags_thirst(cmd: Command, quant: int = 1000) -> None:
     Needs the Crag pet and 100 Unidentified 10 banked; the C# bails out
     silently without them, and so does this.
     """
-    if (not cmd.is_in_inventory(CRAG_PET)
-            or cmd.is_in_inventory("Diamond of Nulgath", quant)
-            or not cmd.is_in_inventory(uni(10), 100)):
+    if (not await cmd.has_item(CRAG_PET)
+            or await cmd.has_item("Diamond of Nulgath", quant)
+            or not await cmd.has_item(uni(10), 100)):
         return
 
     print("[nation] doing Crag's Thirst")
     while (cmd.is_still_connected()
-           and cmd.is_in_inventory(uni(10), 100)
-           and not cmd.is_in_inventory("Diamond of Nulgath", quant)):
+           and await cmd.has_item(uni(10), 100)
+           and not await cmd.has_item("Diamond of Nulgath", quant)):
         # the C# calls ResetQuest(600) here, which sends no packet of its own;
         # accepting the quest is the whole of it
         await cmd.ensure_accept_quest(600)
@@ -754,7 +763,7 @@ async def bloody_chaos(cmd: Command, quant: int = 100, relic: bool = False,
     level = cmd.get_player().LEVEL
     if level and level < 80:
         return
-    if not endless and cmd.is_in_inventory("Blood Gem of the Archfiend", quant):
+    if not endless and await cmd.has_item("Blood Gem of the Archfiend", quant):
         return
 
     cmd.add_drop(["Blood Gem of the Archfiend", "Hydra Scale Piece"])
@@ -768,7 +777,7 @@ async def bloody_chaos(cmd: Command, quant: int = 100, relic: bool = False,
 
     while (cmd.is_still_connected()
            and (endless
-                or not cmd.is_in_inventory("Blood Gem of the Archfiend", quant))):
+                or not await cmd.has_item("Blood Gem of the Archfiend", quant))):
         await kill_escherion(cmd, "Escherion's Helm", is_temp=False)
         await kill_vath(cmd, "Shattered Legendary Sword of Dragon Control",
                         is_temp=False)
@@ -784,7 +793,7 @@ async def essence_of_defeat_reagent(cmd: Command, quant: int = 1000) -> None:
     Six steps per turn-in, sweeping solo and farm classes in between exactly as
     the C# does.
     """
-    if cmd.is_in_inventory("Dark Crystal Shard", quant):
+    if await cmd.has_item("Dark Crystal Shard", quant):
         return
 
     cmd.add_drop(TERCESS_BAGS + BAG_DROPS)
@@ -792,7 +801,7 @@ async def essence_of_defeat_reagent(cmd: Command, quant: int = 1000) -> None:
     await cmd.register_quest(570)
 
     while (cmd.is_still_connected()
-           and not cmd.is_in_inventory("Dark Crystal Shard", quant)):
+           and not await cmd.has_item("Dark Crystal Shard", quant)):
         await equip_class(cmd, solo=True)
         await hunt_item(cmd, "Aracara's Fang", 1, "faerie",
                         monster_name="Aracara", is_temp=False)
@@ -843,7 +852,7 @@ async def dirty_deeds_done_dirt_cheap(cmd: Command, quant: int = 1000,
               "Unidentified 10 with the base quest only.")
 
     while (cmd.is_still_connected()
-           and not cmd.is_in_inventory("Unidentified 10", quant)):
+           and not await cmd.has_item("Unidentified 10", quant)):
         await cmd.ensure_accept_quest(7818)
         await hunt_item(cmd, "Slugbutter Digging Advice", 1, "towerofdoom10",
                         monster_name="Slugbutter", is_temp=True)
@@ -895,9 +904,10 @@ def _quest_rewards_or_warn(quest_id: int,
     return None
 
 
-def has_obon_pet(cmd: Command) -> bool:
+async def has_obon_pet(cmd: Command) -> bool:
     """True for members holding one of the two OBoN stand-in pets."""
-    return bool(cmd.get_player().is_member) and has_any_item_id(cmd, OBO_PETS)
+    return (bool(cmd.get_player().is_member)
+            and await cmd.has_any_item_id(OBO_PETS))
 
 
 async def _kill_once(cmd: Command, map_name: str, cell: str, pad: str,
@@ -928,7 +938,7 @@ async def sell_voucher_of_nulgath(cmd: Command, sell_mem_voucher: bool = True,
     """
     if not sell_mem_voucher or item == "Voucher of Nulgath":
         return
-    if not cmd.is_in_inventory("Voucher of Nulgath"):
+    if not await cmd.has_item("Voucher of Nulgath"):
         return
     if cmd.is_not_in_cell("Enter"):
         await cmd.jump_cell("Enter", "Spawn")
@@ -986,7 +996,7 @@ async def do_swindles_return_area(cmd: Command, return_policy_active: bool,
     """
     if not return_policy_active:
         return
-    if not all(cmd.is_in_inventory(uni(n)) for n in (1, 6, 9, 16, 20)):
+    if not await all_owned(cmd, [(uni(n), 1) for n in (1, 6, 9, 16, 20)]):
         return
 
     await cmd.ensure_accept_quest(7551)
@@ -1001,10 +1011,9 @@ async def do_swindles_return_area(cmd: Command, return_policy_active: bool,
         if not wanted:
             print(f"[nation] {item!r} is not a quest 7551 reward; skipping.")
             return
-        if cmd.is_in_inventory(wanted[0][1], wanted[0][2]):
+        if await cmd.has_item(wanted[0][1], wanted[0][2]):
             return
-    elif all(cmd.is_in_inventory(name, stack)
-             for _, name, stack in candidates):
+    elif await all_owned(cmd, [(name, stack) for _, name, stack in candidates]):
         return
 
     await dark_makai_item(cmd, "Dark Makai Rune")
@@ -1017,8 +1026,7 @@ async def do_swindles_return_area(cmd: Command, return_policy_active: bool,
     if item is not None:
         chosen = next((e for e in candidates if e[1] == item), None)
     else:
-        chosen = next((e for e in candidates
-                       if not cmd.is_in_inventory(e[1], e[2])), None)
+        chosen = await first_missing(cmd, candidates)
 
     await cmd.ensure_turn_in_quest(7551, chosen[0] if chosen else -1)
 
@@ -1054,7 +1062,7 @@ async def get_pcod(cmd: Command) -> bool:
         produce and stops with a message when it is not met -- rather than
         silently farming nothing.
     """
-    if cmd.is_in_inventory("Purified Claymore of Destiny"):
+    if await cmd.has_item("Purified Claymore of Destiny"):
         return True
 
     rank = cmd.get_faction_rank("Good")
@@ -1092,7 +1100,7 @@ async def supplies(cmd: Command, item: Optional[str] = None, quant: int = 1,
         store, so it is a parameter here instead -- which is the substitution
         the whole ``CBOBool`` family gets.
     """
-    if item and cmd.is_in_inventory(item, quant):
+    if item and await cmd.has_item(item, quant):
         return
 
     # with no target, stop once every principal drop is already maxed
@@ -1101,8 +1109,8 @@ async def supplies(cmd: Command, item: Optional[str] = None, quant: int = 1,
         quest = cmd.get_loaded_quest(2857)
         if quest is not None and quest.reward_entries:
             stacks = {name: stack for _, name, stack in quest.reward_entries}
-            if all(cmd.is_in_inventory(drop, stacks.get(drop, 1))
-                   for drop in BAG_DROPS_PRINCIPAL):
+            if await all_owned(cmd, [(drop, stacks.get(drop, 1))
+                                     for drop in BAG_DROPS_PRINCIPAL]):
                 return
 
     if keep_voucher:
@@ -1115,9 +1123,9 @@ async def supplies(cmd: Command, item: Optional[str] = None, quant: int = 1,
                          return_policy, return_item)
 
     quests = [2857]
-    if item != uni(13) and has_item_id(cmd, 38261):
+    if item != uni(13) and await cmd.has_item_id(38261):
         quests.append(9542)
-    if cmd.is_in_inventory("Drudgen the Assistant"):
+    if await cmd.has_item("Drudgen the Assistant"):
         quests.append(870)
     for quest_id in quests:
         await cmd.register_quest(quest_id)
@@ -1168,8 +1176,8 @@ async def _farm_all_supplies(cmd: Command, ultra_alteon: bool, hydra: bool,
             continue
         _, name, max_stack = entry
 
-        if not ultra_alteon and not hydra and (cmd.is_in_inventory(CRAG_PET)
-                                               or has_obon_pet(cmd)):
+        if not ultra_alteon and not hydra and (await cmd.has_item(CRAG_PET)
+                                               or await has_obon_pet(cmd)):
             await bamboozle_vs_drudge(cmd, name, max_stack, keep_voucher,
                                       assistant_during, return_item,
                                       came_from_supplies=True,
@@ -1178,7 +1186,7 @@ async def _farm_all_supplies(cmd: Command, ultra_alteon: bool, hydra: bool,
             continue
 
         while (cmd.is_still_connected()
-               and not cmd.is_in_inventory(name, max_stack)):
+               and not await cmd.has_item(name, max_stack)):
             if hydra:
                 await kill_hydra(cmd)
             elif ultra_alteon:
@@ -1202,8 +1210,8 @@ async def _farm_single_supply(cmd: Command, item: str, quant: int,
                               voucher_item_during: bool,
                               sell_mem_voucher: bool) -> None:
     """Farm one Supplies reward up to ``quant``."""
-    if not ultra_alteon and not hydra and (cmd.is_in_inventory(CRAG_PET)
-                                           or has_obon_pet(cmd)):
+    if not ultra_alteon and not hydra and (await cmd.has_item(CRAG_PET)
+                                           or await has_obon_pet(cmd)):
         await bamboozle_vs_drudge(cmd, item, quant, keep_voucher,
                                   assistant_during, return_item,
                                   came_from_supplies=True,
@@ -1211,7 +1219,7 @@ async def _farm_single_supply(cmd: Command, item: str, quant: int,
                                   return_policy=return_policy)
         return
 
-    while cmd.is_still_connected() and not cmd.is_in_inventory(item, quant):
+    while cmd.is_still_connected() and not await cmd.has_item(item, quant):
         if hydra:
             await kill_hydra(cmd)
         elif ultra_alteon:
@@ -1233,12 +1241,12 @@ async def handle_voucher_conversions(cmd: Command, item: str) -> None:
     Quest 4778 hands out one or the other; the C# picks the *other* one so the
     two keep pace with each other.
     """
-    if (not cmd.is_in_inventory("Voucher of Nulgath (non-mem)")
-            or not cmd.is_in_inventory("Essence of Nulgath", 60)):
+    if (not await cmd.has_item("Voucher of Nulgath (non-mem)")
+            or not await cmd.has_item("Essence of Nulgath", 60)):
         return
 
-    diamonds_maxed = cmd.is_in_inventory("Diamond of Nulgath", 1000)
-    totems_maxed = cmd.is_in_inventory("Totem of Nulgath", 100)
+    diamonds_maxed = await cmd.has_item("Diamond of Nulgath", 1000)
+    totems_maxed = await cmd.has_item("Totem of Nulgath", 100)
 
     if item.lower() == "diamond of nulgath":
         if diamonds_maxed and not totems_maxed:
@@ -1276,7 +1284,7 @@ async def bamboozle_vs_drudge(cmd: Command, item: Optional[str] = None,
         print("[nation] bamboozle_vs_drudge needs an item; the C# version "
               "accepts null and then loops forever. Nothing farmed.")
         return
-    if cmd.is_in_inventory(item, quant):
+    if await cmd.has_item(item, quant):
         print(f"[nation] {item} x{quant} already owned.")
         return
 
@@ -1290,19 +1298,19 @@ async def bamboozle_vs_drudge(cmd: Command, item: Optional[str] = None,
     cmd.farming_logger(item, quant)
 
     quests = [2857]
-    if cmd.is_in_inventory(CRAG_PET):
+    if await cmd.has_item(CRAG_PET):
         quests.append(609)
-    if has_obon_pet(cmd):
+    if await has_obon_pet(cmd):
         cmd.add_drop("Tainted Soul")
-        quests.append(599 if has_item_id(cmd, 4809) else 2561)
-    if has_item_id(cmd, 38261):
+        quests.append(599 if await cmd.has_item_id(4809) else 2561)
+    if await cmd.has_item_id(38261):
         quests.append(9542)
     for quest_id in dict.fromkeys(quests):
         await cmd.register_quest(quest_id)
 
     await equip_class(cmd, solo=True)
 
-    while cmd.is_still_connected() and not cmd.is_in_inventory(item, quant):
+    while cmd.is_still_connected() and not await cmd.has_item(item, quant):
         await _kill_once(cmd, "evilmarsh", "End", "Left", "Tainted Elemental")
         await sell_voucher_of_nulgath(cmd, sell_mem_voucher, item)
         await assistant_during_supplies(cmd, assistant_during)
@@ -1310,13 +1318,13 @@ async def bamboozle_vs_drudge(cmd: Command, item: Optional[str] = None,
             await do_swindles_return_area(cmd, return_policy, return_item)
         await handle_voucher_conversions(cmd, item)
         if (return_policy and item in (None, "Diamond of Nulgath")
-                and not cmd.is_in_inventory("Diamond of Nulgath", 1000)):
+                and not await cmd.has_item("Diamond of Nulgath", 1000)):
             await crags_thirst(cmd)
 
 
 async def essence_of_nulgath(cmd: Command, quant: int = 60) -> None:
     """Farm Essence of Nulgath off the Dark Makai in Tercessuinotlim."""
-    if cmd.is_in_inventory("Essence of Nulgath", quant):
+    if await cmd.has_item("Essence of Nulgath", quant):
         return
     cmd.add_drop("Essence of Nulgath")
     await equip_class(cmd)
@@ -1331,19 +1339,19 @@ async def diamond_exchange(cmd: Command, farm_diamond: bool = True) -> None:
     Silently does nothing without the Crag pet or with Uni 13 already full --
     the C# returns on the same two conditions.
     """
-    if ((not cmd.is_in_inventory("Diamond of Nulgath", 15) and not farm_diamond)
-            or not cmd.is_in_inventory(CRAG_PET)
-            or cmd.is_in_inventory(uni(13), 13)):
+    if ((not await cmd.has_item("Diamond of Nulgath", 15) and not farm_diamond)
+            or not await cmd.has_item(CRAG_PET)
+            or await cmd.has_item(uni(13), 13)):
         return
 
     cmd.add_drop("Diamond of Nulgath")
-    if farm_diamond and (has_obon_pet(cmd) or cmd.is_in_inventory(CRAG_PET)):
+    if farm_diamond and (await has_obon_pet(cmd) or await cmd.has_item(CRAG_PET)):
         await bamboozle_vs_drudge(cmd, "Diamond of Nulgath", 15)
 
     await equip_class(cmd)
     while (cmd.is_still_connected()
-           and cmd.is_in_inventory("Diamond of Nulgath", 15)
-           and not cmd.is_in_inventory(uni(13), 13)):
+           and await cmd.has_item("Diamond of Nulgath", 15)
+           and not await cmd.has_item(uni(13), 13)):
         await cmd.ensure_accept_quest(869)
         await dark_makai_item(cmd, "Dark Makai Sigil")
         await cmd.ensure_turn_in_quest(869)
@@ -1358,10 +1366,10 @@ async def contract_exchange(cmd: Command, reward_name: str, quant: int,
         equivalent (the enum only exists to label the same four strings) and
         lets the caller's switch collapse into a plain call.
     """
-    if not cmd.is_in_inventory("Drudgen the Assistant"):
+    if not await cmd.has_item("Drudgen the Assistant"):
         print('[nation] missing "Drudgen the Assistant"')
         return
-    if not cmd.is_in_inventory(uni(13)) and not farm_uni13:
+    if not await cmd.has_item(uni(13)) and not farm_uni13:
         print("[nation] contract exchange needs Unidentified 13 and was told "
               "not to farm it")
         return
@@ -1371,8 +1379,8 @@ async def contract_exchange(cmd: Command, reward_name: str, quant: int,
     cmd.farming_logger(reward_name, quant)
 
     reward_id = _reward_id(cmd, 870, reward_name)
-    while cmd.is_still_connected() and not cmd.is_in_inventory(reward_name, quant):
-        if farm_uni13 and not cmd.is_in_inventory(uni(13)):
+    while cmd.is_still_connected() and not await cmd.has_item(reward_name, quant):
+        if farm_uni13 and not await cmd.has_item(uni(13)):
             await farm_uni13_quest(cmd, 3)
         await cmd.ensure_accept_quest(870)
         await _kill_once(cmd, "tercessuinotlim", "m4", "Top",
@@ -1398,9 +1406,9 @@ async def farm_contract_exchage(cmd: Command, item: Optional[str] = None,
         call and the two branches of the C# (targeted vs all four) differ only
         in which ``ReturnItem`` they pass on.
     """
-    if (not cmd.is_in_inventory("Drudgen the Assistant")
-            or (item and cmd.is_in_inventory(item, quant))):
-        if not cmd.is_in_inventory("Drudgen the Assistant"):
+    if (not await cmd.has_item("Drudgen the Assistant")
+            or (item and await cmd.has_item(item, quant))):
+        if not await cmd.has_item("Drudgen the Assistant"):
             print('[nation] missing "Drudgen the Assistant"')
         return
 
@@ -1425,7 +1433,7 @@ async def farm_contract_exchage(cmd: Command, item: Optional[str] = None,
         target = quant if quant > 1 else max_stack
         cmd.farming_logger(reward_name, target)
         while (cmd.is_still_connected()
-               and not cmd.is_in_inventory(reward_name, target)):
+               and not await cmd.has_item(reward_name, target)):
             await supplies(cmd, "Diamond of Nulgath", 45,
                            return_item="Diamond of Nulgath")
             await contract_exchange(cmd, reward_name, target)
@@ -1433,14 +1441,14 @@ async def farm_contract_exchage(cmd: Command, item: Optional[str] = None,
 
 async def farm_uni13_quest(cmd: Command, quant: int = 13) -> None:
     """Unidentified 13, stacked to its cap of 13."""
-    if cmd.is_in_inventory(uni(13), quant):
+    if await cmd.has_item(uni(13), quant):
         return
     cmd.add_drop(uni(13))
     quant = min(quant, 13)
 
-    if cmd.is_in_inventory(CRAG_PET):
+    if await cmd.has_item(CRAG_PET):
         while (cmd.is_still_connected()
-               and not cmd.is_in_inventory(uni(13), quant)):
+               and not await cmd.has_item(uni(13), quant)):
             await diamond_exchange(cmd)
 
     await new_worlds_new_opportunities(cmd, uni(13), quant)
@@ -1450,10 +1458,10 @@ async def farm_uni13_quest(cmd: Command, quant: int = 13) -> None:
 
 async def farm_uni10(cmd: Command, quant: int = 1000) -> None:
     """Unidentified 10, pet route first when one is owned."""
-    if cmd.is_in_inventory("Unidentified 10", quant):
+    if await cmd.has_item("Unidentified 10", quant):
         return
     cmd.add_drop("Unidentified 10")
-    if has_obon_pet(cmd) or cmd.is_in_inventory(CRAG_PET):
+    if await has_obon_pet(cmd) or await cmd.has_item(CRAG_PET):
         await bamboozle_vs_drudge(cmd, "Unidentified 10", quant,
                                   came_from_supplies=True)
     await dirty_deeds_done_dirt_cheap(cmd, quant)
@@ -1461,12 +1469,12 @@ async def farm_uni10(cmd: Command, quant: int = 1000) -> None:
 
 async def farm_dark_crystal_shard(cmd: Command, quant: int = 1000) -> None:
     """Dark Crystal Shard, by every route the account can take."""
-    if cmd.is_in_inventory("Dark Crystal Shard", quant):
+    if await cmd.has_item("Dark Crystal Shard", quant):
         return
     cmd.add_drop("Dark Crystal Shard")
     await farm_contract_exchage(cmd, "Dark Crystal Shard", quant)
     await new_worlds_new_opportunities(cmd, "Dark Crystal Shard", quant)
-    if cmd.is_in_inventory(CRAG_PET):
+    if await cmd.has_item(CRAG_PET):
         await supplies(cmd, "Dark Crystal Shard", quant,
                        return_item="Dark Crystal Shard")
     await void_knight_sword_quest(cmd, "Dark Crystal Shard", quant)
@@ -1477,15 +1485,15 @@ async def farm_dark_crystal_shard(cmd: Command, quant: int = 1000) -> None:
 
 async def farm_diamond_of_nulgath(cmd: Command, quant: int = 1000) -> None:
     """Diamond of Nulgath, by every route the account can take."""
-    if cmd.is_in_inventory("Diamond of Nulgath", quant):
+    if await cmd.has_item("Diamond of Nulgath", quant):
         return
     cmd.add_drop("Diamond of Nulgath")
     while (cmd.is_still_connected()
-           and not cmd.is_in_inventory("Diamond of Nulgath", quant)
-           and cmd.is_in_inventory(CRAG_PET)
-           and cmd.is_in_inventory(uni(10), 100)):
+           and not await cmd.has_item("Diamond of Nulgath", quant)
+           and await cmd.has_item(CRAG_PET)
+           and await cmd.has_item(uni(10), 100)):
         await crags_thirst(cmd, quant)
-    if cmd.is_in_inventory(CRAG_PET):
+    if await cmd.has_item(CRAG_PET):
         await supplies(cmd, "Diamond of Nulgath", quant,
                        return_item="Diamond of Nulgath")
     await void_knight_sword_quest(cmd, "Diamond of Nulgath", quant)
@@ -1495,11 +1503,11 @@ async def farm_diamond_of_nulgath(cmd: Command, quant: int = 1000) -> None:
 
 async def farm_gem_of_nulgath(cmd: Command, quant: int = 1000) -> None:
     """Gem of Nulgath, by every route the account can take."""
-    if cmd.is_in_inventory("Gem of Nulgath", quant):
+    if await cmd.has_item("Gem of Nulgath", quant):
         return
     cmd.add_drop("Gem of Nulgath")
     await farm_contract_exchage(cmd, "Gem of Nulgath", quant)
-    if cmd.is_in_inventory(CRAG_PET):
+    if await cmd.has_item(CRAG_PET):
         await supplies(cmd, "Gem of Nulgath", quant,
                        return_item="Gem of Nulgath")
     await void_knight_sword_quest(cmd, "Gem of Nulgath", quant)
@@ -1509,7 +1517,7 @@ async def farm_gem_of_nulgath(cmd: Command, quant: int = 1000) -> None:
 async def farm_blood_gem(cmd: Command, quant: int = 100,
                          hydra_level: int = 85) -> None:
     """Blood Gem of the Archfiend, by every route the account can take."""
-    if cmd.is_in_inventory("Blood Gem of the Archfiend", quant):
+    if await cmd.has_item("Blood Gem of the Archfiend", quant):
         return
     cmd.add_drop("Blood Gem of the Archfiend")
     await farm_contract_exchage(cmd, "Blood Gem of the Archfiend", quant)
@@ -1528,11 +1536,11 @@ async def farm_tainted_gem(cmd: Command, quant: int = 1000) -> None:
         Vampire rep and gold farms that are still outstanding -- so it is
         skipped with a notice instead of silently missing.
     """
-    if cmd.is_in_inventory("Tainted Gem", quant):
+    if await cmd.has_item("Tainted Gem", quant):
         return
     cmd.add_drop("Tainted Gem")
     await farm_contract_exchage(cmd, "Tainted Gem", quant)
-    if cmd.is_in_inventory(CRAG_PET):
+    if await cmd.has_item(CRAG_PET):
         await supplies(cmd, "Tainted Gem", quant, return_item="Tainted Gem")
     print("[nation] the Forge route (quest 4919) is not ported; farming "
           "Tainted Gem through the other three steps only.")
@@ -1541,7 +1549,7 @@ async def farm_tainted_gem(cmd: Command, quant: int = 1000) -> None:
 
 async def farm_totem_of_nulgath(cmd: Command, quant: int = 100) -> None:
     """Totem of Nulgath: Deal first, then Taro's chain as the fallback."""
-    if cmd.is_in_inventory("Totem of Nulgath", quant):
+    if await cmd.has_item("Totem of Nulgath", quant):
         return
     await deal(cmd, gem_quant=0, totem_quant=quant)
     await new_worlds_new_opportunities(cmd, "Totem of Nulgath", quant)
@@ -1552,12 +1560,12 @@ async def farm_voucher(cmd: Command, member: bool, keep_voucher: bool = False
                        ) -> None:
     """Voucher of Nulgath, member or non-member variant by the flag."""
     name = "Voucher of Nulgath" if member else "Voucher of Nulgath (non-mem)"
-    if cmd.is_in_inventory(name):
+    if await cmd.has_item(name):
         return
     cmd.add_drop(name)
     print(f"[nation] keep voucher set to {keep_voucher}")
 
-    if has_obon_pet(cmd) or cmd.is_in_inventory(CRAG_PET):
+    if await has_obon_pet(cmd) or await cmd.has_item(CRAG_PET):
         await bamboozle_vs_drudge(cmd, name, 1, keep_voucher=keep_voucher,
                                   came_from_supplies=True)
     await new_worlds_new_opportunities(cmd, name)
@@ -1567,7 +1575,7 @@ async def farm_voucher(cmd: Command, member: bool, keep_voucher: bool = False
 
 async def farm_fiend_token(cmd: Command, quant: int = 30) -> None:
     """Fiend Token, by the three routes the C# tries in order."""
-    if cmd.is_in_inventory("Fiend Token", quant):
+    if await cmd.has_item("Fiend Token", quant):
         return
     await void_knight_sword_quest(cmd, "Fiend Token", quant)
     await assisting_drudgen(cmd, "Fiend Token", quant)
@@ -1594,7 +1602,7 @@ async def dragon_slayer_reward(cmd: Command) -> None:
 
 async def deal(cmd: Command, gem_quant: int = 0, totem_quant: int = 0) -> None:
     """Quest 4777: Gems and/or Totems of Nulgath, Crag pet only."""
-    if not cmd.is_in_inventory(CRAG_PET):
+    if not await cmd.has_item(CRAG_PET):
         print(f"[nation] missing {CRAG_PET}; cannot continue.")
         return
 
@@ -1608,7 +1616,7 @@ async def deal(cmd: Command, gem_quant: int = 0, totem_quant: int = 0) -> None:
             return
         cmd.farming_logger(item_name, quant)
         while (cmd.is_still_connected()
-               and not cmd.is_in_inventory(item_name, quant)):
+               and not await cmd.has_item(item_name, quant)):
             await cmd.ensure_accept_quest(4777)
             await supplies(cmd, "Unidentified 3",
                            return_item="Blood Gem of the Archfiend")
@@ -1632,13 +1640,13 @@ async def assisting_drudgen(cmd: Command, item: str = "Any",
         counterpart here, so it is skipped: the following ``IsAvailable`` check
         is reproduced by trying to accept 3826 and seeing whether it lands.
     """
-    if (cmd.is_in_inventory(item, quant)
-            or not cmd.is_in_inventory("Drudgen the Assistant")
-            or not cmd.is_in_inventory("Twin Blade of Nulgath")
+    if (await cmd.has_item(item, quant)
+            or not await cmd.has_item("Drudgen the Assistant")
+            or not await cmd.has_item("Twin Blade of Nulgath")
             or not cmd.get_player().is_member):
         return
 
-    while cmd.is_still_connected() and not cmd.is_in_inventory(item, quant):
+    while cmd.is_still_connected() and not await cmd.has_item(item, quant):
         await cmd.ensure_accept_quest(5816)
         await hunt_item(cmd, "The Secret 1", 1, "willowcreek",
                         monster_name="Hidden Spy", is_temp=False)
@@ -1650,7 +1658,7 @@ async def assisting_drudgen(cmd: Command, item: str = "Any",
                         pad="Left", monster_name="*", is_temp=False)
 
         await cmd.ensure_accept_quest(3826)
-        if cmd.get_loaded_quest(3826) is not None and not has_item_id(cmd, 25026):
+        if cmd.get_loaded_quest(3826) is not None and not await cmd.has_item_id(25026):
             await hunt_item(cmd, "Seal of Light", 1, "alteonbattle",
                             monster_name="Ultra Chaos Alteon", is_temp=True)
             await cmd.ensure_turn_in_quest(3826)
@@ -1662,13 +1670,13 @@ async def assisting_drudgen(cmd: Command, item: str = "Any",
 async def feed_the_fiend(cmd: Command, item: str = "Fiend Token",
                          quant: int = 30) -> None:
     """Quest 3053, members only, for Fiend Tokens."""
-    if cmd.is_in_inventory(item, quant) or not cmd.get_player().is_member:
+    if await cmd.has_item(item, quant) or not cmd.get_player().is_member:
         return
     cmd.add_drop(item)
     await cmd.register_quest(3053)
     await equip_class(cmd, solo=True)
 
-    while cmd.is_still_connected() and not cmd.is_in_inventory(item, quant):
+    while cmd.is_still_connected() and not await cmd.has_item(item, quant):
         await farm_diamond_of_nulgath(cmd, 1)
         await hunt_item(cmd, "Dragon Fiend Gem", 13, "lair",
                         monster_name="Red Dragon", is_temp=False)
@@ -1683,11 +1691,11 @@ async def feed_the_fiend(cmd: Command, item: str = "Fiend Token",
 
 async def totems_via_taros(cmd: Command, quant: int = 100) -> None:
     """Totem of Nulgath via Taro's chain (quest 726)."""
-    if cmd.is_in_inventory("Totem of Nulgath", quant):
+    if await cmd.has_item("Totem of Nulgath", quant):
         return
 
     if (cmd.get_player().is_member
-            and not cmd.is_in_inventory("Purified Claymore of Destiny")):
+            and not await cmd.has_item("Purified Claymore of Destiny")):
         print("[nation] member route needs the Purified Claymore first.")
         if not await get_pcod(cmd):
             return
@@ -1699,11 +1707,11 @@ async def totems_via_taros(cmd: Command, quant: int = 100) -> None:
         await cmd.ensure_accept_quest(9541)
         await cmd.ensure_turn_in_quest(9541)
 
-    while cmd.is_still_connected() and not cmd.is_in_inventory("Totem of Nulgath", quant):
+    while cmd.is_still_connected() and not await cmd.has_item("Totem of Nulgath", quant):
         await cmd.ensure_accept_quest(726)
         await essence_of_nulgath(cmd, 25)
         if (cmd.get_player().is_member
-                and not has_item_id(cmd, 538)):
+                and not await cmd.has_item_id(538)):
             await cmd.ensure_accept_quest(1111)
             await farm_gem_of_nulgath(cmd, 10)
             await dark_makai_item(cmd, "Dark Makai Rune")
@@ -1723,7 +1731,7 @@ async def kissthe_void(cmd: Command, quant: int = 100,
                        return_policy: bool = False) -> None:
     """Quest 3743: Blood Gems, or one of the Betrayal Blades."""
     watching = betrayal_blade or "Blood Gem of the Archfiend"
-    if cmd.is_in_inventory(watching, quant if betrayal_blade is None else 1):
+    if await cmd.has_item(watching, quant if betrayal_blade is None else 1):
         return
 
     cmd.add_drop([watching, "Fragment of Chaos", "Blood Gem of the Archfiend",
@@ -1735,10 +1743,10 @@ async def kissthe_void(cmd: Command, quant: int = 100,
     await cmd.register_quest(2857)
 
     while (cmd.is_still_connected()
-           and not cmd.is_in_inventory(watching,
+           and not await cmd.has_item(watching,
                                        quant if betrayal_blade is None else 1)):
         await cmd.ensure_accept_quest(3743)
-        if not cmd.is_in_inventory("Tendurrr The Assistant"):
+        if not await cmd.has_item("Tendurrr The Assistant"):
             await hunt_item(cmd, "Tendurrr The Assistant", 1,
                             "tercessuinotlim", cell="m2", pad="Left",
                             monster_name="*", is_temp=False)
@@ -1751,14 +1759,14 @@ async def kissthe_void(cmd: Command, quant: int = 100,
         await cmd.ensure_turn_in_quest(3743)
 
         await sell_voucher_of_nulgath(cmd, keep_voucher, watching)
-        if not cmd.is_in_inventory("Blood Gem of the Archfiend", 100):
+        if not await cmd.has_item("Blood Gem of the Archfiend", 100):
             await do_swindles_return_area(cmd, return_policy,
                                           "Blood Gem of the Archfiend")
-        if (cmd.is_in_inventory("Voucher of Nulgath (non-mem)")
-                and cmd.is_in_inventory("Essence of Nulgath", 60)
-                and (not cmd.is_in_inventory("Diamond of Nulgath", 1000)
-                     or not cmd.is_in_inventory("Totem of Nulgath", 100))):
-            diamonds_first = not cmd.is_in_inventory("Diamond of Nulgath", 1000)
+        if (await cmd.has_item("Voucher of Nulgath (non-mem)")
+                and await cmd.has_item("Essence of Nulgath", 60)
+                and (not await cmd.has_item("Diamond of Nulgath", 1000)
+                     or not await cmd.has_item("Totem of Nulgath", 100))):
+            diamonds_first = not await cmd.has_item("Diamond of Nulgath", 1000)
             await cmd.ensure_turn_in_quest(
                 VOUCHER_CONVERSION_QUEST,
                 GEM_OF_NULGATH if diamonds_first else TOTEM_OF_NULGATH,
@@ -1774,7 +1782,7 @@ async def nation_round_4_medal(cmd: Command) -> None:
     Each medal is dropped from the pickup whitelist once earned, which is what
     the C# does with ``Bot.Drops.Remove``.
     """
-    if cmd.is_in_inventory("Nation Round 4 Medal"):
+    if await cmd.has_item("Nation Round 4 Medal"):
         print("[nation] medal 4 owned, no need to farm it")
         return
 
@@ -1782,7 +1790,7 @@ async def nation_round_4_medal(cmd: Command) -> None:
         if not cmd.is_still_connected():
             return
         cmd.add_drop(medal)
-        if cmd.is_in_inventory(medal):
+        if await cmd.has_item(medal):
             print(f'[nation] "{medal}" owned.')
             continue
         await cmd.ensure_accept_quest(quest_id)
@@ -1802,7 +1810,7 @@ async def emblem_of_nulgath(cmd: Command, quant: int = 500) -> None:
         the auto-quest task re-accepting 4748 is what keeps the loop fed.  The
         loop ends when the emblem hits ``quant``, not when the task stops.
     """
-    if cmd.is_in_inventory("Emblem of Nulgath", quant):
+    if await cmd.has_item("Emblem of Nulgath", quant):
         return
     await nation_round_4_medal(cmd)
 
@@ -1813,7 +1821,7 @@ async def emblem_of_nulgath(cmd: Command, quant: int = 500) -> None:
     await cmd.register_quest(4748)
 
     while (cmd.is_still_connected()
-           and not cmd.is_in_inventory("Emblem of Nulgath", quant)):
+           and not await cmd.has_item("Emblem of Nulgath", quant)):
         await hunt_item(cmd, "Gem of Domination", 1, "shadowblast",
                         monster_name="Shadowrise Guard", is_temp=False)
         await hunt_item(cmd, "Fiend Seal", 25, "shadowblast",
@@ -1836,11 +1844,10 @@ async def swindle_return(cmd: Command, item: Optional[str] = None,
         # the C# script picks this from its options and, with none set, does
         # nothing at all -- the first reward that is not maxed is taken instead
         # so the run is not a silent no-op
-        entry = next((e for e in quest.reward_entries
-                      if not cmd.is_in_inventory(e[1], e[2])), None)
+        entry = await first_missing(cmd, quest.reward_entries)
     else:
         entry = next((e for e in quest.reward_entries if e[1] == item), None)
-    if entry is None or cmd.is_in_inventory(entry[1], quant):
+    if entry is None or await cmd.has_item(entry[1], quant):
         return
     _, item_name, _ = entry
 
@@ -1848,7 +1855,7 @@ async def swindle_return(cmd: Command, item: Optional[str] = None,
     cmd.add_drop(item_name)
     cmd.farming_logger(item_name, quant)
 
-    while cmd.is_still_connected() and not cmd.is_in_inventory(item_name, quant):
+    while cmd.is_still_connected() and not await cmd.has_item(item_name, quant):
         await cmd.ensure_accept_quest(7551)
         for uni_nr in (1, 6, 9, 16, 20):
             await supplies(cmd, uni(uni_nr), return_item=item)
@@ -1864,7 +1871,7 @@ async def swindle_bulk(cmd: Command, quant: int = 1000) -> None:
     Which quest it uses depends on the target: a multiple of 25 buys the big
     quest (7817) and its 500-cube run, anything else the small one (569).
     """
-    if cmd.is_in_inventory("Tainted Gem", quant):
+    if await cmd.has_item("Tainted Gem", quant):
         return
 
     await equip_class(cmd)
@@ -1879,7 +1886,7 @@ async def swindle_bulk(cmd: Command, quant: int = 1000) -> None:
     cmd.add_drop(BAG_DROPS)
 
     attempt = 0
-    while cmd.is_still_connected() and not cmd.is_in_inventory("Tainted Gem", quant):
+    while cmd.is_still_connected() and not await cmd.has_item("Tainted Gem", quant):
         await cmd.ensure_accept_quest(quest_id)
         await hunt_item(cmd, "Cubes", cube_count, "boxes",
                         cell="Fort2", pad="Left", monster_name="*",
@@ -1894,7 +1901,7 @@ async def swindle_bulk(cmd: Command, quant: int = 1000) -> None:
 
 async def dreadrock_gem_exchange(cmd: Command, quant: int = 1000) -> None:
     """Quest 4853: Tainted Gems from the dreadrock mobs."""
-    if cmd.is_in_inventory("Tainted Gem", quant):
+    if await cmd.has_item("Tainted Gem", quant):
         return
     await farm_uni13_quest(cmd, 1)
     cmd.add_drop("Tainted Gem")
@@ -1915,15 +1922,15 @@ async def _larvae_step(cmd: Command, item: str, quant: int) -> None:
     await equip_class(cmd)
 
     while (cmd.is_still_connected()
-           and not cmd.is_in_inventory(item, quant)
-           and cmd.is_in_inventory(MANA_ENERGY)):
+           and not await cmd.has_item(item, quant)
+           and await cmd.has_item(MANA_ENERGY)):
         await cmd.ensure_accept_quest(LARVAE_QUEST)
         await hunt_item(cmd, CHARGED_MANA_ENERGY, 5, "elemental",
                         monster_name="Mana Falcon", is_temp=True)
         await cmd.ensure_turn_in_quest(LARVAE_QUEST)
 
-        if (cmd.is_in_inventory("Voucher of Nulgath (non-mem)")
-                and cmd.is_in_inventory("Essence of Nulgath", 60)):
+        if (await cmd.has_item("Voucher of Nulgath (non-mem)")
+                and await cmd.has_item("Essence of Nulgath", 60)):
             await cmd.ensure_accept_quest(VOUCHER_CONVERSION_QUEST)
             reward_id = _reward_id(cmd, VOUCHER_CONVERSION_QUEST, item)
             if reward_id >= 0:
@@ -1940,7 +1947,7 @@ async def nulgath_larvae(cmd: Command, item: Optional[str] = None,
     """
     await cmd.ensure_accept_quest(LARVAE_QUEST)
     larvae = cmd.get_loaded_quest(LARVAE_QUEST)
-    if item and cmd.is_in_inventory(item, quant):
+    if item and await cmd.has_item(item, quant):
         return
     names = _quest_rewards_or_warn(LARVAE_QUEST, larvae)
     if names is None:
@@ -1953,12 +1960,12 @@ async def nulgath_larvae(cmd: Command, item: Optional[str] = None,
         targets = [(item, quant)]
     else:
         targets = [(name, stack) for _, name, stack in larvae.reward_entries
-                   if not cmd.is_in_inventory(name, stack)]
+                   if not await cmd.has_item(name, stack)]
 
     for name, target in targets:
         cmd.add_drop([MANA_ENERGY, name])
         cmd.farming_logger(name, target)
-        while cmd.is_still_connected() and not cmd.is_in_inventory(name, target):
+        while cmd.is_still_connected() and not await cmd.has_item(name, target):
             await _larvae_step(cmd, name, target)
 
 
@@ -1969,12 +1976,12 @@ async def nulgaths_roulette_of_misfortune(cmd: Command, item: Optional[str],
         print("[nation] nulgaths_roulette_of_misfortune needs the item name "
               "(the C# takes it as a parameter too); nothing farmed.")
         return
-    if cmd.is_in_inventory(item, quant):
+    if await cmd.has_item(item, quant):
         return
     cmd.farming_logger(item, quant)
     cmd.add_drop(item)
 
-    while cmd.is_still_connected() and not cmd.is_in_inventory(item, quant):
+    while cmd.is_still_connected() and not await cmd.has_item(item, quant):
         await cmd.ensure_accept_quest(LARVAE_QUEST)
         await equip_class(cmd, solo=True)
         await hunt_item(cmd, MANA_ENERGY, 10, "elemental",
@@ -1982,8 +1989,8 @@ async def nulgaths_roulette_of_misfortune(cmd: Command, item: Optional[str],
         await equip_class(cmd)
 
         while (cmd.is_still_connected()
-               and not cmd.is_in_inventory(item, quant)
-               and cmd.is_in_inventory(MANA_ENERGY)):
+               and not await cmd.has_item(item, quant)
+               and await cmd.has_item(MANA_ENERGY)):
             await cmd.ensure_accept_quest(LARVAE_QUEST)
             await hunt_item(cmd, CHARGED_MANA_ENERGY, 5, "elemental",
                             monster_name="Mana Falcon", is_temp=True)
@@ -2025,7 +2032,7 @@ async def the_assistant(cmd: Command, item: Optional[str] = None,
         silently skipped.  The C#'s ``LogMobItemQuant`` helpers are skipped
         too: they only log, and each costs a 1.5 s sleep.
     """
-    if item and cmd.is_in_inventory(item, quant):
+    if item and await cmd.has_item(item, quant):
         return
 
     await cmd.ensure_accept_quest(7551)
@@ -2068,12 +2075,12 @@ async def the_assistant(cmd: Command, item: Optional[str] = None,
             _, name, max_stack = entry
             cmd.farming_logger(name, max_stack)
             while (cmd.is_still_connected()
-                   and not cmd.is_in_inventory(name, max_stack)):
+                   and not await cmd.has_item(name, max_stack)):
                 await _assistant_step(cmd, None, reward, return_policy)
         cmd.cancel_registered_quests()
     else:
         cmd.farming_logger(item, quant)
-        while cmd.is_still_connected() and not cmd.is_in_inventory(item, quant):
+        while cmd.is_still_connected() and not await cmd.has_item(item, quant):
             await _assistant_step(cmd, item, reward, return_policy)
 
     if return_policy and reward:
@@ -2088,7 +2095,7 @@ async def voucher_item_totem_of_nulgath(cmd: Command,
     ``quant = 0`` means the reward's usual cap: 100 for the totem, 1000 for the
     gem, matching the C#.
     """
-    if not cmd.is_in_inventory("Voucher of Nulgath (non-mem)"):
+    if not await cmd.has_item("Voucher of Nulgath (non-mem)"):
         await farm_voucher(cmd, False, keep_voucher=True)
 
     reward_id = VOUCHER_ITEM_REWARDS.get(reward.lower())
@@ -2111,7 +2118,7 @@ async def voucher_item_totem_of_nulgath(cmd: Command,
     cmd.add_drop(name)
     cmd.farming_logger(name, quant)
 
-    while cmd.is_still_connected() and not cmd.is_in_inventory(name, quant):
+    while cmd.is_still_connected() and not await cmd.has_item(name, quant):
         await cmd.ensure_accept_quest(VOUCHER_CONVERSION_QUEST)
         await essence_of_nulgath(cmd)
         # the C# retries the turn-in with a fresh batch of essence when the
@@ -2129,7 +2136,7 @@ async def empowering_items(cmd: Command) -> None:
     Port of ``Nation/EmpoweringItems.cs``, whose logic lives in the script
     itself rather than in the shared class.
     """
-    if cmd.is_in_inventory("Death Scythe of Nulgath"):
+    if await cmd.has_item("Death Scythe of Nulgath"):
         return
 
     cmd.add_drop("Death Scythe of Nulgath")
@@ -2137,7 +2144,7 @@ async def empowering_items(cmd: Command) -> None:
     await farm_uni13_quest(cmd, 1)
     await farm_diamond_of_nulgath(cmd, 10)
 
-    if not has_item_id(cmd, 4867):
+    if not await cmd.has_item_id(4867):
         await cmd.ensure_accept_quest(623)
         await farm_uni13_quest(cmd, 1)
         await hunt_item(cmd, "The Secret 1", 1, "willowcreek",
@@ -2155,7 +2162,7 @@ async def time_is_money(cmd: Command) -> None:
     Port of ``Nation/TimeIsMoney.cs``.  Needs the Bounty Hunter Blade Pet
     (item 42581); without it the quest cannot be taken at all.
     """
-    if not has_item_id(cmd, 42581):
+    if not await cmd.has_item_id(42581):
         print("[nation] Time is Money needs the Bounty Hunter Blade Pet "
               "(item 42581); nothing farmed.")
         return
@@ -2169,11 +2176,11 @@ async def time_is_money(cmd: Command) -> None:
     cmd.add_drop([name for _, name, _ in entries])
 
     for _, name, max_stack in entries:
-        if cmd.is_in_inventory(name, max_stack):
+        if await cmd.has_item(name, max_stack):
             print(f"[nation] {name} is at max stack; checking the next reward.")
             continue
         while (cmd.is_still_connected()
-               and not cmd.is_in_inventory(name, max_stack)):
+               and not await cmd.has_item(name, max_stack)):
             await cmd.ensure_accept_quest(6185)
             await join_swf(cmd, "mobius", "Slugfit", "Bottom")
             await hunt_item(cmd, "Slugfit Horn", 5, "mobius",
@@ -2193,7 +2200,7 @@ async def time_is_money(cmd: Command) -> None:
 
 async def _nlr(cmd: Command, items: Sequence[str], quantity: int) -> None:
     """One Nation Loyalty Rewarded cycle for ``items``."""
-    if not items or all(cmd.is_in_inventory(name, quantity) for name in items):
+    if not items or await all_owned(cmd, [(name, quantity) for name in items]):
         print(f"[nation] {', '.join(items) or 'nothing'} x{quantity} already "
               f"held; skipping.")
         return
@@ -2203,7 +2210,7 @@ async def _nlr(cmd: Command, items: Sequence[str], quantity: int) -> None:
     await equip_class(cmd, solo=True)
 
     while (cmd.is_still_connected()
-           and not all(cmd.is_in_inventory(name, quantity) for name in items)):
+           and not await all_owned(cmd, [(name, quantity) for name in items])):
         await cmd.ensure_accept_quest(4749)
         await _kill_once(cmd, "dflesson", "r12", "Right", "id.29")
         await hunt_item(cmd, "Carnax Eye", 1, "aqlesson",
@@ -2249,7 +2256,7 @@ async def nation_loyalty_rewarded(cmd: Command,
         if entry is None:
             print(f"[nation] {name!r} is not a quest 4749 reward.")
             continue
-        if cmd.is_in_inventory(name, entry[2]):
+        if await cmd.has_item(name, entry[2]):
             continue
         await _nlr(cmd, [name], quantity or entry[2])
 
@@ -2267,9 +2274,9 @@ async def assisting_crag_and_bamboozle(cmd: Command,
         from Sparrow's Blood you already hold, and says so instead of looping
         against a quest it cannot feed.
     """
-    if not cmd.get_player().is_member or not cmd.is_in_inventory(CRAG_PET):
+    if not cmd.get_player().is_member or not await cmd.has_item(CRAG_PET):
         return
-    if not cmd.is_in_inventory("Sparrow's Blood"):
+    if not await cmd.has_item("Sparrow's Blood"):
         print("[nation] Assisting Crag & Bamboozle is fed by the Sparrow's "
               "Blood daily (quest 803), which is CoreDailies work that is not "
               "ported. Hold Sparrow's Blood first and re-run.")
@@ -2282,7 +2289,7 @@ async def assisting_crag_and_bamboozle(cmd: Command,
         return
 
     targets = [e for e in entries
-               if not cmd.is_in_inventory(e[1], e[2])
+               if not await cmd.has_item(e[1], e[2])
                and (reward_id is None or e[0] == reward_id)]
     if not targets:
         print("[nation] everything already maxed; no work needed.")
@@ -2294,11 +2301,11 @@ async def assisting_crag_and_bamboozle(cmd: Command,
     while cmd.is_still_connected() and targets:
         await cmd.ensure_accept_quest(5817)
 
-        if not cmd.is_in_inventory("Tendurrr The Assistant"):
+        if not await cmd.has_item("Tendurrr The Assistant"):
             await hunt_item(cmd, "Tendurrr The Assistant", 1,
                             "tercessuinotlim", cell="m2", pad="Left",
                             monster_name="*", is_temp=False)
-        if not cmd.is_in_inventory("Sparrow's Blood"):
+        if not await cmd.has_item("Sparrow's Blood"):
             print("[nation] missing Sparrow's Blood. Stopping.")
             return
 
@@ -2311,13 +2318,13 @@ async def assisting_crag_and_bamboozle(cmd: Command,
 
         finished = []
         for item_id, name, max_stack in targets:
-            if cmd.is_in_inventory(name, max_stack):
+            if await cmd.has_item(name, max_stack):
                 finished.append(item_id)
                 continue
             await cmd.ensure_turn_in_quest(5817, item_id)
-            if cmd.is_in_inventory(name, max_stack):
+            if await cmd.has_item(name, max_stack):
                 finished.append(item_id)
-            if not cmd.is_in_inventory("Sparrow's Blood"):
+            if not await cmd.has_item("Sparrow's Blood"):
                 print(f"[nation] stopped early after completing {name}")
                 return
 

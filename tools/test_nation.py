@@ -30,7 +30,7 @@ from bot.nation.core_nation import (  # noqa: E402
     farm_fiend_token, farm_gem_of_nulgath, farm_tainted_gem,
     farm_totem_of_nulgath, farm_uni10, farm_uni13_quest, farm_voucher,
     feed_the_fiend, fiend_emblem, get_pcod, handle_voucher_conversions,
-    has_any_item, has_any_item_id, has_item_id, kill_escherion, kill_vath,
+    kill_escherion, kill_vath,
     kissthe_void, nation_loyalty_rewarded, nation_round_4_medal,
     new_worlds_new_opportunities,
     nulgath_larvae, nulgaths_roulette_of_misfortune, sell_voucher_of_nulgath,
@@ -44,18 +44,40 @@ class _Other:
         self.str_username = name
 
 
+class _Item:
+    """Minimal bank entry: only the name matters to the withdraw path."""
+
+    def __init__(self, item_name):
+        self.item_name = item_name
+
+
 class _Player:
     def __init__(self, member=False, items_by_id=None, level=0, gold=0,
-                 good_rank=0):
+                 good_rank=0, bank_by_id=None):
         self.USER = "me"
         self.CELL = "r9"
         self.is_member = member
         self.LEVEL = level
         self.GOLD = gold
         self._by_id = {str(k): v for k, v in (items_by_id or {}).items()}
+        self._bank_by_id = {str(k): v for k, v in (bank_by_id or {}).items()}
 
     def get_item_inventory_by_id(self, item_id):
         return self._by_id.get(str(item_id))
+
+    def get_item_bank_by_id(self, item_id):
+        return self._bank_by_id.get(str(item_id))
+
+    def move_banked_by_name(self, name):
+        """Mirror the real bank move for id-keyed entries.
+
+        In the engine the very same item object moves from BANK to INVENTORY,
+        so an id lookup finds it afterwards.  The stub keeps the two lookups in
+        separate dicts, so the move has to be repeated here.
+        """
+        for item_id, item in list(self._bank_by_id.items()):
+            if getattr(item, "item_name", None) == name:
+                self._by_id[item_id] = self._bank_by_id.pop(item_id)
 
 
 class _Bot:
@@ -68,11 +90,14 @@ class Stub:
 
     def __init__(self, inventory=None, member=False, completed=(),
                  others=(), connected=True, items_by_id=None, level=0,
-                 gold=0, good_rank=0, all_owned=False, quests=None):
+                 gold=0, good_rank=0, all_owned=False, quests=None,
+                 bank=None, bank_by_id=None):
         self.inv = dict(inventory or {})
         self.calls = []
-        self.player = _Player(member, items_by_id, level, gold)
+        self.player = _Player(member, items_by_id, level, gold,
+                              bank_by_id=bank_by_id)
         self.bot = _Bot(others)
+        self.bank = dict(bank or {})
         self._completed = set(completed)
         self._connected = connected
         self._good_rank = good_rank
@@ -96,7 +121,7 @@ class Stub:
         return False
 
     def is_in_bank(self, name, qty=1, operator=">="):
-        return False
+        return self.bank.get(name, 0) >= qty
 
     def get_equipped_class(self):
         return None
@@ -155,6 +180,34 @@ class Stub:
 
     async def bank_to_inv(self, names):
         self.calls.append(("bank_to_inv",))
+        for name in ([names] if isinstance(names, str) else names):
+            if name in self.bank:
+                self.inv[name] = self.inv.get(name, 0) + self.bank.pop(name)
+            self.player.move_banked_by_name(name)
+
+    # --- async bank-aware predicates (mirror Command.has_item & co) -------
+    async def has_item(self, name, qty=1, operator=">=", isTemp=False):
+        if not isTemp and self.is_in_bank(name):
+            await self.bank_to_inv(name)
+        return self.is_in_inventory(name, qty, operator, isTemp)
+
+    async def has_item_id(self, item_id):
+        banked = self.player.get_item_bank_by_id(item_id)
+        if banked is not None:
+            await self.bank_to_inv(banked.item_name)
+        return self.player.get_item_inventory_by_id(item_id) is not None
+
+    async def has_any_item(self, names):
+        for name in names:
+            if await self.has_item(name):
+                return True
+        return False
+
+    async def has_any_item_id(self, item_ids):
+        for item_id in item_ids:
+            if await self.has_item_id(item_id):
+                return True
+        return False
 
     async def sleep(self, ms):
         pass
@@ -283,14 +336,34 @@ def main() -> None:
     assert emblem.calls == [], emblem.calls
     print("emblem     : already full -> returns without a single call")
 
-    # --- has_any_item / id helpers ------------------------------------
-    assert has_any_item(Stub({"a": 1}), ("b", "a")) is True
-    assert has_any_item(Stub(), ("b", "a")) is False
-    assert has_item_id(Stub(items_by_id={38275: object()}), 38275) is True
-    assert has_item_id(Stub(items_by_id={38254: object()}), 38275) is False
-    assert has_any_item_id(Stub(items_by_id={38254: object()}), (38275, 38254)) is True
-    assert has_any_item_id(Stub(), (38275, 38254)) is False
-    print("item ids   : id and any-id checks read the inventory")
+    # --- bank-aware ownership -----------------------------------------
+    # the reference bot's CheckInventory withdraws from the bank by default, so
+    # a guard that only reads the inventory farms what is already owned
+    banked = Stub(bank={"Fiend Emblem": 300})
+    assert asyncio.run(banked.has_item("Fiend Emblem", 300)) is True
+    assert ("bank_to_inv",) in banked.calls, banked.calls
+    assert banked.inv["Fiend Emblem"] == 300, banked.inv
+    assert asyncio.run(Stub().has_item("Fiend Emblem")) is False
+    assert asyncio.run(Stub(inventory={"Fiend Emblem": 1})
+                       .has_item("Fiend Emblem")) is True
+
+    banked_id = Stub(bank_by_id={38275: _Item("Void Knight Sword")})
+    assert asyncio.run(banked_id.has_item_id(38275)) is True
+    assert ("bank_to_inv",) in banked_id.calls, banked_id.calls
+    assert asyncio.run(Stub(items_by_id={38254: object()})
+                       .has_item_id(38275)) is False
+    assert asyncio.run(Stub(items_by_id={38254: object()})
+                       .has_any_item_id((38275, 38254))) is True
+    assert asyncio.run(Stub().has_any_item_id((38275, 38254))) is False
+    print("item ids   : id/any-id checks withdraw from the bank first")
+
+    # a whole guard driven by the bank: nothing must be farmed
+    banked_af = Stub(bank={"Nulgath's Approval": 5000,
+                           "Archfiend's Favor": 5000})
+    asyncio.run(approval_and_favor(banked_af))
+    assert banked_af.kinds() == ["bank_to_inv", "bank_to_inv"], \
+        banked_af.kinds()
+    print("approval   : both banked -> withdrawn, never farmed")
 
     # --- new_worlds_new_opportunities ---------------------------------
     no_pet = Stub()

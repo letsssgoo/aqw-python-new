@@ -4,7 +4,7 @@ import time
 from datetime import datetime
 from functools import wraps
 from inspect import iscoroutinefunction
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Sequence, Tuple, Union
 from colorama import Fore
 from enum import Enum
 
@@ -399,6 +399,58 @@ class Command:
             bool: True when either storage location satisfies the check.
         """
         return self.is_in_bank(itemName, itemQty, operator) or self.is_in_inventory(itemName, itemQty, operator, isTemp)
+
+    async def has_item(self, itemName: str, itemQty: int = 1,
+                       operator: str = ">=", isTemp: bool = False) -> bool:
+        """Bank-aware :meth:`is_in_inventory`: withdraw first, then answer.
+
+        The reference bot's ``Core.CheckInventory`` withdraws from the bank by
+        default (``toInv: true``), so a banked item counts as owned there.  This
+        engine's ``is_in_inventory`` never moves anything, so a guard built on it
+        reads a banked item as missing -- and the farm then runs again for
+        something already owned.
+
+        Args:
+            itemName (str): Name of the item to inspect.
+            itemQty (int): Quantity threshold to test.
+            operator (str): Comparison operator understood by the bot API.
+            isTemp (bool): When True, inspect the temporary inventory.  Banked
+                stock cannot satisfy a temp check, so nothing is withdrawn.
+
+        Returns:
+            bool: True when the inventory satisfies the check, after any
+            withdrawal the bank could supply.
+        """
+        if not isTemp and self.is_in_bank(itemName):
+            # any banked stock, not just enough of it: withdraw first, then let
+            # the inventory answer for itself
+            await self.bank_to_inv(itemName)
+        return self.is_in_inventory(itemName, itemQty, operator, isTemp)
+
+    async def has_item_id(self, itemId: int) -> bool:
+        """Bank-aware ownership test by item id (``CheckInventory(int)``).
+
+        Same rule as :meth:`has_item`, for call sites that only know the id --
+        the two Void Knight Swords and the pet gates are the common ones.
+        """
+        banked = self.bot.player.get_item_bank_by_id(itemId)
+        if banked is not None:
+            await self.bank_to_inv(banked.item_name)
+        return self.bot.player.get_item_inventory_by_id(itemId) is not None
+
+    async def has_any_item(self, names: Sequence[str]) -> bool:
+        """True when at least one of ``names`` is held (``CheckInventory(â€¦, any)``)."""
+        for name in names:
+            if await self.has_item(name):
+                return True
+        return False
+
+    async def has_any_item_id(self, item_ids: Sequence[int]) -> bool:
+        """True when at least one of ``item_ids`` is held."""
+        for item_id in item_ids:
+            if await self.has_item_id(item_id):
+                return True
+        return False
 
     def get_quant_item(self, itemName: str) -> int:
         """Return the current quantity of an item in the inventory.
