@@ -2616,6 +2616,20 @@ async def carve_uni_gem_stone(cmd: Command, item: Optional[str] = None,
                                       CARVE_REWARD_IDS.get(item, -1))
 
 
+async def hire_nulgath_larvae(cmd: Command) -> None:
+    """``CoreNation.HireNulgathLarvae``: quest 867, members only."""
+    if await cmd.has_item("Nulgath Larvae") or not cmd.get_player().is_member:
+        return
+
+    print("[nation] hiring the Nulgath Larvae (quest 867)")
+    cmd.add_drop("Nulgath Larvae")
+    await cmd.ensure_accept_quest(867)
+    await farm_voucher(cmd, True, True)
+    await hunt_item(cmd, "Undead Legend Rune", 1, "underworld",
+                    monster_name="Undead Legend", is_temp=False)
+    await cmd.ensure_turn_in_quest(867)
+
+
 async def leery_exchange_gold(cmd: Command, quant: int = 100_000_000) -> None:
     """``CoreNation.LeeryExchangeGold``: swap Unidentified 13 for gold, quest 554."""
     if not cmd.get_player().is_member or cmd.get_player().GOLD >= quant:

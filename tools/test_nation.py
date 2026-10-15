@@ -34,7 +34,7 @@ from bot.nation.core_nation import (  # noqa: E402
     feed_the_fiend, fiend_emblem, forge_blood_gems,
     forge_dark_crystal_shards, forge_diamonds_of_nulgath, forge_tainted_gems,
     gem_stone_receipt_of_nulgath, gem_stones_of_nulgath, get_pcod,
-    handle_voucher_conversions,
+    handle_voucher_conversions, hire_nulgath_larvae,
     kill_escherion, kill_vath,
     kissthe_void, leery_exchange_gold, nation_loyalty_rewarded,
     nation_round_4_medal,
@@ -91,6 +91,7 @@ class _Bot:
         self.player_in_area = [_Other(n) for n in others]
         self.areaId = "evilwarnul-9909"
         self.sent: list[str] = []
+        self.loaded_shop_datas: list = []
 
     def write_message(self, msg):
         self.sent.append(msg)
@@ -279,6 +280,10 @@ class Stub:
 
     async def buy_item(self, shop_id, item_name, qty=1):
         self.calls.append(("buy_item", shop_id, item_name, qty))
+
+    async def ensure_load_shop(self, shop_id):
+        self.calls.append(("ensure_load_shop", shop_id))
+        return True
 
     def kinds(self):
         return [c[0] for c in self.calls]
@@ -708,6 +713,15 @@ def main() -> None:
     assert dwobo.calls == [], dwobo.calls
     print("dwobo      : already owned -> no calls")
 
+    # --- hire_nulgath_larvae ------------------------------------------
+    f2p_hire = Stub()
+    asyncio.run(hire_nulgath_larvae(f2p_hire))
+    assert f2p_hire.calls == [], f2p_hire.calls
+    owned_hire = Stub(member=True, inventory={"Nulgath Larvae": 1})
+    asyncio.run(hire_nulgath_larvae(owned_hire))
+    assert owned_hire.calls == [], owned_hire.calls
+    print("larvae     : non-member or already hired -> no calls")
+
     # --- every wrapper is runnable, and no-ops when all is banked -----
     WRAPPERS = [
         "materials.0_max_bags", "materials.approval_and_favor",
@@ -729,6 +743,14 @@ def main() -> None:
         "various.forge_gem_stones_for_nulgath",
         "various.carve_the_unidentified_gem_stone",
         "various.leery_exchange_gold",
+        "various.purified_claymore_of_destiny",
+        "various.random_weapon_of_nulgath",
+        "various.hire_nulgath_larvae",
+        "various.swindle_bulk",
+        "various.shadow_legacy_of_nulgath",
+        "evolved_orb.evolved_blood_orb",
+        "evolved_orb.evolved_hex_orb",
+        "evolved_orb.evolved_shadow_orb",
     ]
     #: ``leery_exchange_gold`` trades Unidentified 13 for gold: with a stub that
     #: owns everything and never spends it, the loop has no way to end -- give
