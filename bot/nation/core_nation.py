@@ -27,15 +27,27 @@ rather than all at once.
 ``bloody_chaos``          Blood Gems via quest 7816 (+2857 with the relic)
 ``essence_of_defeat_reagent``     Dark Crystal Shards via quest 570
 ``dirty_deeds_done_dirt_cheap``   Unidentified 10 via quest 7818
+``supplies`` and its helpers    the whole quest-2857 route
+``bamboozle_vs_drudge``         the pet route: Tainted Elementals in /evilmarsh
+``farm_contract_exchage`` / ``contract_exchange`` / ``diamond_exchange``
+``dragon_slayer_reward`` / ``deal`` / ``get_pcod``
+``farm_uni10`` / ``farm_uni13_quest`` / ``farm_dark_crystal_shard``
+``farm_diamond_of_nulgath`` / ``farm_gem_of_nulgath`` / ``farm_blood_gem``
+``farm_tainted_gem`` / ``farm_totem_of_nulgath`` / ``farm_voucher``
+``farm_fiend_token`` / ``assisting_drudgen`` / ``feed_the_fiend``
+``essence_of_nulgath`` / ``totems_via_taros`` / ``kissthe_void``
 ========================  ====================================================
 
-**Not ported yet:** the Supplies cluster (``Supplies``, ``TheAssistant``,
-``AssistantDuringSupplies``, ``BambloozevsDrudgen``, ``Deal``,
-``FarmContractExchage``, ``DiamondExchange``, ``ContractExchange``,
-``TotemsViaTaros``, ``GetPCoD``, ``KillHydra``, ``HandleVoucherConversions``,
-``SellVoucherOfNulgath``), ``EmblemofNulgath`` / ``NationRound4Medal``,
-``KisstheVoid``, ``Forge*``, the SRoE merge-shop branch, and the ``FarmX``
-family.
+**Not ported yet:**
+
+* The member Forge stack -- ``GemStoneReceiptOfNulgath``, ``DwoboCoin``,
+  ``GemStonesOfnulgath``, ``ForgeTaintedGems`` / ``ForgeDarkCrystalShards`` /
+  ``ForgeDiamondsOfNulgath`` / ``ForgeBloodGems``, ``CarveUniGemStone``.  They
+  route through the Vampire rep and gold farms, which are CoreFarms work that
+  has not started.  ``farm_tainted_gem`` says so rather than skipping silently.
+* ``EmblemofNulgath`` / ``NationRound4Medal``, ``SwindleReturn`` / ``SwindleBulk``,
+  ``NulgathLarvae``, ``NulgathsRouletteofMisfortune``.
+* The CoreFarms rep / gold / experience farms (a separate data-heavy pass).
 
 Porting notes that apply throughout:
 
@@ -56,7 +68,7 @@ import random
 from typing import List, Optional, Sequence, Tuple
 
 from core.command import Command
-from templates.hunt import DEFAULT_SKILL_LIST, hunt_item
+from templates.hunt import DEFAULT_SKILL_LIST, hunt_item, kill_quest
 
 #: The principal Nulgath drops, straight from the reference bot's ``CoreNation.bagDrops``.
 #: Fed to ``cmd.add_drop`` so the auto-pickup picks them up while farming.
@@ -147,6 +159,25 @@ SWINDLES_EXCLUDED_REWARD = 57446
 VOUCHER_CONVERSION_QUEST = 4778
 TOTEM_OF_NULGATH = 5357
 GEM_OF_NULGATH = 6136
+
+#: The four rewards quest 870 (Contract Exchange) can hand out, by name.  The
+#: C# switches on an enum to pick between them; a name is enough here, which
+#: collapses that switch to one call.
+CONTRACT_REWARDS: Tuple[str, ...] = (
+    "Tainted Gem",
+    "Dark Crystal Shard",
+    "Gem of Nulgath",
+    "Blood Gem of the Archfiend",
+)
+
+#: Quest ids and monsters for the Dragon Slayer chain (quests 165-169).
+DRAGON_SLAYER_QUESTS: Tuple[Tuple[int, str, bool], ...] = (
+    (165, "Water Draconian", False),
+    (166, "Bronze Draconian", False),
+    (167, "Golden Draconian", False),
+    (168, "Red Dragon", True),
+    (169, "Water Draconian", False),
+)
 
 
 def uni(nr: int) -> str:
@@ -1162,3 +1193,453 @@ async def bamboozle_vs_drudge(cmd: Command, item: Optional[str] = None,
         if (return_policy and item in (None, "Diamond of Nulgath")
                 and not cmd.is_in_inventory("Diamond of Nulgath", 1000)):
             await crags_thirst(cmd)
+
+
+async def essence_of_nulgath(cmd: Command, quant: int = 60) -> None:
+    """Farm Essence of Nulgath off the Dark Makai in Tercessuinotlim."""
+    if cmd.is_in_inventory("Essence of Nulgath", quant):
+        return
+    cmd.add_drop("Essence of Nulgath")
+    await equip_class(cmd)
+    await hunt_item(cmd, "Essence of Nulgath", quant, "tercessuinotlim",
+                    cell="m2", pad="Left", monster_name="Dark Makai",
+                    is_temp=False)
+
+
+async def diamond_exchange(cmd: Command, farm_diamond: bool = True) -> None:
+    """Quest 869: swap 15 Diamonds for Unidentified 13, via the Dark Makai Sigil.
+
+    Silently does nothing without the Crag pet or with Uni 13 already full --
+    the C# returns on the same two conditions.
+    """
+    if ((not cmd.is_in_inventory("Diamond of Nulgath", 15) and not farm_diamond)
+            or not cmd.is_in_inventory(CRAG_PET)
+            or cmd.is_in_inventory(uni(13), 13)):
+        return
+
+    cmd.add_drop("Diamond of Nulgath")
+    if farm_diamond and (has_obon_pet(cmd) or cmd.is_in_inventory(CRAG_PET)):
+        await bamboozle_vs_drudge(cmd, "Diamond of Nulgath", 15)
+
+    await equip_class(cmd)
+    while (cmd.is_still_connected()
+           and cmd.is_in_inventory("Diamond of Nulgath", 15)
+           and not cmd.is_in_inventory(uni(13), 13)):
+        await cmd.ensure_accept_quest(869)
+        await dark_makai_item(cmd, "Dark Makai Sigil")
+        await cmd.ensure_turn_in_quest(869)
+
+
+async def contract_exchange(cmd: Command, reward_name: str, quant: int,
+                            farm_uni13: bool = True) -> None:
+    """Quest 870: trade Unidentified 13 for a named reward.
+
+    Note:
+        The C# takes a ``ContractExchangeRewards`` enum; a reward *name* is
+        equivalent (the enum only exists to label the same four strings) and
+        lets the caller's switch collapse into a plain call.
+    """
+    if not cmd.is_in_inventory("Drudgen the Assistant"):
+        print('[nation] missing "Drudgen the Assistant"')
+        return
+    if not cmd.is_in_inventory(uni(13)) and not farm_uni13:
+        print("[nation] contract exchange needs Unidentified 13 and was told "
+              "not to farm it")
+        return
+
+    cmd.add_drop(BAG_DROPS)
+    await equip_class(cmd, solo=True)
+    cmd.farming_logger(reward_name, quant)
+
+    reward_id = _reward_id(cmd, 870, reward_name)
+    while cmd.is_still_connected() and not cmd.is_in_inventory(reward_name, quant):
+        if farm_uni13 and not cmd.is_in_inventory(uni(13)):
+            await farm_uni13_quest(cmd, 3)
+        await cmd.ensure_accept_quest(870)
+        await _kill_once(cmd, "tercessuinotlim", "m4", "Top",
+                         "Shadow of Nulgath")
+        await cmd.ensure_turn_in_quest(870, reward_id)
+
+
+def _reward_id(cmd: Command, quest_id: int, name: str) -> int:
+    """Item id of a quest reward by name, or -1 when the quest is not loaded."""
+    quest = cmd.get_loaded_quest(quest_id)
+    for item_id, reward_name, _ in (quest.reward_entries if quest else []):
+        if reward_name == name:
+            return item_id
+    return -1
+
+
+async def farm_contract_exchage(cmd: Command, item: Optional[str] = None,
+                                quant: int = 1) -> None:
+    """Farm any of the four quest-870 rewards, through the Supplies route.
+
+    Note:
+        The C# switches on the reward to pick an enum; because
+        :func:`contract_exchange` takes a name, that whole switch becomes one
+        call and the two branches of the C# (targeted vs all four) differ only
+        in which ``ReturnItem`` they pass on.
+    """
+    if (not cmd.is_in_inventory("Drudgen the Assistant")
+            or (item and cmd.is_in_inventory(item, quant))):
+        if not cmd.is_in_inventory("Drudgen the Assistant"):
+            print('[nation] missing "Drudgen the Assistant"')
+        return
+
+    await equip_class(cmd)
+    cmd.add_quest_rewards(870)
+
+    for name in ([item] if item else list(CONTRACT_REWARDS)):
+        await cmd.ensure_accept_quest(870)
+        quest = cmd.get_loaded_quest(870)
+        entry = next((e for e in (quest.reward_entries if quest else [])
+                      if e[1] == name), None)
+        if entry is None:
+            if item:
+                print(f"[nation] reward {name!r} is not part of quest 870.")
+            continue
+        _, reward_name, max_stack = entry
+        target = quant if quant > 1 else max_stack
+        cmd.farming_logger(reward_name, target)
+        while (cmd.is_still_connected()
+               and not cmd.is_in_inventory(reward_name, target)):
+            await supplies(cmd, "Diamond of Nulgath", 45,
+                           return_item="Diamond of Nulgath")
+            await contract_exchange(cmd, reward_name, target)
+
+
+async def farm_uni13_quest(cmd: Command, quant: int = 13) -> None:
+    """Unidentified 13, stacked to its cap of 13."""
+    if cmd.is_in_inventory(uni(13), quant):
+        return
+    cmd.add_drop(uni(13))
+    quant = min(quant, 13)
+
+    if cmd.is_in_inventory(CRAG_PET):
+        while (cmd.is_still_connected()
+               and not cmd.is_in_inventory(uni(13), quant)):
+            await diamond_exchange(cmd)
+
+    await new_worlds_new_opportunities(cmd, uni(13), quant)
+    await void_knight_sword_quest(cmd, uni(13), quant)
+    await supplies(cmd, uni(13), quant)
+
+
+async def farm_uni10(cmd: Command, quant: int = 1000) -> None:
+    """Unidentified 10, pet route first when one is owned."""
+    if cmd.is_in_inventory("Unidentified 10", quant):
+        return
+    cmd.add_drop("Unidentified 10")
+    if has_obon_pet(cmd) or cmd.is_in_inventory(CRAG_PET):
+        await bamboozle_vs_drudge(cmd, "Unidentified 10", quant,
+                                  came_from_supplies=True)
+    await dirty_deeds_done_dirt_cheap(cmd, quant)
+
+
+async def farm_dark_crystal_shard(cmd: Command, quant: int = 1000) -> None:
+    """Dark Crystal Shard, by every route the account can take."""
+    if cmd.is_in_inventory("Dark Crystal Shard", quant):
+        return
+    cmd.add_drop("Dark Crystal Shard")
+    await farm_contract_exchage(cmd, "Dark Crystal Shard", quant)
+    await new_worlds_new_opportunities(cmd, "Dark Crystal Shard", quant)
+    if cmd.is_in_inventory(CRAG_PET):
+        await supplies(cmd, "Dark Crystal Shard", quant,
+                       return_item="Dark Crystal Shard")
+    await void_knight_sword_quest(cmd, "Dark Crystal Shard", quant)
+    await supplies(cmd, "Dark Crystal Shard", quant,
+                   return_item="Dark Crystal Shard")
+    await essence_of_defeat_reagent(cmd, quant)
+
+
+async def farm_diamond_of_nulgath(cmd: Command, quant: int = 1000) -> None:
+    """Diamond of Nulgath, by every route the account can take."""
+    if cmd.is_in_inventory("Diamond of Nulgath", quant):
+        return
+    cmd.add_drop("Diamond of Nulgath")
+    while (cmd.is_still_connected()
+           and not cmd.is_in_inventory("Diamond of Nulgath", quant)
+           and cmd.is_in_inventory(CRAG_PET)
+           and cmd.is_in_inventory(uni(10), 100)):
+        await crags_thirst(cmd, quant)
+    if cmd.is_in_inventory(CRAG_PET):
+        await supplies(cmd, "Diamond of Nulgath", quant,
+                       return_item="Diamond of Nulgath")
+    await void_knight_sword_quest(cmd, "Diamond of Nulgath", quant)
+    await supplies(cmd, "Diamond of Nulgath", quant,
+                   return_item="Diamond of Nulgath")
+
+
+async def farm_gem_of_nulgath(cmd: Command, quant: int = 1000) -> None:
+    """Gem of Nulgath, by every route the account can take."""
+    if cmd.is_in_inventory("Gem of Nulgath", quant):
+        return
+    cmd.add_drop("Gem of Nulgath")
+    await farm_contract_exchage(cmd, "Gem of Nulgath", quant)
+    if cmd.is_in_inventory(CRAG_PET):
+        await supplies(cmd, "Gem of Nulgath", quant,
+                       return_item="Gem of Nulgath")
+    await void_knight_sword_quest(cmd, "Gem of Nulgath", quant)
+    await supplies(cmd, "Gem of Nulgath", quant, return_item="Gem of Nulgath")
+
+
+async def farm_blood_gem(cmd: Command, quant: int = 100,
+                         hydra_level: int = 85) -> None:
+    """Blood Gem of the Archfiend, by every route the account can take."""
+    if cmd.is_in_inventory("Blood Gem of the Archfiend", quant):
+        return
+    cmd.add_drop("Blood Gem of the Archfiend")
+    await farm_contract_exchage(cmd, "Blood Gem of the Archfiend", quant)
+    await new_worlds_new_opportunities(cmd, "Blood Gem of the Archfiend", quant)
+    await void_knight_sword_quest(cmd, "Blood Gem of the Archfiend", quant)
+    await bloody_chaos(cmd, quant, relic=True, hydra_level=hydra_level)
+    await kissthe_void(cmd, quant)
+
+
+async def farm_tainted_gem(cmd: Command, quant: int = 1000) -> None:
+    """Tainted Gem, by every route the account can take.
+
+    Note:
+        The C# also runs ``ForgeTaintedGems`` here.  That Forge route is not
+        ported -- it goes through ``GemStoneReceiptOfNulgath``, which needs the
+        Vampire rep and gold farms that are still outstanding -- so it is
+        skipped with a notice instead of silently missing.
+    """
+    if cmd.is_in_inventory("Tainted Gem", quant):
+        return
+    cmd.add_drop("Tainted Gem")
+    await farm_contract_exchage(cmd, "Tainted Gem", quant)
+    if cmd.is_in_inventory(CRAG_PET):
+        await supplies(cmd, "Tainted Gem", quant, return_item="Tainted Gem")
+    print("[nation] the Forge route (quest 4919) is not ported; farming "
+          "Tainted Gem through the other three steps only.")
+    await supplies(cmd, "Tainted Gem", quant, return_item="Tainted Gem")
+
+
+async def farm_totem_of_nulgath(cmd: Command, quant: int = 100) -> None:
+    """Totem of Nulgath: Deal first, then Taro's chain as the fallback."""
+    if cmd.is_in_inventory("Totem of Nulgath", quant):
+        return
+    await deal(cmd, gem_quant=0, totem_quant=quant)
+    await new_worlds_new_opportunities(cmd, "Totem of Nulgath", quant)
+    await totems_via_taros(cmd, quant)
+
+
+async def farm_voucher(cmd: Command, member: bool, keep_voucher: bool = False
+                       ) -> None:
+    """Voucher of Nulgath, member or non-member variant by the flag."""
+    name = "Voucher of Nulgath" if member else "Voucher of Nulgath (non-mem)"
+    if cmd.is_in_inventory(name):
+        return
+    cmd.add_drop(name)
+    print(f"[nation] keep voucher set to {keep_voucher}")
+
+    if has_obon_pet(cmd) or cmd.is_in_inventory(CRAG_PET):
+        await bamboozle_vs_drudge(cmd, name, 1, keep_voucher=keep_voucher,
+                                  came_from_supplies=True)
+    await new_worlds_new_opportunities(cmd, name)
+    await void_knight_sword_quest(cmd, name)
+    await supplies(cmd, name, keep_voucher=keep_voucher)
+
+
+async def farm_fiend_token(cmd: Command, quant: int = 30) -> None:
+    """Fiend Token, by the three routes the C# tries in order."""
+    if cmd.is_in_inventory("Fiend Token", quant):
+        return
+    await void_knight_sword_quest(cmd, "Fiend Token", quant)
+    await assisting_drudgen(cmd, "Fiend Token", quant)
+    await feed_the_fiend(cmd)
+
+
+async def dragon_slayer_reward(cmd: Command) -> None:
+    """Unlock the Nation mats by clearing the Lair chain (quests 165-169).
+
+    ``Core.HuntMonsterQuest`` is what ``kill_quest`` already is: accept, hunt
+    the monster, turn in.
+    """
+    if await cmd.is_completed_before(169):
+        return
+
+    for quest_id, monster, is_solo in DRAGON_SLAYER_QUESTS:
+        if not cmd.is_still_connected():
+            return
+        if await cmd.is_completed_before(quest_id):
+            continue
+        await equip_class(cmd, solo=is_solo)
+        await kill_quest(cmd, quest_id, "lair", monster)
+
+
+async def deal(cmd: Command, gem_quant: int = 0, totem_quant: int = 0) -> None:
+    """Quest 4777: Gems and/or Totems of Nulgath, Crag pet only."""
+    if not cmd.is_in_inventory(CRAG_PET):
+        print(f"[nation] missing {CRAG_PET}; cannot continue.")
+        return
+
+    await dragon_slayer_reward(cmd)
+    if not await get_pcod(cmd):
+        return
+    cmd.add_drop(["Gem of Nulgath", "Totem of Nulgath"])
+
+    async def farm_one(item_name: str, quant: int, reward_id: int) -> None:
+        if quant <= 0:
+            return
+        cmd.farming_logger(item_name, quant)
+        while (cmd.is_still_connected()
+               and not cmd.is_in_inventory(item_name, quant)):
+            await cmd.ensure_accept_quest(4777)
+            await supplies(cmd, "Unidentified 3",
+                           return_item="Blood Gem of the Archfiend")
+            await farm_blood_gem(cmd, 2)
+            await farm_uni10(cmd, 30)
+            await cmd.ensure_turn_in_quest(4777, reward_id)
+
+    await farm_one("Gem of Nulgath", gem_quant, GEM_OF_NULGATH)
+    await farm_one("Totem of Nulgath", totem_quant, TOTEM_OF_NULGATH)
+
+
+async def assisting_drudgen(cmd: Command, item: str = "Any",
+                            quant: int = 1) -> None:
+    """Quest 5816 (and the daily 3826) for Fiend Tokens.
+
+    Needs ``Drudgen the Assistant``, ``Twin Blade of Nulgath`` and membership.
+
+    Note:
+        The C# calls ``Bot.Quests.UpdateQuest(3824)``, which writes a quest
+        slot value on the client to unlock the next link.  That has no
+        counterpart here, so it is skipped: the following ``IsAvailable`` check
+        is reproduced by trying to accept 3826 and seeing whether it lands.
+    """
+    if (cmd.is_in_inventory(item, quant)
+            or not cmd.is_in_inventory("Drudgen the Assistant")
+            or not cmd.is_in_inventory("Twin Blade of Nulgath")
+            or not cmd.get_player().is_member):
+        return
+
+    while cmd.is_still_connected() and not cmd.is_in_inventory(item, quant):
+        await cmd.ensure_accept_quest(5816)
+        await hunt_item(cmd, "The Secret 1", 1, "willowcreek",
+                        monster_name="Hidden Spy", is_temp=False)
+        await essence_of_nulgath(cmd, 20)
+        await approval_and_favor(cmd, 50, 50)
+        await hunt_item(cmd, "Cubes", 50, "boxes", cell="Fort2", pad="Left",
+                        monster_name="*", is_temp=False)
+        await hunt_item(cmd, "Fiend Seal", 10, "shadowblast", cell="r13",
+                        pad="Left", monster_name="*", is_temp=False)
+
+        await cmd.ensure_accept_quest(3826)
+        if cmd.get_loaded_quest(3826) is not None and not has_item_id(cmd, 25026):
+            await hunt_item(cmd, "Seal of Light", 1, "alteonbattle",
+                            monster_name="Ultra Chaos Alteon", is_temp=True)
+            await cmd.ensure_turn_in_quest(3826)
+        else:
+            print("[nation] the Seal of Light daily (3826) is not available.")
+        await cmd.ensure_turn_in_quest(5816)
+
+
+async def feed_the_fiend(cmd: Command, item: str = "Fiend Token",
+                         quant: int = 30) -> None:
+    """Quest 3053, members only, for Fiend Tokens."""
+    if cmd.is_in_inventory(item, quant) or not cmd.get_player().is_member:
+        return
+    cmd.add_drop(item)
+    await cmd.register_quest(3053)
+    await equip_class(cmd, solo=True)
+
+    while cmd.is_still_connected() and not cmd.is_in_inventory(item, quant):
+        await farm_diamond_of_nulgath(cmd, 1)
+        await hunt_item(cmd, "Dragon Fiend Gem", 13, "lair",
+                        monster_name="Red Dragon", is_temp=False)
+        await hunt_item(cmd, "Glacial Bones", 3, "battleunderd",
+                        cell="r5", pad="Left", monster_name="Glacial Horror",
+                        is_temp=False)
+        await hunt_item(cmd, "Screamfeeder Heart", 1, "dreammaze",
+                        monster_name="Screamfeeder", is_temp=False)
+
+    cmd.cancel_registered_quests()
+
+
+async def totems_via_taros(cmd: Command, quant: int = 100) -> None:
+    """Totem of Nulgath via Taro's chain (quest 726)."""
+    if cmd.is_in_inventory("Totem of Nulgath", quant):
+        return
+
+    if (cmd.get_player().is_member
+            and not cmd.is_in_inventory("Purified Claymore of Destiny")):
+        print("[nation] member route needs the Purified Claymore first.")
+        if not await get_pcod(cmd):
+            return
+
+    cmd.add_drop("Totem of Nulgath")
+    if (cmd.is_still_connected()
+            and not await cmd.is_completed_before(9541)):
+        # the C# calls ChainComplete(9541) here: accept it, then complete it
+        await cmd.ensure_accept_quest(9541)
+        await cmd.ensure_turn_in_quest(9541)
+
+    while cmd.is_still_connected() and not cmd.is_in_inventory("Totem of Nulgath", quant):
+        await cmd.ensure_accept_quest(726)
+        await essence_of_nulgath(cmd, 25)
+        if (cmd.get_player().is_member
+                and not has_item_id(cmd, 538)):
+            await cmd.ensure_accept_quest(1111)
+            await farm_gem_of_nulgath(cmd, 10)
+            await dark_makai_item(cmd, "Dark Makai Rune")
+            await cmd.ensure_turn_in_quest(1111, 538)
+        else:
+            await equip_class(cmd, solo=True)
+            await hunt_item(cmd, "Taro's Manslayer", 1, "tercessuinotlim",
+                            monster_name="Taro Blademaster", is_temp=False)
+        await cmd.ensure_turn_in_quest(726)
+
+    cmd.cancel_registered_quests()
+
+
+async def kissthe_void(cmd: Command, quant: int = 100,
+                       betrayal_blade: Optional[str] = None,
+                       keep_voucher: bool = False,
+                       return_policy: bool = False) -> None:
+    """Quest 3743: Blood Gems, or one of the Betrayal Blades."""
+    watching = betrayal_blade or "Blood Gem of the Archfiend"
+    if cmd.is_in_inventory(watching, quant if betrayal_blade is None else 1):
+        return
+
+    cmd.add_drop([watching, "Fragment of Chaos", "Blood Gem of the Archfiend",
+                  "Broken Betrayal Blade"])
+    await equip_class(cmd)
+    cmd.farming_logger(watching, quant if betrayal_blade is None else 1)
+    cmd.add_drop(SUPPLIES_REWARDS)
+    cmd.add_drop("Relic of Chaos")
+    await cmd.register_quest(2857)
+
+    while (cmd.is_still_connected()
+           and not cmd.is_in_inventory(watching,
+                                       quant if betrayal_blade is None else 1)):
+        await cmd.ensure_accept_quest(3743)
+        if not cmd.is_in_inventory("Tendurrr The Assistant"):
+            await hunt_item(cmd, "Tendurrr The Assistant", 1,
+                            "tercessuinotlim", cell="m2", pad="Left",
+                            monster_name="*", is_temp=False)
+        await hunt_item(cmd, "Fragment of Chaos", 80, "blindingsnow",
+                        cell="r17", pad="Left", monster_name="*",
+                        is_temp=False)
+        await hunt_item(cmd, "Broken Betrayal Blade", 8, "evilwarnul",
+                        cell="r13", pad="Left", monster_name="Legion Fenrir",
+                        is_temp=False)
+        await cmd.ensure_turn_in_quest(3743)
+
+        await sell_voucher_of_nulgath(cmd, keep_voucher, watching)
+        if not cmd.is_in_inventory("Blood Gem of the Archfiend", 100):
+            await do_swindles_return_area(cmd, return_policy,
+                                          "Blood Gem of the Archfiend")
+        if (cmd.is_in_inventory("Voucher of Nulgath (non-mem)")
+                and cmd.is_in_inventory("Essence of Nulgath", 60)
+                and (not cmd.is_in_inventory("Diamond of Nulgath", 1000)
+                     or not cmd.is_in_inventory("Totem of Nulgath", 100))):
+            diamonds_first = not cmd.is_in_inventory("Diamond of Nulgath", 1000)
+            await cmd.ensure_turn_in_quest(
+                VOUCHER_CONVERSION_QUEST,
+                GEM_OF_NULGATH if diamonds_first else TOTEM_OF_NULGATH,
+                1000 if diamonds_first else 100)
+
+        if betrayal_blade is None:
+            cmd.farming_logger(watching, quant)

@@ -17,13 +17,18 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from bot.nation.core_nation import (  # noqa: E402
-    approval_and_favor, assistant_during_supplies, bamboozle_vs_drudge,
-    bloody_chaos, blood_from_the_void, can_we_aggro, crags_thirst,
-    dark_makai_item, do_swindles_return_area, equip_class,
-    essence_of_defeat_reagent, fiend_emblem, get_pcod,
-    handle_voucher_conversions, has_any_item, has_any_item_id, has_item_id,
-    kill_escherion, kill_vath, new_worlds_new_opportunities,
-    sell_voucher_of_nulgath, supplies, uni, void_knight_sword_quest)
+    approval_and_favor, assistant_during_supplies, assisting_drudgen,
+    bamboozle_vs_drudge, bloody_chaos, blood_from_the_void, can_we_aggro,
+    contract_exchange, crags_thirst, dark_makai_item, deal, diamond_exchange,
+    do_swindles_return_area, dragon_slayer_reward, equip_class,
+    essence_of_defeat_reagent, essence_of_nulgath, farm_blood_gem,
+    farm_contract_exchage, farm_dark_crystal_shard, farm_diamond_of_nulgath,
+    farm_fiend_token, farm_gem_of_nulgath, farm_tainted_gem,
+    farm_totem_of_nulgath, farm_uni10, farm_uni13_quest, farm_voucher,
+    feed_the_fiend, fiend_emblem, get_pcod, handle_voucher_conversions,
+    has_any_item, has_any_item_id, has_item_id, kill_escherion, kill_vath,
+    kissthe_void, new_worlds_new_opportunities, sell_voucher_of_nulgath,
+    supplies, totems_via_taros, uni, void_knight_sword_quest)
 
 
 class _Other:
@@ -353,6 +358,61 @@ def main() -> None:
     assert asyncio.run(get_pcod(pcod_low)) is False
     assert pcod_low.calls == [], pcod_low.calls
     print("pcod       : Good rank 3 -> False, stops instead of farming nothing")
+
+    # --- the FarmX family: every one must bail before sending anything ---
+    family = [
+        ("uni13", farm_uni13_quest, {"Unidentified 13": 13}),
+        ("uni10", farm_uni10, {"Unidentified 10": 1000}),
+        ("dcs", farm_dark_crystal_shard, {"Dark Crystal Shard": 1000}),
+        ("diamond", farm_diamond_of_nulgath, {"Diamond of Nulgath": 1000}),
+        ("gem", farm_gem_of_nulgath, {"Gem of Nulgath": 1000}),
+        ("blood", farm_blood_gem, {"Blood Gem of the Archfiend": 100}),
+        ("tainted", farm_tainted_gem, {"Tainted Gem": 1000}),
+        ("totem", farm_totem_of_nulgath, {"Totem of Nulgath": 100}),
+        ("essence", essence_of_nulgath, {"Essence of Nulgath": 60}),
+        ("voucher", farm_voucher, {"Voucher of Nulgath (non-mem)": 1}),
+        ("fiendtok", farm_fiend_token, {"Fiend Token": 30}),
+        ("kissvoid", kissthe_void, {"Blood Gem of the Archfiend": 100}),
+        ("taros", totems_via_taros, {"Totem of Nulgath": 100}),
+    ]
+    for label, func, inv in family:
+        st = Stub(inv)
+        asyncio.run(func(st) if label != "voucher" else func(st, False))
+        assert st.calls == [], (label, st.calls)
+    print(f"farmx      : {len(family)} routines all stop when already farmed")
+
+    for label, func in (("exchange", contract_exchange),
+                        ("farm-contract", farm_contract_exchage)):
+        st = Stub()
+        asyncio.run(func(st) if label == "farm-contract"
+                    else func(st, "Tainted Gem", 1000))
+        assert st.calls == [], (label, st.calls)
+    print("contract   : no Drudgen pet -> both stop without a call")
+
+    dx = Stub({"Diamond of Nulgath": 15})
+    asyncio.run(diamond_exchange(dx))
+    assert dx.calls == [], dx.calls
+    print("dexchange  : no Crag pet -> returns without a single call")
+
+    dl = Stub()
+    asyncio.run(deal(dl, totem_quant=10))
+    assert dl.calls == [], dl.calls
+    print("deal       : no Crag pet -> returns without a single call")
+
+    ad = Stub({"Drudgen the Assistant": 1, "Twin Blade of Nulgath": 1})
+    asyncio.run(assisting_drudgen(ad))
+    assert ad.calls == [], ad.calls
+    print("assisting  : not a member -> returns without a single call")
+
+    ff = Stub()
+    asyncio.run(feed_the_fiend(ff))
+    assert ff.calls == [], ff.calls
+    print("feedfiend  : not a member -> returns without a single call")
+
+    dsr = Stub(completed=(169,))
+    asyncio.run(dragon_slayer_reward(dsr))
+    assert dsr.kinds() == ["is_completed_before"], dsr.kinds()
+    print("dragonslay : quest 169 done -> only looked, sent nothing")
 
     print("\nnation tests OK")
 
