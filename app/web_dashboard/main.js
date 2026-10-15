@@ -577,22 +577,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Web mode: no pywebview bridge, so pull log lines from the backend and
     // forward them to the matching iframe (same path as app mode).
-    if (window.pywebview && window.pywebview.__web) {
-        let webLogSeq = 0;
-        let webLogBusy = false;
-        setInterval(() => {
-            // Never overlap polls: a slow response would otherwise be replayed by
-            // the next tick and every line would appear twice.
-            if (webLogBusy) return;
-            webLogBusy = true;
-            fetch('/api/logs?since=' + webLogSeq).then(r => r.json()).then(data => {
-                if (!data) return;
-                webLogSeq = data.seq || webLogSeq;
-                (data.lines || []).forEach(l => {
-                    if (window.addSlaveLog) window.addSlaveLog(l.user, l.html, l.tab);
-                });
-            }).catch(() => {})
-              .then(() => { webLogBusy = false; });
-        }, 800);
-    }
+    //
+    // The check runs on every tick, not once here: this block is reached at DOM
+    // ready, which in the desktop app is *before* pywebview injects its bridge,
+    // so a one-off test sees the HTTP fallback's `__web` flag and polls in the
+    // app as well -- and every line then shows twice, once pushed over
+    // evaluate_js and once pulled from here.
+    let webLogSeq = 0;
+    let webLogBusy = false;
+    setInterval(() => {
+        if (!(window.pywebview && window.pywebview.__web)) return;
+        // Never overlap polls: a slow response would otherwise be replayed by
+        // the next tick and every line would appear twice.
+        if (webLogBusy) return;
+        webLogBusy = true;
+        fetch('/api/logs?since=' + webLogSeq).then(r => r.json()).then(data => {
+            if (!data) return;
+            webLogSeq = data.seq || webLogSeq;
+            (data.lines || []).forEach(l => {
+                if (window.addSlaveLog) window.addSlaveLog(l.user, l.html, l.tab);
+            });
+        }).catch(() => {})
+          .then(() => { webLogBusy = false; });
+    }, 800);
 });
