@@ -105,6 +105,7 @@ ENTRY_MODULES = [
     "bot.nation.various.the_refreshing_deal",
     "bot.nation.various.the_poisonous_deal",
     "bot.nation.afdl.willpower_extraction",
+    "bot.nation.afdl.nulgath_demands_work",
     "bot.nation.evolved_orb.evolved_blood_orb",
     "bot.nation.evolved_orb.evolved_hex_orb",
     "bot.nation.evolved_orb.evolved_shadow_orb",

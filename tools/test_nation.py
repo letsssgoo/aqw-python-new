@@ -847,6 +847,7 @@ def main() -> None:
         "various.the_refreshing_deal",
         "various.the_poisonous_deal",
         "afdl.willpower_extraction",
+        "afdl.nulgath_demands_work",
         "evolved_orb.evolved_blood_orb",
         "evolved_orb.evolved_hex_orb",
         "evolved_orb.evolved_shadow_orb",

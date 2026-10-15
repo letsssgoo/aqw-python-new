@@ -51,14 +51,19 @@ DROPS = (REWARD, uni(19), "Necrot", "Chaoroot", "Doomatter", FACE_NAME,
          "Mystic Tribal Sword", "Golden Shadow Breaker", "Shadow Terror Axe")
 
 
-async def main(cmd: Command):
-    if await cmd.has_item(REWARD, QUANT):
+async def unidentified_34(cmd: Command, quant: int = QUANT) -> None:
+    """Quest 5258, for Unidentified 34.
+
+    Split out of :func:`main` because ``NulgathDemandsWork`` calls the
+    reference's ``WillpowerExtraction.Unidentified34(10)`` directly.
+    """
+    if await cmd.has_item(REWARD, quant):
         return
 
     cmd.add_drop(list(DROPS))
-    cmd.farming_logger(REWARD, QUANT)
+    cmd.farming_logger(REWARD, quant)
 
-    while cmd.is_still_connected() and not await cmd.has_item(REWARD, QUANT):
+    while cmd.is_still_connected() and not await cmd.has_item(REWARD, quant):
         await cmd.ensure_accept_quest(QUEST_ID)
 
         for shop_id, name, qty, map_name in RUNS:
@@ -82,6 +87,10 @@ async def main(cmd: Command):
         await approval_and_favor(cmd, 50, 0)
         await farm_totem_of_nulgath(cmd, 1)
         await cmd.ensure_turn_in_quest(QUEST_ID)
+
+
+async def main(cmd: Command):
+    await unidentified_34(cmd, QUANT)
 
 
 async def _facebreakers(cmd: Command) -> None:
