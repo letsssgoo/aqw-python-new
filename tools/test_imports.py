@@ -87,6 +87,8 @@ ENTRY_MODULES = [
     "bot.nation.various.golden_hanzo_void",
     "bot.nation.various.hanzo_orb_quest",
     "bot.nation.various.yulgaths_inn",
+    "bot.nation.various.void_destroyer",
+    "bot.nation.various.sin_of_the_abyss_mats_pre_farm",
     "bot.nation.evolved_orb.evolved_blood_orb",
     "bot.nation.evolved_orb.evolved_hex_orb",
     "bot.nation.evolved_orb.evolved_shadow_orb",

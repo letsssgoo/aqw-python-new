@@ -197,6 +197,9 @@ class Stub:
                 self.inv[name] = self.inv.get(name, 0) + self.bank.pop(name)
             self.player.move_banked_by_name(name)
 
+    async def inv_to_bank(self, names):
+        self.calls.append(("inv_to_bank", names))
+
     # --- async bank-aware predicates (mirror Command.has_item & co) -------
     async def has_item(self, name, qty=1, operator=">=", isTemp=False):
         if not isTemp and self.is_in_bank(name):
@@ -752,6 +755,8 @@ def main() -> None:
         "various.golden_hanzo_void",
         "various.hanzo_orb_quest",
         "various.yulgaths_inn",
+        "various.void_destroyer",
+        "various.sin_of_the_abyss_mats_pre_farm",
         "evolved_orb.evolved_blood_orb",
         "evolved_orb.evolved_hex_orb",
         "evolved_orb.evolved_shadow_orb",
