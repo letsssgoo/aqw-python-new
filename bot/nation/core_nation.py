@@ -14,19 +14,28 @@ rather than all at once.
 ``equip_class``           farm / solo class, from ``Bot(...)``
 ``can_we_aggro``          aggro while someone else shares the cell
 ``join_swf``              enter a map whose retired SWF is client-loaded
+``has_any_item`` / ``has_item_id`` / ``has_any_item_id``  inventory checks
+``kill_escherion``        the Escherion fight, staff-aware
+``kill_vath``             the Stalagbite / Vath fight
+``dark_makai_item``       Dark Makai drops, one of two maps at random
 ``approval_and_favor``    Nulgath's Approval + Archfiend's Favor
 ``blood_from_the_void``   Blood From the Void (needs /tercesinvasion story)
 ``fiend_emblem``          Fiend Emblem, quest 7890
 ``new_worlds_new_opportunities``  rewards of quest 6183 / 6697, from the pet
 ``void_knight_sword_quest``       rewards of quest 5662 / 5659
+``crags_thirst``          Diamonds via quest 600
+``bloody_chaos``          Blood Gems via quest 7816 (+2857 with the relic)
+``essence_of_defeat_reagent``     Dark Crystal Shards via quest 570
+``dirty_deeds_done_dirt_cheap``   Unidentified 10 via quest 7818
 ========================  ====================================================
 
-**Not ported yet:** ``Supplies``, ``TheAssistant``, ``AssistantDuringSupplies``,
-``BambloozevsDrudgen``, ``Deal``, ``FarmContractExchage``, ``CragsThirst``,
-``DiamondExchange``, ``ContractExchange``, ``TotemsViaTaros``, ``BloodyChaos``,
-``DirtyDeedsDoneDirtCheap``, ``GetPCoD``, ``KillHydra``, ``EssenceofDefeatReagent``,
-``EmblemofNulgath`` / ``NationRound4Medal``, ``HandleVoucherConversions``,
-``SellVoucherOfNulgath``, and the ``FarmX`` family.
+**Not ported yet:** the Supplies cluster (``Supplies``, ``TheAssistant``,
+``AssistantDuringSupplies``, ``BambloozevsDrudgen``, ``Deal``,
+``FarmContractExchage``, ``DiamondExchange``, ``ContractExchange``,
+``TotemsViaTaros``, ``GetPCoD``, ``KillHydra``, ``HandleVoucherConversions``,
+``SellVoucherOfNulgath``), ``EmblemofNulgath`` / ``NationRound4Medal``,
+``KisstheVoid``, ``Forge*``, the SRoE merge-shop branch, and the ``FarmX``
+family.
 
 Porting notes that apply throughout:
 
@@ -43,6 +52,7 @@ Porting notes that apply throughout:
 """
 from __future__ import annotations
 
+import random
 from typing import Optional, Sequence, Tuple
 
 from core.command import Command
@@ -80,6 +90,35 @@ NWNO_PETS: Tuple[str, ...] = ("Nulgath's Birthday Gift",
 
 #: The two Sword of the Void Knight variants the quest 5662/5659 choice hangs on.
 VOID_KNIGHT_SWORDS: Tuple[int, ...] = (38275, 38254)
+
+#: The Crag & Bamboozle pet, which gates several of the cheapest farm methods.
+#: (The C# source spells it ``Crag &amp; Bamboozle`` -- an HTML escape that got
+#: baked into the string literal, so Skua's own Crag checks can never match.)
+CRAG_PET = "Crag & Bamboozle"
+
+#: Extra drops handed out while Bloody Chaos is running with the relic branch.
+BLOODY_CHAOS_SUPPLIES: Tuple[str, ...] = (
+    "Tainted Gem",
+    "Dark Crystal Shard",
+    "Diamond of Nulgath",
+    "Voucher of Nulgath",
+    "Voucher of Nulgath (non-mem)",
+    "Unidentified 10",
+    "Unidentified 13",
+    "Gem of Nulgath",
+    "Relic of Chaos",
+)
+
+#: Drops from the bosses that used to gate access to Tercessuinotlim.
+TERCESS_BAGS: Tuple[str, ...] = ("Bone Dust",)
+
+#: Monster map ids used by the two per-map boss helpers below.  AQW mints a
+#: fresh ``MonMapID`` per zone spawn, but these two fights are single-spawn
+#: cells, so the ids are stable there.
+ESCHERION_STAFF = "id.2"
+ESCHERION_BOSS = "id.3"
+VATH_BOSS = "id.7"
+STALAGBITE = "id.8"
 
 
 def uni(nr: int) -> str:
@@ -420,3 +459,259 @@ async def void_knight_sword_quest(cmd: Command, item: Optional[str] = None,
         cmd.farming_logger(item, quant)
         while cmd.is_still_connected() and not cmd.is_in_inventory(item, quant):
             await _void_knight_step(cmd, quest_id)
+
+
+async def _travel(cmd: Command, map_name: str, cell: str,
+                  pad: str = "Left") -> bool:
+    """Move to ``map_name`` / ``cell``; False while still on the way.
+
+    The C# spells this as ``Join`` + ``Wait.ForMapLoad`` + ``Jump`` +
+    ``Wait.ForCellChange``.  This engine polls instead, so the caller loops
+    until it gets True back.
+    """
+    if cmd.is_not_in_map(map_name):
+        await cmd.join_map(map_name)
+        await cmd.sleep(500)
+        return False
+    if cell and cmd.is_not_in_cell(cell):
+        await cmd.jump_cell(cell, pad)
+        await cmd.sleep(500)
+        return False
+    return True
+
+
+async def kill_escherion(cmd: Command, item: Optional[str] = None,
+                         quant: int = 1, is_temp: bool = False,
+                         log: bool = True) -> None:
+    """Kill Escherion in ``/escherion``, optionally for ``item``.
+
+    A generic quest helper the Nation farms lean on.  Escherion is invulnerable
+    while the Staff of Inversion stands, so the rotation aims at ``id.2`` (the
+    staff) whenever it is alive and ``id.3`` (Escherion) otherwise -- the C#
+    also branches on the target's *state*, but both of its branches resolve to
+    one of those two anyway, and this engine's ``Monster`` carries no state.
+
+    With ``item`` unset it fights one spawn to the death.
+    """
+    if item and cmd.is_in_inventory(item, quant, isTemp=is_temp):
+        return
+    if item and not is_temp:
+        cmd.add_drop(item)
+    if item and log:
+        cmd.farming_logger(item, quant)
+
+    if item is None:
+        # one kill: wait for the spawn, then fight until the cell is clear
+        while (cmd.is_still_connected()
+               and not cmd.is_monster_alive("*")):
+            if not await _travel(cmd, "escherion", "Boss"):
+                continue
+            await cmd.sleep(500)
+        goal = lambda: not cmd.is_monster_alive("*")            # noqa: E731
+    else:
+        goal = lambda: cmd.is_in_inventory(item, quant,           # noqa: E731
+                                           isTemp=is_temp)
+
+    while cmd.is_still_connected() and not goal():
+        if not await _travel(cmd, "escherion", "Boss"):
+            continue
+        staff = cmd.get_monster(ESCHERION_STAFF)
+        target = ESCHERION_STAFF if (staff and staff.is_alive) else ESCHERION_BOSS
+        await cmd.use_next_skill(DEFAULT_SKILL_LIST, target)
+
+    if item:
+        await cmd.rest()
+
+
+async def kill_vath(cmd: Command, item: Optional[str] = None, quant: int = 1,
+                    is_temp: bool = False, log: bool = True) -> None:
+    """Kill Vath in ``/stalagbite``, optionally for ``item``.
+
+    Stalagbite (``id.8``) takes the hits while it is alive and Vath (``id.7``)
+    otherwise -- the same two choices the C# makes from the target's state.
+    """
+    if item and cmd.is_in_inventory(item, quant, isTemp=is_temp):
+        return
+    if item and not is_temp:
+        cmd.add_drop(item)
+    if item and log:
+        cmd.farming_logger(item, quant)
+
+    if item is None:
+        while (cmd.is_still_connected()
+               and not cmd.is_monster_alive("*")):
+            if not await _travel(cmd, "stalagbite", "r2"):
+                continue
+            await cmd.sleep(500)
+        goal = lambda: not cmd.is_monster_alive("*")            # noqa: E731
+    else:
+        goal = lambda: cmd.is_in_inventory(item, quant,           # noqa: E731
+                                           isTemp=is_temp)
+
+    while cmd.is_still_connected() and not goal():
+        if not await _travel(cmd, "stalagbite", "r2"):
+            continue
+        stalagbite = cmd.get_monster(STALAGBITE)
+        target = STALAGBITE if (stalagbite and stalagbite.is_alive) else VATH_BOSS
+        await cmd.use_next_skill(DEFAULT_SKILL_LIST, target)
+
+
+async def dark_makai_item(cmd: Command, item: Optional[str] = "Dark Makai Rune",
+                          quantity: int = 1, is_temp: bool = True) -> None:
+    """Farm a Dark Makai drop, in Tercessuinotlim or the member/non-member map.
+
+    The C# picks one of the two locations at random to spread the load; that
+    stays.  ``/Nulgath`` is the member variant of the drop's second home, with
+    ``/evilmarsh`` replacing it otherwise.
+    """
+    if not item or cmd.is_in_inventory(item, quantity, isTemp=is_temp):
+        return
+
+    member = bool(cmd.get_player().is_member)
+    map_name, cell = random.choice([
+        ("tercessuinotlim", "m1"),
+        ("Nulgath" if member else "evilmarsh", "Field1"),
+    ])
+
+    while (cmd.is_still_connected()
+           and not cmd.is_in_inventory(item, quantity, isTemp=is_temp)):
+        if not await _travel(cmd, map_name, cell):
+            continue
+        await cmd.use_next_skill(DEFAULT_SKILL_LIST, "Dark Makai")
+
+    await equip_class(cmd, solo=True)
+
+
+async def crags_thirst(cmd: Command, quant: int = 1000) -> None:
+    """Diamonds of Nulgath via Crag's Thirst (quest 600).
+
+    Needs the Crag pet and 100 Unidentified 10 banked; the C# bails out
+    silently without them, and so does this.
+    """
+    if (not cmd.is_in_inventory(CRAG_PET)
+            or cmd.is_in_inventory("Diamond of Nulgath", quant)
+            or not cmd.is_in_inventory(uni(10), 100)):
+        return
+
+    print("[nation] doing Crag's Thirst")
+    while (cmd.is_still_connected()
+           and cmd.is_in_inventory(uni(10), 100)
+           and not cmd.is_in_inventory("Diamond of Nulgath", quant)):
+        # the C# calls ResetQuest(600) here, which sends no packet of its own;
+        # accepting the quest is the whole of it
+        await cmd.ensure_accept_quest(600)
+        await dark_makai_item(cmd, "Dark Makai Rune")
+        await cmd.ensure_turn_in_quest(600)
+
+
+async def bloody_chaos(cmd: Command, quant: int = 100, relic: bool = False,
+                       hydra_level: int = 85, endless: bool = False) -> None:
+    """Blood Gems of the Archfiend via Bloody Chaos (quest 7816 [+2857]).
+
+    Gated on level 80 in the C#.  ``player.LEVEL`` is 0 until the login payload
+    is parsed, and 0 is treated as "unknown" rather than "below 80" so a failed
+    parse cannot silently skip the whole farm.
+    """
+    level = cmd.get_player().LEVEL
+    if level and level < 80:
+        return
+    if not endless and cmd.is_in_inventory("Blood Gem of the Archfiend", quant):
+        return
+
+    cmd.add_drop(["Blood Gem of the Archfiend", "Hydra Scale Piece"])
+    if relic:
+        cmd.add_drop(BLOODY_CHAOS_SUPPLIES)
+    cmd.farming_logger("Blood Gem of the Archfiend", quant)
+
+    for quest_id in ([7816, 2857] if relic else [7816]):
+        await cmd.register_quest(quest_id)
+    await equip_class(cmd, solo=True)
+
+    while (cmd.is_still_connected()
+           and (endless
+                or not cmd.is_in_inventory("Blood Gem of the Archfiend", quant))):
+        await kill_escherion(cmd, "Escherion's Helm", is_temp=False)
+        await kill_vath(cmd, "Shattered Legendary Sword of Dragon Control",
+                        is_temp=False)
+        await hunt_item(cmd, "Hydra Scale Piece", 200, "hydrachallenge",
+                        monster_name=f"Hydra Head {hydra_level}", is_temp=False)
+
+    cmd.cancel_registered_quests()
+
+
+async def essence_of_defeat_reagent(cmd: Command, quant: int = 1000) -> None:
+    """Dark Crystal Shards via the Essence of Defeat Reagent quest (570).
+
+    Six steps per turn-in, sweeping solo and farm classes in between exactly as
+    the C# does.
+    """
+    if cmd.is_in_inventory("Dark Crystal Shard", quant):
+        return
+
+    cmd.add_drop(TERCESS_BAGS + BAG_DROPS)
+    cmd.farming_logger("Dark Crystal Shard", quant)
+    await cmd.register_quest(570)
+
+    while (cmd.is_still_connected()
+           and not cmd.is_in_inventory("Dark Crystal Shard", quant)):
+        await equip_class(cmd, solo=True)
+        await hunt_item(cmd, "Aracara's Fang", 1, "faerie",
+                        monster_name="Aracara", is_temp=False)
+        await hunt_item(cmd, "Hydra Scale", 1, "hydra",
+                        monster_name="Hydra Head", is_temp=False)
+        await kill_vath(cmd, "Strand of Vath's Hair", 1, is_temp=False)
+        await hunt_item(cmd, "O-dokuro's Tooth", 1, "yokaiwar",
+                        monster_name="O-dokuro's Head", is_temp=False)
+        await kill_escherion(cmd, "Escherion's Chain", is_temp=False)
+
+        await equip_class(cmd)
+        await hunt_item(cmd, "Defeated Makai", 50, "tercessuinotlim",
+                        cell="m2", pad="Left", monster_name="*", is_temp=False)
+
+        await equip_class(cmd, solo=True)
+        await hunt_item(cmd, "Tibicenas' Chain", 1, "djinn",
+                        monster_name="Tibicenas", is_temp=False)
+
+    cmd.cancel_registered_quests()
+
+
+async def dirty_deeds_done_dirt_cheap(cmd: Command, quant: int = 1000,
+                                      sroe: bool = False,
+                                      sroe_items: Optional[Sequence[str]] = None
+                                      ) -> None:
+    """Unidentified 10 via Dirty Deeds Done Dirt Cheap (quest 7818).
+
+    Needs ``/towerofdoom10`` cleared and a solo class, per the C# docstring.
+
+    Note:
+        The optional ``SRoE`` branch buys merge-shop stock with a full bag of
+        Unidentified 10 (``GetShopItems`` + ``MaxBuyQuant`` + a capped buy
+        loop).  That shop path is not ported; asking for it prints a notice and
+        farms the base quest anyway rather than silently doing less.
+    """
+    cmd.add_drop(["Emerald Pickaxe", "Seraphic Grave Digger Spade",
+                  "Unidentified 10", "Receipt of Swindle",
+                  "Blood Gem of the Archfiend", "Dark Crystal Shard",
+                  "Gem of Nulgath", "Tainted Gem", "Totem of Nulgath"])
+    await equip_class(cmd, solo=True)
+    await kill_escherion(cmd, "Emerald Pickaxe")
+    await hunt_item(cmd, "Seraphic Grave Digger Spade", 1, "legioncrypt",
+                    cell="r1", pad="Top", monster_name="Gravedigger",
+                    is_temp=False)
+
+    if sroe:
+        print("[nation] the SRoE merge-shop branch is not ported; farming "
+              "Unidentified 10 with the base quest only.")
+
+    while (cmd.is_still_connected()
+           and not cmd.is_in_inventory("Unidentified 10", quant)):
+        await cmd.ensure_accept_quest(7818)
+        await hunt_item(cmd, "Slugbutter Digging Advice", 1, "towerofdoom10",
+                        monster_name="Slugbutter", is_temp=True)
+        await hunt_item(cmd, "Chaotic Tunneling Techniques", 2, "crownsreach",
+                        monster_name="Chaos Tunneler", is_temp=True)
+        await hunt_item(cmd, "Crystalized Corporate Digging Secrets", 3,
+                        "downward", monster_name="Crystal Mana Construct",
+                        is_temp=True)
+        await cmd.ensure_turn_in_quest(7818)
+        cmd.farming_logger("Unidentified 10", quant)

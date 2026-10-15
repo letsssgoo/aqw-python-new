@@ -17,9 +17,10 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from bot.nation.core_nation import (  # noqa: E402
-    approval_and_favor, blood_from_the_void, can_we_aggro, equip_class,
-    fiend_emblem, has_any_item, has_any_item_id, has_item_id,
-    new_worlds_new_opportunities, uni, void_knight_sword_quest)
+    approval_and_favor, bloody_chaos, blood_from_the_void, can_we_aggro,
+    crags_thirst, dark_makai_item, equip_class, essence_of_defeat_reagent,
+    fiend_emblem, has_any_item, has_any_item_id, has_item_id, kill_escherion,
+    kill_vath, new_worlds_new_opportunities, uni, void_knight_sword_quest)
 
 
 class _Other:
@@ -28,10 +29,11 @@ class _Other:
 
 
 class _Player:
-    def __init__(self, member=False, items_by_id=None):
+    def __init__(self, member=False, items_by_id=None, level=0):
         self.USER = "me"
         self.CELL = "r9"
         self.is_member = member
+        self.LEVEL = level
         self._by_id = {str(k): v for k, v in (items_by_id or {}).items()}
 
     def get_item_inventory_by_id(self, item_id):
@@ -47,10 +49,10 @@ class Stub:
     """Duck-typed Command: records calls, never touches the network."""
 
     def __init__(self, inventory=None, member=False, completed=(),
-                 others=(), connected=True, items_by_id=None):
+                 others=(), connected=True, items_by_id=None, level=0):
         self.inv = dict(inventory or {})
         self.calls = []
-        self.player = _Player(member, items_by_id)
+        self.player = _Player(member, items_by_id, level)
         self.bot = _Bot(others)
         self._completed = set(completed)
         self._connected = connected
@@ -235,6 +237,46 @@ def main() -> None:
     asyncio.run(void_knight_sword_quest(have, "Unidentified 10", 1000))
     assert have.calls == [], have.calls
     print("vkwsq      : item already full -> returns without a single call")
+
+    # --- boss helpers and the level gate ------------------------------
+    makai = Stub({f"Dark Makai Rune": 5})
+    asyncio.run(dark_makai_item(makai))
+    assert makai.calls == [], makai.calls
+    print("makai      : already held -> returns without a single call")
+
+    escherion = Stub({"Escherion's Helm": 1})
+    asyncio.run(kill_escherion(escherion, "Escherion's Helm"))
+    assert escherion.calls == [], escherion.calls
+    print("escherion  : already held -> returns without a single call")
+
+    vath = Stub({"Strand of Vath's Hair": 1})
+    asyncio.run(kill_vath(vath, "Strand of Vath's Hair"))
+    assert vath.calls == [], vath.calls
+    print("vath       : already held -> returns without a single call")
+
+    crags = Stub()
+    asyncio.run(crags_thirst(crags))
+    assert crags.calls == [], crags.calls
+    print("crags      : no Crag pet -> returns without a single call")
+
+    essence = Stub({"Dark Crystal Shard": 1000})
+    asyncio.run(essence_of_defeat_reagent(essence))
+    assert essence.calls == [], essence.calls
+    print("essence    : already full -> returns without a single call")
+
+    # The level-80 gate must not fire on an unparsed level: LEVEL is 0 until
+    # initUserDatas is read, and treating that as "below 80" would silently
+    # skip the whole farm.
+    low = Stub(level=70)
+    asyncio.run(bloody_chaos(low))
+    assert low.calls == [], low.calls
+    print("chaos      : level 70 -> returns without a single call")
+
+    unknown = Stub(level=0, inventory={"Blood Gem of the Archfiend": 1000})
+    asyncio.run(bloody_chaos(unknown))
+    assert unknown.calls == [], unknown.calls
+    assert "register_quest" not in unknown.kinds(), unknown.kinds()
+    print("chaos      : unknown level is not 'too low'; full stack still stops it")
 
     print("\nnation tests OK")
 
