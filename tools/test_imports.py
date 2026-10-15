@@ -113,6 +113,7 @@ ENTRY_MODULES = [
     "bot.nation.evolved_orb.evolved_hex_orb",
     "bot.nation.evolved_orb.evolved_shadow_orb",
     "bot.bank_check",
+    "bot.story.battle_under",
     "bot.farm.leveling",
     "bot.farm.gold_farm",
     "bot.farm.dark_war_legion_gold",
@@ -134,6 +135,7 @@ SUPPORT_MODULES = [
     "bot.nation.core_nation",
     "bot.core_bots",
     "bot.core_farms",
+    "bot.core_story",
 ]
 
 
