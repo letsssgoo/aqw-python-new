@@ -21,7 +21,8 @@ noted where it happens:
   class is reported and the farm continues, rather than stopping a long run
   over a settings gap.
 """
-from typing import Awaitable, Callable, Optional, Sequence
+import random
+from typing import Awaitable, Callable, Optional, Sequence, Tuple
 
 from bot.core_bots import (Alignment, can_we_aggro, change_alignment,
                            equip_class)
@@ -36,6 +37,42 @@ _ICESTORM_FROM = 20
 
 #: The monster ``CoreFarms.CraggleRockREP`` hunts in /wanders, by its own id.
 CRAGGLE_ROCK_ID = 560
+
+#: The PvP amulets ``BludrutBrawlBoss`` looks for, in its own order.
+PVP_AMULETS: Tuple[str, ...] = (
+    "Mithril PvP Amulet +15000",
+    "Diamond PvP Amulet +5500",
+    "Platinum PvP Amulet +5000",
+)
+
+#: The brawl route, as ``(mtcid, cell, x range, y range)``: the four moves before
+#: the boss, the three the "kill ads" branch adds (with two kills between them),
+#: and one ``(…, monster map id)`` per boss.
+PVP_ENTRY = (
+    (5, "Morale0C", (784, 862), (254, 274)),
+    (4, "Morale0B", (786, 850), (262, 287)),
+    (7, "Morale0A", (783, 857), (263, 293)),
+    (9, "Crosslower", (777, 857), (254, 290)),
+)
+PVP_ADS_HEAD = (
+    (14, "Crossupper", (399, 545), (255, 256)),
+    (18, "Resource1A", (786, 860), (255, 274)),
+)
+PVP_ADS_MIDDLE = ((20, "Resource1B", (784, 852), (254, 293)),)
+PVP_ADS_TAIL = (
+    (21, "Resource1A", (123, 189), (262, 297)),
+    (19, "Crossupper", (122, 189), (258, 282)),
+    (17, "Crosslower", (439, 536), (467, 470)),
+)
+PVP_BOSS_STEPS = (
+    (15, "Morale1A", (781, 858), (258, 290), 13),
+    (23, "Morale1B", (782, 850), (259, 276), 14),
+    (25, "Morale1C", (802, 865), (264, 286), 15),
+    (28, "Captain1", (430, 537), (254, 255), 16),
+)
+
+#: What ``BludrutBrawlBoss`` banks when it is after something else.
+PVP_OTHER_REWARDS: Tuple[str, ...] = ("Yoshino's Citrine", "The Secret 4")
 
 
 async def farm_until(
@@ -137,6 +174,132 @@ async def _sell_all(cmd: Command, item_name: str) -> None:
     have = cmd.get_quant_item(item_name)
     if have:
         await cmd.sell_item(item_name, have)
+
+
+# ----------------------------------------------------------------------------
+# PvP: the Bludrut Brawl boss
+# ----------------------------------------------------------------------------
+
+async def _pvp_move(cmd: Command, mtcid: int, cell: str, x_range, y_range) -> bool:
+    """``CoreBots.PvPMove``: walk to a coordinate, then select the cell's id.
+
+    The reference sends the move packet and then a ``mtcid`` packet, waits, and
+    repeats the pair until the cell it asked for is the cell it is in.  The
+    coordinates are drawn from a range each time, exactly as it draws them.
+
+    Returns:
+        bool: True once the cell is reached, False when the client dropped first
+        -- which the reference cannot notice, having no ``ShouldExit`` here.
+    """
+    while cmd.is_still_connected():
+        await cmd.walk_to(random.randint(*x_range), random.randint(*y_range))
+        cmd.bot.write_message(f"%xt%zm%mtcid%{cmd.bot.areaId}%{mtcid}%")
+        await cmd.sleep(2500)
+        if cmd.is_in_cell(cell):
+            return True
+        await cmd.sleep(1500)
+    print(f"[farm] disconnected while moving to {cell}.")
+    return False
+
+
+async def _pvp_killing(cmd: Command, target: str = "*") -> None:
+    """``CoreBots.PVPKilling``: keep attacking until the target is down."""
+    while cmd.is_still_connected() and cmd.is_monster_alive(target):
+        await cmd.use_next_skill(DEFAULT_SKILL_LIST, target)
+
+
+async def bludrut_brawl_boss(cmd: Command, item: str = "Combat Trophy",
+                             quant: int = 5000,
+                             kill_ads: bool = False) -> bool:
+    """``CoreFarms.BludrutBrawlBoss``: the Team B Captain in /bludrutbrawl.
+
+    A PvP map, so this walks a fixed route of cells and coordinate ranges and
+    kills the enemy team by their map ids, then waits for the server to credit
+    the trophy before starting the next pass.
+
+    Args:
+        cmd (Command): Facade to act through.
+        item (str): What to farm -- ``Combat Trophy`` or another brawl reward.
+        quant (int): How many of it.
+        kill_ads (bool): The reference's ``KillAds`` option: also clear the
+            healers for three extra trophies, which takes longer.
+
+    Returns:
+        bool: True when the item is held, False when it stopped early (reported).
+    """
+    if await cmd.has_item(item, quant):
+        return True
+
+    if cmd.is_in_map("bludrutbrawl"):
+        print("[farm] starting in the PvP map; joining /whitemap first so "
+              "things can be equipped")
+        await cmd.join_map("whitemap")
+
+    cmd.add_drop(item)
+    await equip_class(cmd, solo=True)
+    cmd.farming_logger(item, quant)
+
+    for amulet in PVP_AMULETS:
+        if await cmd.has_item(amulet):
+            # equip_item withdraws it from the bank itself when it has to
+            await cmd.equip_item(amulet)
+            break
+
+    while cmd.is_still_connected() and not await cmd.has_item(item, quant):
+        before = cmd.get_quant_item(item)
+        await cmd.join_map("bludrutbrawl", 999999)
+        await cmd.jump_cell("Enter0", "Spawn")
+
+        for mtcid, cell, x_range, y_range in PVP_ENTRY:
+            if not await _pvp_move(cmd, mtcid, cell, x_range, y_range):
+                return False
+
+        if kill_ads:
+            for mtcid, cell, x_range, y_range in PVP_ADS_HEAD:
+                if not await _pvp_move(cmd, mtcid, cell, x_range, y_range):
+                    return False
+            await _pvp_killing(cmd)
+            for mtcid, cell, x_range, y_range in PVP_ADS_MIDDLE:
+                if not await _pvp_move(cmd, mtcid, cell, x_range, y_range):
+                    return False
+            await _pvp_killing(cmd)
+            for mtcid, cell, x_range, y_range in PVP_ADS_TAIL:
+                if not await _pvp_move(cmd, mtcid, cell, x_range, y_range):
+                    return False
+
+        for mtcid, cell, x_range, y_range, mon_id in PVP_BOSS_STEPS:
+            if not await _pvp_move(cmd, mtcid, cell, x_range, y_range):
+                return False
+            await _pvp_killing(cmd, f"id.{mon_id}")
+            if not cmd.is_player_alive():
+                print("[farm] died in the brawl; leaving and retrying")
+                await cmd.join_map("battleon", 999999)
+                await cmd.sleep(1500)
+                break
+
+        for _ in range(40):        # the reference waits for the server itself
+            if cmd.get_quant_item(item) > before:
+                break
+            await cmd.sleep(500)
+        else:
+            print(f"[farm] {item} did not move from {before} after a full brawl "
+                  f"pass; stopping rather than brawling forever.")
+            return False
+
+        await cmd.leave_combat()
+        while cmd.is_still_connected() and cmd.is_not_in_map("battleon"):
+            await cmd.join_map("battleon", 999999)
+            await cmd.sleep(1500)
+
+    for reward in PVP_OTHER_REWARDS:
+        if reward != item and await cmd.has_item(reward):
+            await cmd.inv_to_bank(reward)
+
+    gained = await cmd.has_item(item, quant)
+    if not gained:
+        print(f"[farm] the brawl stopped without reaching {quant} {item}.")
+    return gained
+
 
 
 # ----------------------------------------------------------------------------

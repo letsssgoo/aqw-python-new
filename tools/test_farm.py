@@ -116,6 +116,10 @@ class Stub:
         self._casts_left = connect_after
         #: False makes ensure_load_shop report a shop that never arrives
         self.shop_loads = True
+        #: set True to make is_monster_alive report an empty cell
+        self._monsters_dead = False
+        #: set True to make is_in_cell answer yes whatever the cell
+        self.cell_ok = False
 
     # --- sync -----------------------------------------------------------
     def kinds(self):
@@ -127,8 +131,27 @@ class Stub:
     def is_not_in_map(self, map_name):
         return map_name.lower() != self._map_name()
 
+    def is_in_map(self, map_name):
+        return map_name.lower() == self._map_name()
+
     def is_not_in_cell(self, cell):
+        if self.cell_ok:
+            return False
         return cell.lower() != self.player.CELL.lower()
+
+    def is_in_cell(self, cell):
+        if self.cell_ok:
+            return True
+        return cell.lower() == self.player.CELL.lower()
+
+    def is_monster_alive(self, monster="*"):
+        return not self._monsters_dead
+
+    def is_player_alive(self):
+        return not self.player.ISDEAD
+
+    def farming_logger(self, *args):
+        self.calls.append(("farming_logger", args))
 
     def get_player(self):
         return self.player
@@ -187,6 +210,9 @@ class Stub:
     async def jump_to_monster(self, *args, **kwargs):
         self.calls.append(("jump_to_monster",))
 
+    async def walk_to(self, x, y, speed=8):
+        self.calls.append(("walk_to", x, y))
+
     async def sleep(self, ms):
         pass
 
@@ -218,6 +244,11 @@ class Stub:
     async def ensure_load_shop(self, shop_id):
         self.calls.append(("ensure_load_shop", shop_id))
         return self.shop_loads
+
+    async def has_item(self, name, qty=1, operator=">=", isTemp=False):
+        if not isTemp and self.is_in_bank(name):
+            await self.bank_to_inv(name)
+        return self.inv.get(name, 0) >= qty
 
     async def wait_use_skill(self, slot, target_monsters="*"):
         self.calls.append(("wait_use_skill", slot))
@@ -274,6 +305,19 @@ def _rank_gain(stub, faction, amount):
     async def cast(*args, **kwargs):
         await original(*args, **kwargs)
         stub._ranks[faction] = stub._ranks.get(faction, 0) + amount
+
+    stub.use_next_skill = cast
+
+
+def _drop_gain(stub, item_name, amount):
+    """A skill cast adds an item and clears the cell -- the drop a brawl pass
+    credits, and the fact that the NPC it came off is now down."""
+    original = stub.use_next_skill
+
+    async def cast(*args, **kwargs):
+        await original(*args, **kwargs)
+        stub.inv[item_name] = stub.inv.get(item_name, 0) + amount
+        stub._monsters_dead = True
 
     stub.use_next_skill = cast
 
@@ -617,6 +661,43 @@ def main() -> None:
     assert monster_by_definition_id(hunted, 560) is hunted.bot.monsters[0]
     assert monster_by_definition_id(hunted, 561) is None
     print("craggle    : monster id 560 -> jumps to its cell and hits it")
+
+    # --- the Bludrut Brawl boss ----------------------------------------
+    from bot.core_farms import bludrut_brawl_boss
+
+    held = Stub(inventory={"Combat Trophy": 10})
+    assert asyncio.run(bludrut_brawl_boss(held, "Combat Trophy", 10)) is True
+    assert held.calls == [], held.calls
+    print("brawl      : already at the target -> no calls")
+
+    brawl = Stub(connect_after=0, inventory={"Mithril PvP Amulet +15000": 1})
+    brawl.cell_ok = True
+    _drop_gain(brawl, "Combat Trophy", 1)
+    assert asyncio.run(bludrut_brawl_boss(brawl, "Combat Trophy", 1)) is True
+    assert ("join_map", "bludrutbrawl") in brawl.calls, brawl.calls
+    assert ("jump_cell", "Enter0", "Spawn") in brawl.calls, brawl.calls
+    assert ("equip_item", "Mithril PvP Amulet +15000") in brawl.calls
+    assert [c for c in brawl.calls if c[0] == "walk_to"], brawl.calls
+    assert any(m.startswith("%xt%zm%mtcid%") for m in brawl.bot.sent), brawl.bot.sent
+    assert ("join_map", "battleon") in brawl.calls, brawl.calls
+    print("brawl      : one pass walks the route, credits the trophy, leaves")
+
+    ads = Stub(connect_after=0)
+    ads.cell_ok = True
+    _drop_gain(ads, "Combat Trophy", 1)
+    assert asyncio.run(bludrut_brawl_boss(ads, "Combat Trophy", 1,
+                                          kill_ads=True)) is True
+    assert any(f"%xt%zm%mtcid%{ads.bot.areaId}%18%" == m for m in ads.bot.sent), \
+        ads.bot.sent
+    print("brawl      : kill_ads walks the extra cells")
+
+    died = Stub(connect_after=0)
+    died.cell_ok = True
+    died._monsters_dead = True
+    died.player.ISDEAD = True
+    assert asyncio.run(bludrut_brawl_boss(died, "Combat Trophy", 1)) is False
+    assert ("join_map", "battleon") in died.calls, died.calls
+    print("brawl      : a death leaves for /battleon and reports the stop")
 
     print("\nfarm tests OK")
 
