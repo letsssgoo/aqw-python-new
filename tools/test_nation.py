@@ -844,6 +844,8 @@ def main() -> None:
         "various.the_game_of_gemstones",
         "various.dragon_blade",
         "various.proof_of_recruitment",
+        "various.the_refreshing_deal",
+        "various.the_poisonous_deal",
         "afdl.willpower_extraction",
         "evolved_orb.evolved_blood_orb",
         "evolved_orb.evolved_hex_orb",
