@@ -33,7 +33,7 @@ async def main(cmd: Command):
     if await cmd.has_item(ITEM) or not cmd.get_player().is_member:
         return
 
-    print(f"[nation] gathering quest {QUEST_ID} for {ITEM}")
+    cmd.bot.log(f"[nation] gathering quest {QUEST_ID} for {ITEM}")
     await dragon_slayer_reward(cmd)
     await cmd.ensure_accept_quest(QUEST_ID)
 

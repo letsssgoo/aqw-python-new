@@ -71,7 +71,7 @@ async def main(cmd: Command):
         
         if cmd.is_in_inventory("Voucher of Nulgath (non-mem)"):
             if cmd.is_in_inventory("Essence of Nulgath", 60):
-                print("trying do voucher quest")
+                cmd.bot.log("trying do voucher quest")
                 await stop_aggro_enter(cmd)
                 await cmd.ensure_accept_quest(4778)
                 if not cmd.is_in_inventory_or_bank("Gem of Nulgath", 1000):
@@ -82,7 +82,7 @@ async def main(cmd: Command):
                 cmd.start_aggro_by_cell("h90")
         
         if check_swindles(cmd, swindles_items):
-            print("trying do swindles")
+            cmd.bot.log("trying do swindles")
             await stop_aggro_enter(cmd)
             await cmd.ensure_accept_quest(7551)
             await cmd.join_map("evilmarsh", 999999)

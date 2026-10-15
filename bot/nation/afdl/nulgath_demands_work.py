@@ -53,19 +53,19 @@ async def ndw_quest(cmd: Command, item_names: Optional[Sequence[str]] = None,
     await cmd.ensure_accept_quest(QUEST_ID)      # accepts, so rewards load
     entries = cmd.get_quest_reward_entries(QUEST_ID)
     if not entries:
-        print(f"[nation] quest {QUEST_ID} did not load; nothing farmed.")
+        cmd.bot.log(f"[nation] quest {QUEST_ID} did not load; nothing farmed.")
         return
     cmd.add_drop([name for _, name, _ in entries])
 
     for name in names:
         entry = next((e for e in entries if e[1] == name), None)
         if entry is None:
-            print(f"[nation] {name!r} is not one of quest {QUEST_ID}'s "
+            cmd.bot.log(f"[nation] {name!r} is not one of quest {QUEST_ID}'s "
                   f"rewards; skipping it.")
             continue
         item_id = entry[0]
         if await cmd.has_item(name, quant):
-            print(f"[nation] {name} x{quant} owned; next.")
+            cmd.bot.log(f"[nation] {name} x{quant} owned; next.")
             continue
         cmd.farming_logger(name, quant)
 
@@ -87,7 +87,7 @@ async def ndw_quest(cmd: Command, item_names: Optional[Sequence[str]] = None,
                 if to_buy > 0:
                     await buy_item(cmd, SHOP_ID, UNI_35, to_buy, map_name=SHOP_MAP)
                     if await cmd.has_item(UNI_35, quant):
-                        print(f"[nation] {UNI_35} x{quant} reached by buying with "
+                        cmd.bot.log(f"[nation] {UNI_35} x{quant} reached by buying with "
                               f"fragments; next.")
                         break
                 if cmd.can_turnin_quest(QUEST_ID):
@@ -99,7 +99,7 @@ async def ndw_quest(cmd: Command, item_names: Optional[Sequence[str]] = None,
                 if chosen is not None:
                     await cmd.ensure_turn_in_quest(QUEST_ID, chosen[0])
                 else:
-                    print("[nation] every NDW item is at max stack; turning the "
+                    cmd.bot.log("[nation] every NDW item is at max stack; turning the "
                           "quest in without picking one.")
                     await cmd.ensure_turn_in_quest(QUEST_ID)
 

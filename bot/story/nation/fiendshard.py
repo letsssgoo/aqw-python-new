@@ -51,7 +51,7 @@ ID_KILL_7898 = (59059, 1, "r9", 15)
 async def main(cmd: Command):
     await originul(cmd)
 
-    print("[nation] making sure the portal quest is done; joining "
+    cmd.bot.log("[nation] making sure the portal quest is done; joining "
           "/tercessuinotlim first, as the reference does")
     while cmd.is_still_connected() and cmd.is_not_in_map("tercessuinotlim"):
         await cmd.join_map("tercessuinotlim")

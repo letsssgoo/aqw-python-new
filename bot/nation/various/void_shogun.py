@@ -61,7 +61,7 @@ async def main(cmd: Command):
     await cmd.ensure_accept_quest(QUEST_ID)      # accepts, so rewards load
     entries = cmd.get_quest_reward_entries(QUEST_ID)
     if not entries:
-        print(f"[nation] quest {QUEST_ID} did not load; nothing farmed.")
+        cmd.bot.log(f"[nation] quest {QUEST_ID} did not load; nothing farmed.")
         return
     cmd.add_drop([name for _, name, _ in entries]
                  + [VOUCHER, "Dai Tengu Blade of Wind", "Orochi's Shadow"])
@@ -70,13 +70,13 @@ async def main(cmd: Command):
                if ITEM is None or name == ITEM]
     if not targets:
         names = ", ".join(name for _, name, _ in entries)
-        print(f"[nation] {ITEM!r} is not one of quest {QUEST_ID}'s rewards "
+        cmd.bot.log(f"[nation] {ITEM!r} is not one of quest {QUEST_ID}'s rewards "
               f"({names}).")
         return
 
     for item_id, name in targets:
         if await cmd.has_item(name):
-            print(f"[nation] {name} already held; next.")
+            cmd.bot.log(f"[nation] {name} already held; next.")
             continue
         cmd.farming_logger(name, 1)
         while cmd.is_still_connected() and not await cmd.has_item(name):

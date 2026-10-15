@@ -43,18 +43,18 @@ async def main(cmd: Command):
     quest_id = 0
     for pet, pet_quest in QUESTS.items():
         if await cmd.has_item(pet):
-            print(f"[nation] using the {pet} quest ({pet_quest})")
+            cmd.bot.log(f"[nation] using the {pet} quest ({pet_quest})")
             quest_id = pet_quest
             break
     if not quest_id:
-        print("[nation] neither the Astral nor the Crimson Orb Pet is owned; "
+        cmd.bot.log("[nation] neither the Astral nor the Crimson Orb Pet is owned; "
               "nothing farmed.")
         return
 
     await cmd.register_quest(quest_id)          # accepts, so rewards load
     entries = cmd.get_quest_reward_entries(quest_id)
     if not entries:
-        print(f"[nation] quest {quest_id} reported no rewards; nothing farmed.")
+        cmd.bot.log(f"[nation] quest {quest_id} reported no rewards; nothing farmed.")
         cmd.cancel_registered_quests()
         return
     cmd.add_drop([name for _, name, _ in entries])
@@ -67,7 +67,7 @@ async def main(cmd: Command):
                       if name == REWARD), None)
         if match is None:
             names = ", ".join(name for _, name, _ in entries)
-            print(f"[nation] {REWARD!r} is not one of quest {quest_id}'s "
+            cmd.bot.log(f"[nation] {REWARD!r} is not one of quest {quest_id}'s "
                   f"rewards ({names}). Set ANY_REWARD = True for all of them.")
             cmd.cancel_registered_quests()
             return

@@ -36,7 +36,7 @@ BATTLE_UNDER_B_QUANT = 200
 
 async def main(cmd: Command):
     if not cmd.get_player().is_member or not await cmd.has_item(GATE_ITEM):
-        print(f"[nation] {GATE_ITEM} (and membership) is required for quest "
+        cmd.bot.log(f"[nation] {GATE_ITEM} (and membership) is required for quest "
               f"{QUEST_ID}; nothing farmed.")
         return
 
@@ -47,14 +47,14 @@ async def main(cmd: Command):
     await cmd.ensure_accept_quest(QUEST_ID)      # accepts, so rewards load
     entries = cmd.get_quest_reward_entries(QUEST_ID)
     if not entries:
-        print(f"[nation] quest {QUEST_ID} did not load; nothing farmed.")
+        cmd.bot.log(f"[nation] quest {QUEST_ID} did not load; nothing farmed.")
         return
     cmd.add_drop([name for _, name, _ in entries])
 
     await cmd.register_quest(QUEST_ID)
     for item_id, name, stack in entries:
         if await cmd.has_item(name, stack):
-            print(f"[nation] {name} is at max stack; next reward.")
+            cmd.bot.log(f"[nation] {name} is at max stack; next reward.")
             continue
         cmd.farming_logger(name, stack)
         while cmd.is_still_connected() and not await cmd.has_item(name, stack):

@@ -45,18 +45,18 @@ _FARMS = {
 
 async def main(cmd: Command):
     if not cmd.get_player().is_member:
-        print("[nation] quest 8496 is members only; nothing farmed.")
+        cmd.bot.log("[nation] quest 8496 is members only; nothing farmed.")
         return
 
     await cmd.ensure_accept_quest(QUEST_ID)      # accepts, so rewards load
     entries = cmd.get_quest_reward_entries(QUEST_ID)
     if not entries:
-        print(f"[nation] quest {QUEST_ID} (A Test of Temptation) did not load; "
+        cmd.bot.log(f"[nation] quest {QUEST_ID} (A Test of Temptation) did not load; "
               f"nothing farmed.")
         return
 
     if await all_owned(cmd, [(name, 1) for _, name, _ in entries]):
-        print("[nation] every quest 8496 reward is already held.")
+        cmd.bot.log("[nation] every quest 8496 reward is already held.")
         return
     cmd.add_drop([name for _, name, _ in entries])
 
@@ -69,7 +69,7 @@ async def main(cmd: Command):
     # reversed, so the battlepet is turned in for last
     for item_id, name, _ in reversed(entries):
         if await cmd.has_item(name):
-            print(f"[nation] {name} already held; next.")
+            cmd.bot.log(f"[nation] {name} already held; next.")
             continue
         cmd.farming_logger(name, 1)
         await cmd.ensure_accept_quest(QUEST_ID)

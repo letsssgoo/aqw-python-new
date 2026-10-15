@@ -312,7 +312,7 @@ async def equip_class(cmd: Command, solo: bool = False) -> bool:
     """
     name = cmd.get_solo_class() if solo else cmd.get_farm_class()
     if not name:
-        print("[core] no class configured: set the farm/solo class before "
+        cmd.bot.log("[core] no class configured: set the farm/solo class before "
               "farming, or equip one by hand. Continuing anyway.")
         return False
     return await cmd.equip_item(name)

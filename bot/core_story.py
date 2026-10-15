@@ -61,7 +61,7 @@ def pending_requirements(cmd: Command, quest) -> List[Tuple[str, int, bool]]:
     for entry in quest.turn_in_requirements:
         item_id = str(entry.get("ItemID", ""))
         if not item_id or item_id not in names:
-            print(f"[story] quest {quest.quest_id}: a requirement has no name in "
+            cmd.bot.log(f"[story] quest {quest.quest_id}: a requirement has no name in "
                   f"the payload (ItemID {item_id or '?'}); skipping it.")
             continue
         qty = int(entry.get("iQty") or 1)
@@ -144,7 +144,7 @@ async def kill_quest(cmd: Command, quest_id: int, map_name: str,
     await cmd.ensure_accept_quest(quest_id)
     quest = cmd.get_loaded_quest(quest_id)
     if quest is None:
-        print(f"[story] quest {quest_id} did not load; nothing farmed.")
+        cmd.bot.log(f"[story] quest {quest_id} did not load; nothing farmed.")
         return
 
     for index, (item, qty, is_temp) in enumerate(pending_requirements(cmd, quest)):

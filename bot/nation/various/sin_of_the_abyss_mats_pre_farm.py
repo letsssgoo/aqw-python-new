@@ -51,17 +51,17 @@ async def main(cmd: Command):
     for name, qty in MATERIALS:
         await _FARMS[name](cmd, qty)
 
-    print("[nation] materials done. The merge needs "
+    cmd.bot.log("[nation] materials done. The merge needs "
           f"{INSIGNIA} x{INSIGNIA_QUANT} on top of them.")
     if not MERGE_SWORD:
-        print("[nation] MERGE_SWORD is off, so the sword is not bought. Turn it "
+        cmd.bot.log("[nation] MERGE_SWORD is off, so the sword is not bought. Turn it "
               "on to merge once the insignias are held.")
         return
 
     if await cmd.has_item(INSIGNIA, INSIGNIA_QUANT):
-        print(f"[nation] merging {ITEM} from shop {SHOP_ID}")
+        cmd.bot.log(f"[nation] merging {ITEM} from shop {SHOP_ID}")
         await buy_item(cmd, SHOP_ID, ITEM, map_name="ultranulgath")
     else:
         missing = INSIGNIA_QUANT - cmd.get_quant_item(INSIGNIA)
-        print(f"[nation] missing {missing}/{INSIGNIA_QUANT} {INSIGNIA}; the "
+        cmd.bot.log(f"[nation] missing {missing}/{INSIGNIA_QUANT} {INSIGNIA}; the "
               f"merge needs them and this script does not farm them.")

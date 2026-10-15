@@ -92,7 +92,7 @@ async def main(cmd: Command):
     await cmd.ensure_accept_quest(PROOF_QUEST)      # accepts, so rewards load
     entries = cmd.get_quest_reward_entries(PROOF_QUEST)
     if not entries:
-        print(f"[nation] quest {PROOF_QUEST} did not load; nothing farmed.")
+        cmd.bot.log(f"[nation] quest {PROOF_QUEST} did not load; nothing farmed.")
         return
     cmd.add_drop([name for _, name, _ in entries])
 
@@ -100,10 +100,10 @@ async def main(cmd: Command):
         if name not in REWARDS:
             continue
         if await cmd.has_item(name, stack):
-            print(f"[nation] {name} is at max stack; next reward.")
+            cmd.bot.log(f"[nation] {name} is at max stack; next reward.")
             continue
 
-        print(f"[nation] farming {name} to its max stack from quest "
+        cmd.bot.log(f"[nation] farming {name} to its max stack from quest "
               f"{PROOF_QUEST}")
         cmd.farming_logger(name, stack)
         while cmd.is_still_connected() and not await cmd.has_item(name, stack):
@@ -133,12 +133,12 @@ async def arch_tokens(cmd: Command) -> bool:
 
         if quest_id == DOOMWOOD_QUEST and not await cmd.has_item(
                 DOOMWOOD_TOKEN, DOOMWOOD_QTY):
-            print(f"[nation] quest {quest_id} ({token}) needs "
+            cmd.bot.log(f"[nation] quest {quest_id} ({token}) needs "
                   f"'{DOOMWOOD_TOKEN} x{DOOMWOOD_QTY}', a temp item from the "
                   f"DoomWood PvP arena that nothing here can farm. Stopping.")
             return False
 
-        print(f"[nation] {token}: quest {quest_id}")
+        cmd.bot.log(f"[nation] {token}: quest {quest_id}")
         await cmd.ensure_accept_quest(quest_id)
 
         if brawl:

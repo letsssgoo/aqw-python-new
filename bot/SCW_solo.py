@@ -31,14 +31,14 @@ async def main(cmd: Command):
         await cmd.sleep(100)
 
         if cmd.bot.player.EXPFARMED > 100_000:
-            print("EXPFARMED > 100.000, saving state..")
+            cmd.bot.log("EXPFARMED > 100.000, saving state..")
             await cmd.jump_cell("r4", "Left")
             await cmd.sleep(1000)
             await cmd.jump_cell(cell, pad)
             cmd.bot.player.EXPFARMED = 0
         
         if cmd.bot.player.GOLDFARMED > 500_000:
-            print("GOLDFARMED > 500.000, saving state..")
+            cmd.bot.log("GOLDFARMED > 500.000, saving state..")
             await cmd.jump_cell("r4", "Left")
             await cmd.sleep(1000)
             await cmd.jump_cell(cell, pad)

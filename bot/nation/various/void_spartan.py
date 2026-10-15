@@ -44,7 +44,7 @@ async def main(cmd: Command):
     await cmd.ensure_accept_quest(QUEST_ID)      # accepts, so rewards load
     entries = cmd.get_quest_reward_entries(QUEST_ID)
     if not entries:
-        print(f"[nation] quest {QUEST_ID} did not load; nothing farmed.")
+        cmd.bot.log(f"[nation] quest {QUEST_ID} did not load; nothing farmed.")
         return
 
     cmd.add_drop([name for _, name, _ in entries]
@@ -58,7 +58,7 @@ async def main(cmd: Command):
                       if name == ITEM), None)
         if match is None:
             names = ", ".join(name for _, name, _ in entries)
-            print(f"[nation] {ITEM!r} is not one of quest {QUEST_ID}'s rewards "
+            cmd.bot.log(f"[nation] {ITEM!r} is not one of quest {QUEST_ID}'s rewards "
                   f"({names}).")
             return
         targets = [(match[1], 1)]

@@ -39,21 +39,21 @@ NEEDLES = ["nulgath", "unidentified", "larvae"]
 
 async def main(cmd: Command):
     player = cmd.bot.player
-    print(Fore.CYAN + f"[bank] {len(player.BANK)} items in the bank, "
+    cmd.bot.log(Fore.CYAN + f"[bank] {len(player.BANK)} items in the bank, "
           f"{len(player.INVENTORY)} in the inventory." + Fore.RESET)
 
     for entry in player.BANK[:10]:
-        print(f"[bank]   sample: id={entry.item_id} "
+        cmd.bot.log(f"[bank]   sample: id={entry.item_id} "
               f"name={entry.s_name!r} qty={entry.qty}")
 
     for needle in NEEDLES:
         found = [e.s_name for e in player.BANK if needle in e.item_name]
-        print(f"[bank] bank entries containing {needle!r}: {found[:12]}")
+        cmd.bot.log(f"[bank] bank entries containing {needle!r}: {found[:12]}")
 
     for name in ITEMS:
         in_bank, bank_qty = player.isInBank(name)
         before = cmd.get_quant_item(name)
         owned = await cmd.has_item(name)
         after = cmd.get_quant_item(name)
-        print(f"[bank] {name!r}: bank {bank_qty} (matched={in_bank}) | "
+        cmd.bot.log(f"[bank] {name!r}: bank {bank_qty} (matched={in_bank}) | "
               f"inventory {before} -> {after} | has_item={owned}")

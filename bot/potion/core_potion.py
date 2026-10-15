@@ -139,19 +139,19 @@ async def craft_potion(
     packets: tuple[str, str],
     qty: int = 300
 ):
-    print(f"\nDOING {potion_name}")
+    cmd.bot.log(f"\nDOING {potion_name}")
     cmd.farming_logger(potion_name, qty)
     await cmd.bank_to_inv(potion_name)
 
     cmd.add_drop(potion_name)
 
     if cmd.get_quant_item(potion_name) >= qty:
-        print(f"DONE {potion_name}")
+        cmd.bot.log(f"DONE {potion_name}")
         return
 
     while cmd.is_still_connected():
         if cmd.get_quant_item(potion_name) >= qty:
-            print(f"DONE {potion_name}")
+            cmd.bot.log(f"DONE {potion_name}")
             return
 
         for reagent in reagents:
@@ -166,27 +166,27 @@ async def craft_potion(
             if any(cmd.get_quant_item(reagent) < 1 for reagent in reagents):
                 break
 
-            print()
+            cmd.bot.log()
 
-            print(f"Trying to make {potion_name}")
+            cmd.bot.log(f"Trying to make {potion_name}")
             cmd.bot.write_message(packets[0])
 
-            print("Waiting for 12s")
+            cmd.bot.log("Waiting for 12s")
             await cmd.sleep(12000)
 
             cmd.bot.write_message(packets[1])
             await cmd.sleep(1000)
-            print(f"{potion_name} made")
+            cmd.bot.log(f"{potion_name} made")
 
             cmd.farming_logger(potion_name, qty)
-    print(f"DONE {potion_name}")
+    cmd.bot.log(f"DONE {potion_name}")
     
 async def get_reagent(cmd: Command, reagent: str):
     await cmd.bank_to_inv(reagent)
     if cmd.get_quant_item(reagent) >= 10:
         return
     
-    print(f"buying {reagent}...")
+    cmd.bot.log(f"buying {reagent}...")
     
     if reagent.lower() == "Chaoroot".lower():
         await get_receipt_of_swindle(cmd, 1)
@@ -217,7 +217,7 @@ async def get_reagent(cmd: Command, reagent: str):
         await buy_alchemy_item(cmd, reagent, 10)
 
     else:
-        print(f"bot dont know about {reagent}")
+        cmd.bot.log(f"bot dont know about {reagent}")
     
     await cmd.sleep(1000)
 

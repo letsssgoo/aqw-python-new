@@ -147,18 +147,18 @@ async def farm_until(
     if done():
         return True
     if not cmd.is_still_connected():
-        print("[farm] the client is not connected; nothing farmed.")
+        cmd.bot.log("[farm] the client is not connected; nothing farmed.")
         return False
 
     await equip_class(cmd, solo=solo)
 
     if cmd.is_not_in_map(map_name):
-        print(f"[farm] {map_name}: travelling")
+        cmd.bot.log(f"[farm] {map_name}: travelling")
     while cmd.is_still_connected() and cmd.is_not_in_map(map_name):
         await cmd.join_map(map_name)
         await cmd.sleep(500)
     if not cmd.is_still_connected():
-        print(f"[farm] disconnected while joining {map_name}.")
+        cmd.bot.log(f"[farm] disconnected while joining {map_name}.")
         return False
 
     if cell:
@@ -168,7 +168,7 @@ async def farm_until(
     else:
         await cmd.jump_to_monster(monster)
     if not cmd.is_still_connected():
-        print(f"[farm] disconnected while moving to {cell or monster}.")
+        cmd.bot.log(f"[farm] disconnected while moving to {cell or monster}.")
         return False
 
     if quests:
@@ -176,7 +176,7 @@ async def farm_until(
         # level requirement is missing then farms forever for a turn-in that can
         # never come.  Ask the server once, and report instead of spinning.
         if not await cmd.ensure_accept_quest(quests[0], max_attempts=3):
-            print(f"[farm] quest {quests[0]} cannot be accepted, so its story or "
+            cmd.bot.log(f"[farm] quest {quests[0]} cannot be accepted, so its story or "
                   f"requirements are missing. Nothing farmed in {map_name}.")
             return False
         for quest_id in quests:
@@ -194,7 +194,7 @@ async def farm_until(
         cmd.cancel_registered_quests()
 
     if not cmd.is_still_connected():
-        print(f"[farm] disconnected before {map_name} was done.")
+        cmd.bot.log(f"[farm] disconnected before {map_name} was done.")
         return False
     return True
 
@@ -209,7 +209,7 @@ async def the_secret4(cmd: Command) -> None:
     if await cmd.has_item(PVP_SECRET_ITEM):
         return
 
-    print(f"[farm] {PVP_SECRET_ITEM}: running the brawl route")
+    cmd.bot.log(f"[farm] {PVP_SECRET_ITEM}: running the brawl route")
     await equip_class(cmd, solo=True)
 
     while cmd.is_still_connected() and not await cmd.has_item(PVP_SECRET_ITEM):
@@ -244,7 +244,7 @@ async def battle_under_b(cmd: Command, item: str = "Bone Dust",
 
     if item == UNDEAD_ENERGY and not await cmd.is_completed_before(
             UNDEAD_ENERGY_UNLOCK):
-        print("[farm] unlocking the /battleunderb Undead Energy drops (quests "
+        cmd.bot.log("[farm] unlocking the /battleunderb Undead Energy drops (quests "
               "2066-2084)")
         await _undead_energy_unlock(cmd)
 
@@ -332,7 +332,7 @@ async def _pvp_move(cmd: Command, mtcid: int, cell: str, x=0, y=0) -> bool:
         if cmd.is_in_cell(cell):
             return True
         await cmd.sleep(1500)
-    print(f"[farm] disconnected while moving to {cell}.")
+    cmd.bot.log(f"[farm] disconnected while moving to {cell}.")
     return False
 
 
@@ -365,7 +365,7 @@ async def bludrut_brawl_boss(cmd: Command, item: str = "Combat Trophy",
         return True
 
     if cmd.is_in_map("bludrutbrawl"):
-        print("[farm] starting in the PvP map; joining /whitemap first so "
+        cmd.bot.log("[farm] starting in the PvP map; joining /whitemap first so "
               "things can be equipped")
         await cmd.join_map("whitemap")
 
@@ -406,7 +406,7 @@ async def bludrut_brawl_boss(cmd: Command, item: str = "Combat Trophy",
                 return False
             await _pvp_killing(cmd, f"id.{mon_id}")
             if not cmd.is_player_alive():
-                print("[farm] died in the brawl; leaving and retrying")
+                cmd.bot.log("[farm] died in the brawl; leaving and retrying")
                 await cmd.join_map("battleon", 999999)
                 await cmd.sleep(1500)
                 break
@@ -416,7 +416,7 @@ async def bludrut_brawl_boss(cmd: Command, item: str = "Combat Trophy",
                 break
             await cmd.sleep(500)
         else:
-            print(f"[farm] {item} did not move from {before} after a full brawl "
+            cmd.bot.log(f"[farm] {item} did not move from {before} after a full brawl "
                   f"pass; stopping rather than brawling forever.")
             return False
 
@@ -431,7 +431,7 @@ async def bludrut_brawl_boss(cmd: Command, item: str = "Combat Trophy",
 
     gained = await cmd.has_item(item, quant)
     if not gained:
-        print(f"[farm] the brawl stopped without reaching {quant} {item}.")
+        cmd.bot.log(f"[farm] the brawl stopped without reaching {quant} {item}.")
     return gained
 
 
@@ -457,7 +457,7 @@ async def farm_gold(cmd: Command, quant: int = DEFAULT_GOLD) -> bool:
 
     gold = cmd.get_player().GOLD
     if gold < quant:
-        print(f"[farm] gold farm stopped at {gold} of {quant}: no method could "
+        cmd.bot.log(f"[farm] gold farm stopped at {gold} of {quant}: no method could "
               f"take it further (HonorHall needs membership and level 61, "
               f"BattleGroundE level 61, BerserkerBunny the /greenguardwest farm).")
         return False
@@ -469,7 +469,7 @@ async def honor_hall(cmd: Command, gold_quant: int = DEFAULT_GOLD) -> None:
     player = cmd.get_player()
     if not player.is_member or player.LEVEL < 61 or player.GOLD >= gold_quant:
         return
-    print(f"[farm] honorhall: farming to {gold_quant} gold on Ice Demons")
+    cmd.bot.log(f"[farm] honorhall: farming to {gold_quant} gold on Ice Demons")
     await farm_until(cmd, lambda: cmd.get_player().GOLD >= gold_quant,
                      "honorhall", cell="r1", pad="Center", monster="Ice Demon",
                      quests=(3992, 3993))
@@ -480,7 +480,7 @@ async def battle_ground_e(cmd: Command, gold_quant: int = DEFAULT_GOLD) -> None:
     player = cmd.get_player()
     if player.LEVEL < 61 or player.GOLD >= gold_quant:
         return
-    print(f"[farm] battlegrounde: farming to {gold_quant} gold")
+    cmd.bot.log(f"[farm] battlegrounde: farming to {gold_quant} gold")
     await farm_until(cmd, lambda: cmd.get_player().GOLD >= gold_quant,
                      "battlegrounde", cell="r2", pad="center", monster="*",
                      quests=(3991, 3992))
@@ -491,7 +491,7 @@ async def berserker_bunny(cmd: Command, gold_quant: int = DEFAULT_GOLD,
     """``CoreFarms.BerserkerBunny``: quest 236 in /greenguardwest, selling drops."""
     if cmd.get_player().GOLD >= gold_quant:
         return
-    print(f"[farm] greenguardwest: farming to {gold_quant} gold on Berserker "
+    cmd.bot.log(f"[farm] greenguardwest: farming to {gold_quant} gold on Berserker "
           f"Bunny drops{' (selling them)' if sell else ''}")
 
     async def sell_pass() -> None:
@@ -508,7 +508,7 @@ async def dark_war_legion(cmd: Command, gold_quant: int = DEFAULT_GOLD) -> None:
     if cmd.get_player().GOLD >= gold_quant:
         return
     # the reference toggles its gold boost here; this engine has no boosts
-    print(f"[farm] darkwarlegion: farming to {gold_quant} gold")
+    cmd.bot.log(f"[farm] darkwarlegion: farming to {gold_quant} gold")
     await farm_until(cmd, lambda: cmd.get_player().GOLD >= gold_quant,
                      "darkwarlegion", cell="r2", pad="Left", monster="*",
                      quests=(8584, 8585), drops=["Nation Badge"])
@@ -526,14 +526,14 @@ async def farm_experience(cmd: Command, level: int = 100,
         return
 
     if rank_up_class:
-        print("[farm] rank-up-class farming needs the class rank, which this "
+        cmd.bot.log("[farm] rank-up-class farming needs the class rank, which this "
               f"engine cannot read; farming to level {level} instead.")
 
     await equip_class(cmd)
     # the reference toggles its experience boost here; this engine has no boosts
 
     if cmd.get_player().LEVEL < 10:
-        print('[farm] oaklore: "Bone Berserker" up to level 10')
+        cmd.bot.log('[farm] oaklore: "Bone Berserker" up to level 10')
         await farm_until(cmd, lambda: cmd.get_player().LEVEL >= min(10, level),
                          "oaklore", cell="r3", pad="Left",
                          monster="Bone Berserker", quests=(4007, 6257))
@@ -543,7 +543,7 @@ async def farm_experience(cmd: Command, level: int = 100,
 
     if cmd.get_player().LEVEL < 20:
         await undead_giant_unlock(cmd)
-        print('[farm] swordhavenundead: "Undead Giant" up to level 20')
+        cmd.bot.log('[farm] swordhavenundead: "Undead Giant" up to level 20')
         await farm_until(cmd, lambda: cmd.get_player().LEVEL >= min(20, level),
                          "swordhavenundead", cell="Gates", pad="Left",
                          monster="Undead Giant", quests=(178,))
@@ -558,7 +558,7 @@ async def undead_giant_unlock(cmd: Command) -> None:
     """``CoreFarms.UndeadGiantUnlock``: quests 183 / 176 / 177 unlock 178."""
     if await cmd.is_completed_before(177):
         return
-    print("[farm] unlocking the Undead Giant farm quest (183, 176, 177)")
+    cmd.bot.log("[farm] unlocking the Undead Giant farm quest (183, 176, 177)")
 
     await cmd.ensure_accept_quest(183)
     await hunt_item(cmd, "Defeated Fire Mage", 4, "portalundead", cell="Enter",
@@ -613,7 +613,7 @@ async def icestorm_arena(cmd: Command, level: int = 100,
             continue
         if current >= level and not rank_up_class:
             break
-        print(f"[farm] {map_name} {cell}: levels {start}-{end}")
+        cmd.bot.log(f"[farm] {map_name} {cell}: levels {start}-{end}")
         await farm_until(
             cmd,
             lambda end=end: cmd.get_player().LEVEL >= min(end, level),
@@ -624,12 +624,12 @@ async def icestorm_arena(cmd: Command, level: int = 100,
     current = cmd.get_player().LEVEL
     if 61 <= current < 75 and (current < level or rank_up_class):
         if rank_up_class:
-            print("[farm] icestormarena r17: levels 61-75 (ranking the class)")
+            cmd.bot.log("[farm] icestormarena r17: levels 61-75 (ranking the class)")
             await farm_until(cmd, lambda: cmd.get_player().LEVEL >= min(75, level),
                              "icestormarena", cell="r17", pad="Left",
                              monster="*")
         else:
-            print("[farm] battlegrounde: levels 61-75")
+            cmd.bot.log("[farm] battlegrounde: levels 61-75")
             await farm_until(cmd, lambda: cmd.get_player().LEVEL >= min(75, level),
                              "battlegrounde", cell="r2", pad="center",
                              monster="*", quests=(3991, 3992))
@@ -637,7 +637,7 @@ async def icestorm_arena(cmd: Command, level: int = 100,
             return
 
     if cmd.get_player().LEVEL < level or rank_up_class:
-        print("[farm] icestormunder r2: levels 75-100")
+        cmd.bot.log("[farm] icestormunder r2: levels 75-100")
         await farm_until(cmd, lambda: cmd.get_player().LEVEL >= level,
                          "icestormunder", cell="r2", pad="Top", monster="*")
 
@@ -667,14 +667,14 @@ async def good_rep(cmd: Command, rank: int = 10) -> None:
 
     await change_alignment(cmd, Alignment.GOOD)
     await equip_class(cmd)
-    print(f"[farm] farming Good reputation to rank {rank}")
+    cmd.bot.log(f"[farm] farming Good reputation to rank {rank}")
 
     if await cmd.is_completed_before(1955):
         await farm_until(cmd, _rep_done(cmd, "Good", rank), "poisonforest",
                          monster="Burning Loyalist", quests=(1952,))
         return
 
-    print("[farm] the /PoisonForest story (quest 1955) is not complete: farming "
+    cmd.bot.log("[farm] the /PoisonForest story (quest 1955) is not complete: farming "
           "the lower-reward route -- quest 369 in /swordhavenbridge first.")
     await farm_until(cmd, _rep_done(cmd, "Good", 4), "swordhavenbridge",
                      cell="Bridge", pad="Left", monster="*", quests=(369,))
@@ -699,12 +699,12 @@ async def vampire_rep(cmd: Command, rank: int = 10) -> None:
         return
 
     if not await cmd.ensure_accept_quest(522):
-        print("[farm] quest 522 (Twisted Paw) cannot be accepted, so the "
+        cmd.bot.log("[farm] quest 522 (Twisted Paw) cannot be accepted, so the "
               "/safiria story is not done. Nothing farmed.")
         return
 
     await equip_class(cmd, solo=True)
-    print(f"[farm] farming Vampire reputation to rank {rank}")
+    cmd.bot.log(f"[farm] farming Vampire reputation to rank {rank}")
     cmd.remove_drop("Old Moon")
     await farm_until(cmd, _rep_done(cmd, "Vampire", rank), "safiria",
                      monster="Twisted Paw", quests=(522,),
@@ -715,7 +715,7 @@ async def yokai_rep(cmd: Command, rank: int = 10) -> None:
     """``CoreFarms.YokaiREP``: quest 383 in /dragonkoiz."""
     if cmd.get_faction_rank("Yokai") >= rank:
         return
-    print(f"[farm] farming Yokai reputation to rank {rank}")
+    cmd.bot.log(f"[farm] farming Yokai reputation to rank {rank}")
     await farm_until(cmd, _rep_done(cmd, "Yokai", rank), "dragonkoiz",
                      monster="Pockey Chew", quests=(383,),
                      drops=["Piece of Pockey"])
@@ -727,7 +727,7 @@ async def evil_rep(cmd: Command, rank: int = 10) -> None:
         return
 
     await change_alignment(cmd, Alignment.EVIL)
-    print(f"[farm] farming Evil reputation to rank {rank}")
+    cmd.bot.log(f"[farm] farming Evil reputation to rank {rank}")
 
     await farm_until(cmd, _rep_done(cmd, "Evil", 4), "swordhavenbridge",
                      monster="Slime", quests=(364,), drops=["Youthanize"])
@@ -759,7 +759,7 @@ async def chronospan_rep(cmd: Command, rank: int = 10) -> None:
     if cmd.get_faction_rank("ChronoSpan") >= rank:
         return
 
-    print(f"[farm] farming ChronoSpan reputation to rank {rank}")
+    cmd.bot.log(f"[farm] farming ChronoSpan reputation to rank {rank}")
     await equip_class(cmd)
     await cmd.register_quest(2204)
 
@@ -796,7 +796,7 @@ async def craggle_rock_rep(cmd: Command, rank: int = 10) -> None:
     if cmd.get_faction_rank("CraggleRock") >= rank:
         return
 
-    print(f"[farm] farming CraggleRock reputation to rank {rank}")
+    cmd.bot.log(f"[farm] farming CraggleRock reputation to rank {rank}")
     cmd.add_drop("Empowered Voidstone")
     await cmd.register_quest(7277)
     await equip_class(cmd, solo=True)
@@ -805,7 +805,7 @@ async def craggle_rock_rep(cmd: Command, rank: int = 10) -> None:
            and cmd.get_faction_rank("CraggleRock") < rank):
         monster = monster_by_definition_id(cmd, CRAGGLE_ROCK_ID)
         if monster is None:
-            print(f"[farm] monster id {CRAGGLE_ROCK_ID} is not in /wanders, so "
+            cmd.bot.log(f"[farm] monster id {CRAGGLE_ROCK_ID} is not in /wanders, so "
                   f"CraggleRock cannot be farmed. Stopping.")
             cmd.cancel_registered_quests()
             return
@@ -840,7 +840,7 @@ async def farm_faction(cmd: Command, faction: str, rank: int = 10) -> bool:
     """
     farm = FACTION_FARMS.get(faction)
     if farm is None:
-        print(f"[farm] {faction!r} reputation is not ported yet. Ported: "
+        cmd.bot.log(f"[farm] {faction!r} reputation is not ported yet. Ported: "
               f"{', '.join(sorted(FACTION_FARMS))}.")
         return False
     await farm(cmd, rank)

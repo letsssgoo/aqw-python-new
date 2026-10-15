@@ -148,7 +148,7 @@ async def main(cmd: Command):
                         elif x is not None and y is not None and (x != 0 or y != 0):
                             asyncio.create_task(cmd.walk_to(int(x), int(y)))
                 except Exception as e:
-                    print(f"Error handling uotls: {e}")
+                    bot.log(f"Error handling uotls: {e}")
                 
         if is_valid_json(message):
             try:
@@ -162,7 +162,7 @@ async def main(cmd: Command):
 
                 if cmdData == "event":
                     args = data.get("args")
-                    print(f"[{cmd.bot.username}] Event packet. auto_zone='{auto_zone}', args={args}")
+                    bot.log(f"[{cmd.bot.username}] Event packet. auto_zone='{auto_zone}', args={args}")
                     if args and "zoneSet" in args:
                         zone = args["zoneSet"]
                         if auto_zone == "Astral Empyrean":
@@ -225,7 +225,7 @@ async def main(cmd: Command):
     cmd.subscribe(handle_message)
     
     async def goto_master():
-        print(f"[{cmd.bot.username}] goto master...")
+        bot.log(f"[{cmd.bot.username}] goto master...")
         await cmd.goto_player(f_player)
         await cmd.sleep(200)
         if cmd.get_player_in_map(f_player):
@@ -245,12 +245,12 @@ async def main(cmd: Command):
                 "icestormunder",
             ]
         for map_name in map_to_check:
-            print(f"[{cmd.bot.username}] checking {map_name}...")
+            bot.log(f"[{cmd.bot.username}] checking {map_name}...")
             await cmd.join_map(map_name, roomNumber=room_num)
             while cmd.is_not_in_map(map_name):
                 await cmd.sleep(100)
             if cmd.get_player_in_map(f_player):
-                print(f"[{cmd.bot.username}] stopped at {map_name}...")
+                bot.log(f"[{cmd.bot.username}] stopped at {map_name}...")
                 cmd.bot.checking_locked_zone = False
                 await cmd.sleep(1000)
                 break
@@ -295,7 +295,7 @@ async def main(cmd: Command):
             is_currently_taunter = should_be_active_taunter
             coordinator = getattr(cmd.bot, "taunt_coordinator", None)
             if is_currently_taunter:
-                print(f"[{cmd.bot.username}] Enrolling in Taunt Rotation. Equipping Scroll of Enrage...")
+                cmd.bot.log(f"[{cmd.bot.username}] Enrolling in Taunt Rotation. Equipping Scroll of Enrage...")
                 await cmd.equip_scroll("Scroll of Enrage")
                 if coordinator:
                     coordinator.register_taunter(cmd.bot.username)
@@ -303,7 +303,7 @@ async def main(cmd: Command):
                 if not has_5:
                     skills.append(SkillConfig(5))
             else:
-                print(f"[{cmd.bot.username}] Withdrawing from Taunt Rotation.")
+                cmd.bot.log(f"[{cmd.bot.username}] Withdrawing from Taunt Rotation.")
                 if coordinator:
                     coordinator.unregister_taunter(cmd.bot.username)
                 skills = [s for s in skills if s.index != 5]
@@ -312,7 +312,7 @@ async def main(cmd: Command):
         if is_paused:
             if not getattr(cmd.bot, "was_paused", False):
                 cmd.bot.was_paused = True
-                print(f"[{cmd.bot.username}] Pausing bot: stopping aggro, clearing targets, and leaving combat.")
+                cmd.bot.log(f"[{cmd.bot.username}] Pausing bot: stopping aggro, clearing targets, and leaving combat.")
                 cmd.stop_aggro()
                 cmd.bot.target = []
                 player = cmd.get_player()
@@ -336,11 +336,11 @@ async def main(cmd: Command):
             continue
         else:
             if getattr(cmd.bot, "was_paused", False):
-                print(f"[{cmd.bot.username}] Resuming bot.")
+                cmd.bot.log(f"[{cmd.bot.username}] Resuming bot.")
             cmd.bot.was_paused = False
         
         if getattr(cmd.bot, "checking_locked_zone", False):
-            print(f"[{cmd.bot.username}] checking locked zone...")
+            cmd.bot.log(f"[{cmd.bot.username}] checking locked zone...")
             await checking_map()
         
         master = cmd.get_player_in_map(f_player)
@@ -354,7 +354,7 @@ async def main(cmd: Command):
         skill_mode = SkillMode.ALL
         if targeted_monster and targeted_monster.getAura('Counter Attack'):
             skill_mode = SkillMode.BUFF_ONLY
-            print('buff only mode...')
+            cmd.bot.log('buff only mode...')
         
         # Check health and MP thresholds
         player_obj = cmd.get_player()
@@ -429,8 +429,8 @@ if __name__ == "__main__":
 
     # Check if we have both slave number and follow player
     if len(input_parts) < 2:
-        print("Error: Input format should be: <slave_number> <player_name>")
-        print("Example: 2 cysero")
+        bot.log("Error: Input format should be: <slave_number> <player_name>")
+        bot.log("Example: 2 cysero")
         sys.exit(1)
 
     # The first part should be the slave number
@@ -438,8 +438,8 @@ if __name__ == "__main__":
         input_int = int(input_parts[0])
         selected_slave = slaves[input_int - 1]
     except (ValueError, IndexError) as e:
-        print(f"Error: Invalid slave selection '{input_parts[0]}'")
-        print(f"Please enter a number between 1 and {len(slaves)}")
+        bot.log(f"Error: Invalid slave selection '{input_parts[0]}'")
+        bot.log(f"Please enter a number between 1 and {len(slaves)}")
         sys.exit(1)
 
     # The second part is the follow player name

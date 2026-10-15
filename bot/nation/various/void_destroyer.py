@@ -33,7 +33,7 @@ REWARDS = (
 
 async def main(cmd: Command):
     if await all_owned(cmd, [(name, 1) for name in REWARDS]):
-        print("[nation] every Void Destroyer reward is already held.")
+        cmd.bot.log("[nation] every Void Destroyer reward is already held.")
         return
 
     cmd.add_drop(list(REWARDS))

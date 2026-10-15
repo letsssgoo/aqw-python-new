@@ -384,7 +384,7 @@ async def blood_from_the_void(cmd: Command, quant: int = 300) -> None:
         return
 
     if cmd.is_still_connected() and not await cmd.is_completed_before(10581):
-        print("Blood From the Void needs the /tercesinvasion story completed "
+        cmd.bot.log("Blood From the Void needs the /tercesinvasion story completed "
               "(quest 10581). Run the TercesInvasion story script first.")
         return
 
@@ -413,7 +413,7 @@ async def fiend_emblem(cmd: Command, quant: int = 300) -> None:
     swaps between farm and solo per step, exactly as the reference bot does.
     """
     if await cmd.has_item("Fiend Emblem", quant):
-        print(f"You already have {quant} (max stack) Fiend Emblem")
+        cmd.bot.log(f"You already have {quant} (max stack) Fiend Emblem")
         return
 
     cmd.add_drop("Fiend Emblem")
@@ -527,7 +527,7 @@ async def new_worlds_new_opportunities(cmd: Command,
 
     if item is None:
         quest = cmd.get_loaded_quest(quest_id)
-        if _quest_rewards_or_warn(quest_id, quest) is None:
+        if _quest_rewards_or_warn(cmd, quest_id, quest) is None:
             cmd.cancel_registered_quests()
             return
         for _, name, max_stack in quest.reward_entries:
@@ -546,7 +546,7 @@ async def new_worlds_new_opportunities(cmd: Command,
                 await hunt_item(cmd, "Wereboar Tusk", 4, "greenguardwest",
                                 cell="West12", pad="Up",
                                 monster_name="Big Bad Boar", is_temp=True)
-        print("[nation] all items maxed")
+        cmd.bot.log("[nation] all items maxed")
     else:
         cmd.farming_logger(item, quant)
         while cmd.is_still_connected() and not await cmd.has_item(item, quant):
@@ -612,7 +612,7 @@ async def void_knight_sword_quest(cmd: Command, item: Optional[str] = None,
 
     if item is None:
         quest = cmd.get_loaded_quest(quest_id)
-        if _quest_rewards_or_warn(quest_id, quest) is None:
+        if _quest_rewards_or_warn(cmd, quest_id, quest) is None:
             return
         for _, name, max_stack in quest.reward_entries:
             if await cmd.has_item(name, max_stack):
@@ -621,7 +621,7 @@ async def void_knight_sword_quest(cmd: Command, item: Optional[str] = None,
             while (cmd.is_still_connected()
                    and not await cmd.has_item(name, max_stack)):
                 await _void_knight_step(cmd, quest_id)
-        print("[nation] all items maxed")
+        cmd.bot.log("[nation] all items maxed")
     else:
         cmd.farming_logger(item, quant)
         while cmd.is_still_connected() and not await cmd.has_item(item, quant):
@@ -762,7 +762,7 @@ async def crags_thirst(cmd: Command, quant: int = 1000) -> None:
             or not await cmd.has_item(uni(10), 100)):
         return
 
-    print("[nation] doing Crag's Thirst")
+    cmd.bot.log("[nation] doing Crag's Thirst")
     while (cmd.is_still_connected()
            and await cmd.has_item(uni(10), 100)
            and not await cmd.has_item("Diamond of Nulgath", quant)):
@@ -869,7 +869,7 @@ async def dirty_deeds_done_dirt_cheap(cmd: Command, quant: int = 1000,
                     is_temp=False)
 
     if sroe:
-        print("[nation] the SRoE merge-shop branch is not ported; farming "
+        cmd.bot.log("[nation] the SRoE merge-shop branch is not ported; farming "
               "Unidentified 10 with the base quest only.")
 
     while (cmd.is_still_connected()
@@ -886,7 +886,7 @@ async def dirty_deeds_done_dirt_cheap(cmd: Command, quant: int = 1000,
         cmd.farming_logger("Unidentified 10", quant)
 
 
-def _quest_rewards_or_warn(quest_id: int,
+def _quest_rewards_or_warn(cmd: Command, quest_id: int,
                            quest: Optional[Quest]) -> Optional[List[str]]:
     """Reward names for a quest, or ``None`` with a loud, actionable reason.
 
@@ -900,7 +900,7 @@ def _quest_rewards_or_warn(quest_id: int,
         Optional[List[str]]: The names, or ``None`` when they are unavailable.
     """
     if quest is None:
-        print(f"[nation] quest {quest_id} is not loaded; nothing to do.")
+        cmd.bot.log(f"[nation] quest {quest_id} is not loaded; nothing to do.")
         return None
     names = quest.reward_names
     if names:
@@ -914,13 +914,13 @@ def _quest_rewards_or_warn(quest_id: int,
             detail = f"list of {len(shape)}"
         else:
             detail = repr(shape)
-        print(f"[nation] quest {quest_id} listed {len(ids)} reward ids ({ids}) "
+        cmd.bot.log(f"[nation] quest {quest_id} listed {len(ids)} reward ids ({ids}) "
               f"but sent no names, so its rewards cannot be enumerated from "
               f"the payload. Pass the item you want as the argument instead. "
               f"(oRewards is a {type(shape).__name__}: {detail}; "
               f"payload keys: {sorted(quest.keys())})")
     else:
-        print(f"[nation] quest {quest_id} sent no rewards at all; nothing to "
+        cmd.bot.log(f"[nation] quest {quest_id} sent no rewards at all; nothing to "
               f"farm. (payload keys: {sorted(quest.keys())})")
     return None
 
@@ -967,7 +967,7 @@ async def sell_voucher_of_nulgath(cmd: Command, sell_mem_voucher: bool = True,
                         cmd.get_quant_item("Voucher of Nulgath"))
 
 
-def _log_supplies_config(item: Optional[str], quant: int, ultra_alteon: bool,
+def _log_supplies_config(cmd: Command, item: Optional[str], quant: int, ultra_alteon: bool,
                          hydra: bool, keep_voucher: bool,
                          sell_mem_voucher: bool, assistant: bool,
                          return_policy: bool, return_item: Optional[str],
@@ -987,26 +987,26 @@ def _log_supplies_config(item: Optional[str], quant: int, ultra_alteon: bool,
     else:
         voucher = "kept -- after 100M gold the member voucher is not sold"
 
-    print("[nation] [Supplies] =========================")
-    print("[nation] [Supplies] target      : "
+    cmd.bot.log("[nation] [Supplies] =========================")
+    cmd.bot.log("[nation] [Supplies] target      : "
           + (f"{item} x{quant}" if item
              else "every principal reward, each to its max stack"))
-    print(f"[nation] [Supplies] relic route : {route} -- where each turn-in's "
+    cmd.bot.log(f"[nation] [Supplies] relic route : {route} -- where each turn-in's "
           f"Relic of Chaos comes from")
-    print(f"[nation] [Supplies] voucher     : {voucher}")
-    print("[nation] [Supplies] conversions : "
+    cmd.bot.log(f"[nation] [Supplies] voucher     : {voucher}")
+    cmd.bot.log("[nation] [Supplies] conversions : "
           + ("spare vouchers are traded for the totem or gem that is short "
              "during the farm" if voucher_item_during
              else "spare vouchers are only converted at the end of a pass"))
-    print("[nation] [Supplies] assistant   : "
+    cmd.bot.log("[nation] [Supplies] assistant   : "
           + ("War-Torn Memorabilia is bought with spare gold each pass"
              if assistant else "off"))
-    print("[nation] [Supplies] swindle     : "
+    cmd.bot.log("[nation] [Supplies] swindle     : "
           + ("quest 7551 (Swindle's Return Policy) runs each pass"
              if return_policy else "off")
           + (f", asking for {return_item}" if return_policy and return_item
              else ""))
-    print("[nation] [Supplies] =========================")
+    cmd.bot.log("[nation] [Supplies] =========================")
 
 
 async def kill_hydra(cmd: Command) -> None:
@@ -1044,7 +1044,7 @@ async def do_swindles_return_area(cmd: Command, return_policy_active: bool,
 
     await cmd.ensure_accept_quest(7551)
     quest = cmd.get_loaded_quest(7551)
-    if _quest_rewards_or_warn(7551, quest) is None:
+    if _quest_rewards_or_warn(cmd, 7551, quest) is None:
         return
 
     candidates = [entry for entry in quest.reward_entries
@@ -1052,7 +1052,7 @@ async def do_swindles_return_area(cmd: Command, return_policy_active: bool,
     if item is not None:
         wanted = [entry for entry in candidates if entry[1] == item]
         if not wanted:
-            print(f"[nation] {item!r} is not a quest 7551 reward; skipping.")
+            cmd.bot.log(f"[nation] {item!r} is not a quest 7551 reward; skipping.")
             return
         if await cmd.has_item(wanted[0][1], wanted[0][2]):
             return
@@ -1062,7 +1062,7 @@ async def do_swindles_return_area(cmd: Command, return_policy_active: bool,
     await dark_makai_item(cmd, "Dark Makai Rune")
 
     if not cmd.can_turnin_quest(7551):
-        print("[nation] quest 7551 is not completable yet; skipping the turn-in.")
+        cmd.bot.log("[nation] quest 7551 is not completable yet; skipping the turn-in.")
         return
 
     chosen = None
@@ -1114,7 +1114,7 @@ async def get_pcod(cmd: Command) -> bool:
     rank = cmd.get_faction_rank("Good")
     level = cmd.get_player().LEVEL
     if rank < 8 or (level and level < 15):
-        print(f"[nation] the Purified Claymore still needs Good rank 8 and level "
+        cmd.bot.log(f"[nation] the Purified Claymore still needs Good rank 8 and level "
               f"15 (have rank {rank}, level {level or 'unknown'}). Stopping.")
         return False
 
@@ -1163,7 +1163,7 @@ async def supplies(cmd: Command, item: Optional[str] = None, quant: int = 1,
     elif sell_mem_voucher and cmd.get_player().GOLD >= 100_000_000:
         sell_mem_voucher = False
 
-    _log_supplies_config(item, quant, ultra_alteon, hydra_challenge,
+    _log_supplies_config(cmd, item, quant, ultra_alteon, hydra_challenge,
                          keep_voucher, sell_mem_voucher, assistant_during,
                          return_policy, return_item, voucher_item_during)
 
@@ -1210,7 +1210,7 @@ async def _farm_all_supplies(cmd: Command, ultra_alteon: bool, hydra: bool,
                              sell_mem_voucher: bool) -> None:
     """Max every Supplies reward, pet route first when a pet is owned."""
     quest = cmd.get_loaded_quest(2857)
-    if _quest_rewards_or_warn(2857, quest) is None:
+    if _quest_rewards_or_warn(cmd, 2857, quest) is None:
         return
 
     for thing in SUPPLIES_REWARDS:
@@ -1326,18 +1326,18 @@ async def bamboozle_vs_drudge(cmd: Command, item: Optional[str] = None,
         (``Supplies``) passes a name.
     """
     if item is None:
-        print("[nation] bamboozle_vs_drudge needs an item; the C# version "
+        cmd.bot.log("[nation] bamboozle_vs_drudge needs an item; the C# version "
               "accepts null and then loops forever. Nothing farmed.")
         return
     if await cmd.has_item(item, quant):
-        print(f"[nation] {item} x{quant} already owned.")
+        cmd.bot.log(f"[nation] {item} x{quant} already owned.")
         return
 
     cmd.add_drop(["Relic of Chaos", "Tainted Core", item])
     if return_policy:
         cmd.add_drop([uni(1), uni(6), uni(9), uni(16), uni(20)])
     if not came_from_supplies:
-        print(f"[nation] bamboozle mode: item {item} | keep {keep_voucher} "
+        cmd.bot.log(f"[nation] bamboozle mode: item {item} | keep {keep_voucher} "
               f"| assist {assistant_during}")
 
     cmd.farming_logger(item, quant)
@@ -1412,10 +1412,10 @@ async def contract_exchange(cmd: Command, reward_name: str, quant: int,
         lets the caller's switch collapse into a plain call.
     """
     if not await cmd.has_item("Drudgen the Assistant"):
-        print('[nation] missing "Drudgen the Assistant"')
+        cmd.bot.log('[nation] missing "Drudgen the Assistant"')
         return
     if not await cmd.has_item(uni(13)) and not farm_uni13:
-        print("[nation] contract exchange needs Unidentified 13 and was told "
+        cmd.bot.log("[nation] contract exchange needs Unidentified 13 and was told "
               "not to farm it")
         return
 
@@ -1454,7 +1454,7 @@ async def farm_contract_exchage(cmd: Command, item: Optional[str] = None,
     if (not await cmd.has_item("Drudgen the Assistant")
             or (item and await cmd.has_item(item, quant))):
         if not await cmd.has_item("Drudgen the Assistant"):
-            print('[nation] missing "Drudgen the Assistant"')
+            cmd.bot.log('[nation] missing "Drudgen the Assistant"')
         return
 
     await equip_class(cmd)
@@ -1462,7 +1462,7 @@ async def farm_contract_exchage(cmd: Command, item: Optional[str] = None,
 
     if item is None:
         await cmd.ensure_accept_quest(870)
-        if _quest_rewards_or_warn(870, cmd.get_loaded_quest(870)) is None:
+        if _quest_rewards_or_warn(cmd, 870, cmd.get_loaded_quest(870)) is None:
             return
 
     for name in ([item] if item else list(CONTRACT_REWARDS)):
@@ -1472,7 +1472,7 @@ async def farm_contract_exchage(cmd: Command, item: Optional[str] = None,
                       if e[1] == name), None)
         if entry is None:
             if item:
-                print(f"[nation] reward {name!r} is not part of quest 870.")
+                cmd.bot.log(f"[nation] reward {name!r} is not part of quest 870.")
             continue
         _, reward_name, max_stack = entry
         target = quant if quant > 1 else max_stack
@@ -1604,7 +1604,7 @@ async def farm_voucher(cmd: Command, member: bool, keep_voucher: bool = False
     if await cmd.has_item(name):
         return
     cmd.add_drop(name)
-    print(f"[nation] keep voucher set to {keep_voucher}")
+    cmd.bot.log(f"[nation] keep voucher set to {keep_voucher}")
 
     if await has_obon_pet(cmd) or await cmd.has_item(CRAG_PET):
         await bamboozle_vs_drudge(cmd, name, 1, keep_voucher=keep_voucher,
@@ -1644,7 +1644,7 @@ async def dragon_slayer_reward(cmd: Command) -> None:
 async def deal(cmd: Command, gem_quant: int = 0, totem_quant: int = 0) -> None:
     """Quest 4777: Gems and/or Totems of Nulgath, Crag pet only."""
     if not await cmd.has_item(CRAG_PET):
-        print(f"[nation] missing {CRAG_PET}; cannot continue.")
+        cmd.bot.log(f"[nation] missing {CRAG_PET}; cannot continue.")
         return
 
     await dragon_slayer_reward(cmd)
@@ -1704,7 +1704,7 @@ async def assisting_drudgen(cmd: Command, item: str = "Any",
                             monster_name="Ultra Chaos Alteon", is_temp=True)
             await cmd.ensure_turn_in_quest(3826)
         else:
-            print("[nation] the Seal of Light daily (3826) is not available.")
+            cmd.bot.log("[nation] the Seal of Light daily (3826) is not available.")
         await cmd.ensure_turn_in_quest(5816)
 
 
@@ -1737,7 +1737,7 @@ async def totems_via_taros(cmd: Command, quant: int = 100) -> None:
 
     if (cmd.get_player().is_member
             and not await cmd.has_item("Purified Claymore of Destiny")):
-        print("[nation] member route needs the Purified Claymore first.")
+        cmd.bot.log("[nation] member route needs the Purified Claymore first.")
         # the C# runs Farm.GoodREP() before GetPCoD(), which needs the same rank
         await farm_faction(cmd, "Good")
         if not await get_pcod(cmd):
@@ -1826,7 +1826,7 @@ async def nation_round_4_medal(cmd: Command) -> None:
     the C# does with ``Bot.Drops.Remove``.
     """
     if await cmd.has_item("Nation Round 4 Medal"):
-        print("[nation] medal 4 owned, no need to farm it")
+        cmd.bot.log("[nation] medal 4 owned, no need to farm it")
         return
 
     for medal, quest_id, steps in NATION_MEDALS:
@@ -1834,14 +1834,14 @@ async def nation_round_4_medal(cmd: Command) -> None:
             return
         cmd.add_drop(medal)
         if await cmd.has_item(medal):
-            print(f'[nation] "{medal}" owned.')
+            cmd.bot.log(f'[nation] "{medal}" owned.')
             continue
         await cmd.ensure_accept_quest(quest_id)
         for monster, item, qty in steps:
             await hunt_item(cmd, item, qty, "shadowblast",
                             monster_name=monster, is_temp=True)
         await cmd.ensure_turn_in_quest(quest_id)
-        print(f"[nation] medal {medal} acquired")
+        cmd.bot.log(f"[nation] medal {medal} acquired")
         cmd.remove_drop(medal)
 
 
@@ -1880,7 +1880,7 @@ async def swindle_return(cmd: Command, item: Optional[str] = None,
     """
     await cmd.ensure_accept_quest(7551)
     quest = cmd.get_loaded_quest(7551)
-    if _quest_rewards_or_warn(7551, quest) is None:
+    if _quest_rewards_or_warn(cmd, 7551, quest) is None:
         return
 
     if item is None:
@@ -1939,7 +1939,7 @@ async def swindle_bulk(cmd: Command, quant: int = 1000) -> None:
                         is_temp=True)
         await cmd.ensure_turn_in_quest(quest_id)
         attempt += 1
-        print(f"[nation] completed x{attempt}")
+        cmd.bot.log(f"[nation] completed x{attempt}")
 
 
 async def dreadrock_gem_exchange(cmd: Command, quant: int = 1000) -> None:
@@ -1992,13 +1992,13 @@ async def nulgath_larvae(cmd: Command, item: Optional[str] = None,
     larvae = cmd.get_loaded_quest(LARVAE_QUEST)
     if item and await cmd.has_item(item, quant):
         return
-    names = _quest_rewards_or_warn(LARVAE_QUEST, larvae)
+    names = _quest_rewards_or_warn(cmd, LARVAE_QUEST, larvae)
     if names is None:
         return
 
     if item is not None:
         if item not in names:
-            print(f"[nation] {item!r} is not a Nulgath Larvae reward.")
+            cmd.bot.log(f"[nation] {item!r} is not a Nulgath Larvae reward.")
             return
         targets = [(item, quant)]
     else:
@@ -2016,7 +2016,7 @@ async def nulgaths_roulette_of_misfortune(cmd: Command, item: Optional[str],
                                           quant: int) -> None:
     """The same Larvae loop, without the voucher-quest side trip."""
     if item is None:
-        print("[nation] nulgaths_roulette_of_misfortune needs the item name "
+        cmd.bot.log("[nation] nulgaths_roulette_of_misfortune needs the item name "
               "(the C# takes it as a parameter too); nothing farmed.")
         return
     if await cmd.has_item(item, quant):
@@ -2078,11 +2078,11 @@ async def the_assistant(cmd: Command, item: Optional[str] = None,
 
     await cmd.ensure_accept_quest(7551)
     if cmd.get_loaded_quest(7551) is None:
-        print("[nation] quest 7551 (Swindle's Return Policy) did not load.")
+        cmd.bot.log("[nation] quest 7551 (Swindle's Return Policy) did not load.")
         return
     await cmd.ensure_accept_quest(2859)
     assistant = cmd.get_loaded_quest(2859)
-    if _quest_rewards_or_warn(2859, assistant) is None:
+    if _quest_rewards_or_warn(cmd, 2859, assistant) is None:
         return
 
     cmd.add_drop([item] if item else list(BAG_DROPS_PRINCIPAL))
@@ -2096,7 +2096,7 @@ async def the_assistant(cmd: Command, item: Optional[str] = None,
     if item and quant > 0:
         entry = next((e for e in assistant.reward_entries if e[1] == item), None)
         if entry is None:
-            print(f"[nation] {item!r} is not one of quest 2859's rewards.")
+            cmd.bot.log(f"[nation] {item!r} is not one of quest 2859's rewards.")
         else:
             quant = min(quant, entry[2])
 
@@ -2141,7 +2141,7 @@ async def voucher_item_totem_of_nulgath(cmd: Command,
 
     reward_id = VOUCHER_ITEM_REWARDS.get(reward.lower())
     if reward_id is None:
-        print(f"[nation] {reward!r} is not one of quest 4778's rewards "
+        cmd.bot.log(f"[nation] {reward!r} is not one of quest 4778's rewards "
               f"({', '.join(VOUCHER_ITEM_REWARDS)}).")
         return
     if quant == 0:
@@ -2151,7 +2151,7 @@ async def voucher_item_totem_of_nulgath(cmd: Command,
     entries = cmd.get_quest_reward_entries(VOUCHER_CONVERSION_QUEST)
     entry = next((e for e in entries if e[0] == reward_id), None)
     if entry is None:
-        print(f"[nation] quest {VOUCHER_CONVERSION_QUEST} did not report "
+        cmd.bot.log(f"[nation] quest {VOUCHER_CONVERSION_QUEST} did not report "
               f"{reward!r} as a reward; nothing farmed.")
         return
     _, name, _ = entry
@@ -2204,21 +2204,21 @@ async def time_is_money(cmd: Command) -> None:
     (item 42581); without it the quest cannot be taken at all.
     """
     if not await cmd.has_item_id(42581):
-        print("[nation] Time is Money needs the Bounty Hunter Blade Pet "
+        cmd.bot.log("[nation] Time is Money needs the Bounty Hunter Blade Pet "
               "(item 42581); nothing farmed.")
         return
 
     await cmd.ensure_accept_quest(6185)
     entries = cmd.get_quest_reward_entries(6185)
     if not entries:
-        _quest_rewards_or_warn(6185, cmd.get_loaded_quest(6185))
+        _quest_rewards_or_warn(cmd, 6185, cmd.get_loaded_quest(6185))
         return
 
     cmd.add_drop([name for _, name, _ in entries])
 
     for _, name, max_stack in entries:
         if await cmd.has_item(name, max_stack):
-            print(f"[nation] {name} is at max stack; checking the next reward.")
+            cmd.bot.log(f"[nation] {name} is at max stack; checking the next reward.")
             continue
         while (cmd.is_still_connected()
                and not await cmd.has_item(name, max_stack)):
@@ -2242,7 +2242,7 @@ async def time_is_money(cmd: Command) -> None:
 async def _nlr(cmd: Command, items: Sequence[str], quantity: int) -> None:
     """One Nation Loyalty Rewarded cycle for ``items``."""
     if not items or await all_owned(cmd, [(name, quantity) for name in items]):
-        print(f"[nation] {', '.join(items) or 'nothing'} x{quantity} already "
+        cmd.bot.log(f"[nation] {', '.join(items) or 'nothing'} x{quantity} already "
               f"held; skipping.")
         return
 
@@ -2280,7 +2280,7 @@ async def nation_loyalty_rewarded(cmd: Command,
     await cmd.ensure_accept_quest(4749)
     entries = cmd.get_quest_reward_entries(4749)
     if not entries:
-        _quest_rewards_or_warn(4749, cmd.get_loaded_quest(4749))
+        _quest_rewards_or_warn(cmd, 4749, cmd.get_loaded_quest(4749))
         return
 
     if not farm_items:
@@ -2295,7 +2295,7 @@ async def nation_loyalty_rewarded(cmd: Command,
     for name in farm_items:
         entry = next((e for e in entries if e[1] == name), None)
         if entry is None:
-            print(f"[nation] {name!r} is not a quest 4749 reward.")
+            cmd.bot.log(f"[nation] {name!r} is not a quest 4749 reward.")
             continue
         if await cmd.has_item(name, entry[2]):
             continue
@@ -2318,7 +2318,7 @@ async def assisting_crag_and_bamboozle(cmd: Command,
     if not cmd.get_player().is_member or not await cmd.has_item(CRAG_PET):
         return
     if not await cmd.has_item("Sparrow's Blood"):
-        print("[nation] Assisting Crag & Bamboozle is fed by the Sparrow's "
+        cmd.bot.log("[nation] Assisting Crag & Bamboozle is fed by the Sparrow's "
               "Blood daily (quest 803), which is CoreDailies work that is not "
               "ported. Hold Sparrow's Blood first and re-run.")
         return
@@ -2326,18 +2326,18 @@ async def assisting_crag_and_bamboozle(cmd: Command,
     await cmd.ensure_accept_quest(5817)
     entries = cmd.get_quest_reward_entries(5817)
     if not entries:
-        _quest_rewards_or_warn(5817, cmd.get_loaded_quest(5817))
+        _quest_rewards_or_warn(cmd, 5817, cmd.get_loaded_quest(5817))
         return
 
     targets = [e for e in entries
                if not await cmd.has_item(e[1], e[2])
                and (reward_id is None or e[0] == reward_id)]
     if not targets:
-        print("[nation] everything already maxed; no work needed.")
+        cmd.bot.log("[nation] everything already maxed; no work needed.")
         return
 
     cmd.add_drop(ACAB_DROPS)
-    print(f"[nation] AssistingCandB targets: {len(targets)}")
+    cmd.bot.log(f"[nation] AssistingCandB targets: {len(targets)}")
 
     while cmd.is_still_connected() and targets:
         await cmd.ensure_accept_quest(5817)
@@ -2347,7 +2347,7 @@ async def assisting_crag_and_bamboozle(cmd: Command,
                             "tercessuinotlim", cell="m2", pad="Left",
                             monster_name="*", is_temp=False)
         if not await cmd.has_item("Sparrow's Blood"):
-            print("[nation] missing Sparrow's Blood. Stopping.")
+            cmd.bot.log("[nation] missing Sparrow's Blood. Stopping.")
             return
 
         await essence_of_nulgath(cmd, 20)
@@ -2366,12 +2366,12 @@ async def assisting_crag_and_bamboozle(cmd: Command,
             if await cmd.has_item(name, max_stack):
                 finished.append(item_id)
             if not await cmd.has_item("Sparrow's Blood"):
-                print(f"[nation] stopped early after completing {name}")
+                cmd.bot.log(f"[nation] stopped early after completing {name}")
                 return
 
         targets = [t for t in targets if t[0] not in finished]
 
-    print("[nation] AssistingCandB complete.")
+    cmd.bot.log("[nation] AssistingCandB complete.")
 
 
 # ----------------------------------------------------------------------------
@@ -2394,16 +2394,16 @@ def _forge_ready(cmd: Command, what: str, strict: bool) -> bool:
     has_gemstone = cmd.is_in_inventory(GEMSTONE_OF_NULGATH)
     if strict:
         if not member:
-            print(f"[nation] {what} needs membership; nothing farmed.")
+            cmd.bot.log(f"[nation] {what} needs membership; nothing farmed.")
             return False
         if not has_gemstone:
-            print(f"[nation] {what} needs {GEMSTONE_OF_NULGATH!r}; nothing "
+            cmd.bot.log(f"[nation] {what} needs {GEMSTONE_OF_NULGATH!r}; nothing "
                   f"farmed.")
             return False
         return True
 
     if not member and not has_gemstone:
-        print(f"[nation] {what} needs membership and "
+        cmd.bot.log(f"[nation] {what} needs membership and "
               f"{GEMSTONE_OF_NULGATH!r} -- it has neither; nothing farmed.")
         return False
     return True
@@ -2420,7 +2420,7 @@ async def dwobo_coin(cmd: Command, quant: int) -> None:
 
     member = bool(cmd.get_player().is_member)
     treasure, tech = (8, 5) if member else (10, 7)
-    print(f"[nation] farming {quant} Dwobo Coins (quest "
+    cmd.bot.log(f"[nation] farming {quant} Dwobo Coins (quest "
           f"{4798 if member else 4797})")
     cmd.farming_logger("Dwobo Coin", quant)
     await cmd.register_quest(4798 if member else 4797)
@@ -2447,13 +2447,13 @@ async def gem_stone_receipt_of_nulgath(cmd: Command, quant: int = 10) -> None:
     into the receipt item itself.
     """
     if not cmd.get_player().is_member:
-        print("[nation] Gemstone Receipt of Nulgath needs membership; nothing "
+        cmd.bot.log("[nation] Gemstone Receipt of Nulgath needs membership; nothing "
               "farmed.")
         return
     if await cmd.has_item(GEMSTONE_RECEIPT_OF_NULGATH, quant):
         return
 
-    print(f"[nation] farming {quant} {GEMSTONE_RECEIPT_OF_NULGATH} (quests 4917, "
+    cmd.bot.log(f"[nation] farming {quant} {GEMSTONE_RECEIPT_OF_NULGATH} (quests 4917, "
           f"4924)")
     cmd.add_drop([GEMSTONE_RECEIPT_OF_NULGATH, RECEIPT_OF_NULGATH])
 
@@ -2515,7 +2515,7 @@ async def gem_stones_of_nulgath(cmd: Command, bloodstone: int = 100,
     await supplies(cmd, "Unidentified 4")
 
     if not await cmd.is_completed_before(376):
-        print("[nation] unlocking quest 4918 (battleundera quests 374-376)")
+        cmd.bot.log("[nation] unlocking quest 4918 (battleundera quests 374-376)")
         await equip_class(cmd)
         if not await cmd.is_completed_before(374):
             await cmd.ensure_accept_quest(374)
@@ -2570,14 +2570,14 @@ async def _forge_gem(cmd: Command, what: str, quest_id: int, reward: str,
     if await cmd.has_item(reward, quant):
         return
 
-    print(f"[nation] forging {quant} {reward} (quest {quest_id})")
+    cmd.bot.log(f"[nation] forging {quant} {reward} (quest {quest_id})")
     await gem_stone_receipt_of_nulgath(cmd, 1)
     await supplies(cmd, "Unidentified 5")
     cmd.add_drop([reward, UNI_GEMSTONE_OF_NULGATH])
 
     while cmd.is_still_connected() and not await cmd.has_item(reward, quant):
         if not await cmd.ensure_accept_quest(quest_id):
-            print(f"[nation] quest {quest_id} cannot be accepted, so {reward} "
+            cmd.bot.log(f"[nation] quest {quest_id} cannot be accepted, so {reward} "
                   f"cannot be forged. Stopping.")
             return
         await farm_gem_of_nulgath(cmd, gem_of_nulgath)
@@ -2642,11 +2642,11 @@ async def carve_uni_gem_stone(cmd: Command, item: Optional[str] = None,
         one of quest 4923's rewards, so the run has a goal and an end.
     """
     if not cmd.get_player().is_member:
-        print("[nation] Carve the Unidentified Gemstone needs membership; "
+        cmd.bot.log("[nation] Carve the Unidentified Gemstone needs membership; "
               "nothing farmed.")
         return
     if item is not None and item not in CARVE_REWARD_IDS:
-        print(f"[nation] {item!r} is not one of quest 4923's rewards ("
+        cmd.bot.log(f"[nation] {item!r} is not one of quest 4923's rewards ("
               f"{', '.join(CARVE_REWARD_IDS)}).")
         return
 
@@ -2679,7 +2679,7 @@ async def hire_nulgath_larvae(cmd: Command) -> None:
     if await cmd.has_item("Nulgath Larvae") or not cmd.get_player().is_member:
         return
 
-    print("[nation] hiring the Nulgath Larvae (quest 867)")
+    cmd.bot.log("[nation] hiring the Nulgath Larvae (quest 867)")
     cmd.add_drop("Nulgath Larvae")
     await cmd.ensure_accept_quest(867)
     await farm_voucher(cmd, True, True)
@@ -2693,7 +2693,7 @@ async def leery_exchange_gold(cmd: Command, quant: int = 100_000_000) -> None:
     if not cmd.get_player().is_member or cmd.get_player().GOLD >= quant:
         return
 
-    print(f"[nation] trading Unidentified 13 for gold until {quant}")
+    cmd.bot.log(f"[nation] trading Unidentified 13 for gold until {quant}")
     cmd.add_drop(uni(13))
     # the reference toggles its gold boost here; this engine has no boosts
 
@@ -2705,7 +2705,7 @@ async def leery_exchange_gold(cmd: Command, quant: int = 100_000_000) -> None:
                             cell="r2", pad="up", monster_name="Undead Legend",
                             is_temp=False)
             if not await cmd.ensure_turn_in_quest(554):
-                print("[nation] quest 554 did not complete; stopping the "
+                cmd.bot.log("[nation] quest 554 did not complete; stopping the "
                       "exchange.")
                 cmd.cancel_registered_quests()
                 return

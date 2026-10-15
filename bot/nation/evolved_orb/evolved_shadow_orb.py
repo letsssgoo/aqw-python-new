@@ -26,7 +26,7 @@ async def main(cmd: Command):
     if await cmd.has_item(ITEM):
         return
     if not cmd.get_player().is_member:
-        print("[nation] the Evolved Shadow Orb is members only; nothing farmed.")
+        cmd.bot.log("[nation] the Evolved Shadow Orb is members only; nothing farmed.")
         return
 
     await approval_and_favor(cmd, 200, 0)

@@ -1,12 +1,15 @@
 from core.bot import Bot
 from core.command import Command
 import json
-from colorama import Fore
 
 is_locked_zone = False
 
+#: Set by ``main``: a subscriber only receives the message, so the listener logs
+#: through this instead.
+_bot = None
+
 async def main(cmd: Command):
-    global is_locked_zone
+    global is_locked_zone, _bot
 
     await cmd.join_map("whitemap")
 
@@ -20,6 +23,7 @@ async def main(cmd: Command):
     ]
     index_count = 0
 
+    _bot = cmd.bot
     cmd.bot.subscribe(message_handler)
 
     while cmd.is_still_connected():
@@ -45,7 +49,8 @@ def message_handler(message):
             if "locked zone" in message.lower():
                 msg = message.split('%')
                 text = msg[4]
-                print(Fore.RED + f"server warning: {text}" + Fore.WHITE)
+                if _bot is not None:
+                    _bot.log(f"[follower] server warning: {text}")
                 is_locked_zone = True
 
 def is_valid_json(s):

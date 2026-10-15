@@ -171,7 +171,7 @@ async def main(cmd: Command):
         quest_id = target["quest_id_member"] if is_member else target["quest_id"]
         tasks = target["tasks"]
 
-        print(Fore.CYAN + f"Starting farm for {item_name} (Quest: {quest_id})..." + Fore.RESET)
+        cmd.bot.log(Fore.CYAN + f"Starting farm for {item_name} (Quest: {quest_id})..." + Fore.RESET)
         await cmd.register_quest(quest_id)
         
         qty = cmd.get_quant_item(item_name)
@@ -184,13 +184,13 @@ async def main(cmd: Command):
         # The loop above also exits when the connection drops, so printing
         # "Target reached" unconditionally claimed success on a disconnect.
         if qty >= target_qty:
-            print(Fore.GREEN + f"Target reached: {target_qty}x {item_name}" + Fore.RESET)
+            cmd.bot.log(Fore.GREEN + f"Target reached: {target_qty}x {item_name}" + Fore.RESET)
         else:
-            print(Fore.YELLOW
+            cmd.bot.log(Fore.YELLOW
                   + f"Stopped early at {qty}/{target_qty}x {item_name} (no longer connected)"
                   + Fore.RESET)
 
-    print(Fore.GREEN + "All farming tasks completed!" + Fore.RESET)
+    cmd.bot.log(Fore.GREEN + "All farming tasks completed!" + Fore.RESET)
 
 if __name__ == "__main__":
     import asyncio

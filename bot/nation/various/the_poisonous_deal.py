@@ -34,7 +34,7 @@ UNI_10 = 30
 
 async def main(cmd: Command):
     if not await cmd.has_item(CRAG_PET):
-        print(f"[nation] {CRAG_PET} is missing; stopping.")
+        cmd.bot.log(f"[nation] {CRAG_PET} is missing; stopping.")
         return
 
     await dragon_slayer_reward(cmd)

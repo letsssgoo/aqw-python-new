@@ -49,7 +49,7 @@ async def main(cmd: Command):
     await equip_class(cmd)
     for quest_id, cell, pad, monster, item, qty in CELL_QUESTS:
         await _cell_quest(cmd, quest_id, cell, pad, monster, item, qty)
-    print("[nation] Originul questline completed.")
+    cmd.bot.log("[nation] Originul questline completed.")
 
 
 async def _cell_quest(cmd: Command, quest_id: int, cell: str, pad: str,

@@ -47,7 +47,7 @@ async def main(cmd: Command):
     await cmd.ensure_accept_quest(QUEST_ID)      # accepts, so rewards load
     entries = cmd.get_quest_reward_entries(QUEST_ID)
     if not entries:
-        print(f"[nation] quest {QUEST_ID} did not load; nothing farmed.")
+        cmd.bot.log(f"[nation] quest {QUEST_ID} did not load; nothing farmed.")
         return
     cmd.add_drop([name for _, name, _ in entries])
 
