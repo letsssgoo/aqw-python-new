@@ -47,11 +47,15 @@ rather than all at once.
 * The member Forge stack -- ``GemStoneReceiptOfNulgath``, ``DwoboCoin``,
   ``GemStonesOfnulgath``, ``ForgeTaintedGems`` / ``ForgeDarkCrystalShards`` /
   ``ForgeDiamondsOfNulgath`` / ``ForgeBloodGems``, ``CarveUniGemStone`` and
-  ``VoucherItemTotemofNulgath``.  They route through the Vampire rep and gold
-  farms, which are CoreFarms work that has not started.  ``farm_tainted_gem``
-  says so rather than skipping silently.
-* The CoreFarms rep / gold / experience farms (a separate data-heavy pass).
+  ``VoucherItemTotemofNulgath``.  The Vampire rep and gold farms they need now
+  exist in ``bot.core_farms``; the Forge routines themselves have not been read
+  yet.  ``farm_tainted_gem`` says so rather than skipping silently.
 * The remaining Nation-root script methods, which have not been read yet.
+* The rest of CoreFarms: ``Experience``/``IcestormArena`` and the four gold
+  methods are in ``bot.core_farms``, along with the faction methods a Nation
+  script calls (Good, Vampire).  The other ~60 faction methods -- and the
+  boost-item support ``ToggleBoost`` needs -- are not ported;
+  ``farm_faction`` names what it cannot do.
 
 Folder layout mirrors the reference tree: the ``Nation/`` root wrappers and
 this file sit in ``bot/nation/``, and each subfolder that exists so far --
@@ -77,6 +81,8 @@ from __future__ import annotations
 import random
 from typing import List, Optional, Sequence, Tuple
 
+from bot import core_bots as _core_bots
+from bot.core_farms import farm_experience, farm_faction, farm_gold
 from core.command import Command
 from model.quest import Quest
 from templates.hunt import DEFAULT_SKILL_LIST, hunt_item, kill_quest
@@ -274,45 +280,18 @@ def uni(nr: int) -> str:
 
 
 async def equip_class(cmd: Command, solo: bool = False) -> bool:
-    """Equip the configured farm or solo class (the reference bot's ``Core.EquipClass``).
+    """Equip the configured farm or solo class (``CoreBots.EquipClass``).
 
-    Args:
-        cmd (Command): Facade to act through.
-        solo (bool): ``True`` for the solo class, ``False`` for the farm one.
-
-    Returns:
-        bool: True when an item was equipped, False when no class is
-        configured (the reference bot's ``ClassType`` had no such "unset" case).
+    Kept as a module-level name because every Nation routine and its tests call
+    it through here; the body lives with the other CoreBots helpers, which
+    ``bot.core_farms`` uses too.
     """
-    name = cmd.get_solo_class() if solo else cmd.get_farm_class()
-    if not name:
-        return False
-    return await cmd.equip_item(name)
+    return await _core_bots.equip_class(cmd, solo=solo)
 
 
 def can_we_aggro(cmd: Command) -> bool:
-    """Aggro while another player shares the cell (the reference bot's ``Core.CanWeAggro``).
-
-    the reference bot flips two *client* options here -- ``AggroMonsters`` and
-    ``HidePlayers``.  This engine has nothing to hide players with, and asks
-    the server to aggro instead, so what is reproduced is the decision: aggro
-    when the cell is shared, stop when it is not.
-
-    Returns:
-        bool: True when aggro was started.
-    """
-    player = cmd.get_player()
-    me = str(getattr(player, "USER", "") or "").lower()
-    others = [p for p in cmd.bot.player_in_area
-              if str(p.str_username).lower() != me]
-    if not others:
-        cmd.stop_aggro()
-        return False
-    cell = player.CELL
-    if cell:
-        cmd.start_aggro_by_cell([cell])
-        return True
-    return False
+    """Aggro while another player shares the cell (``CoreBots.CanWeAggro``)."""
+    return _core_bots.can_we_aggro(cmd)
 
 
 async def approval_and_favor(cmd: Command, quant_approval: int = 5000,
@@ -1057,20 +1036,21 @@ async def get_pcod(cmd: Command) -> bool:
         prerequisite is missing.
 
     Note:
-        The C# first runs ``Farm.Experience(15)`` and ``Farm.GoodREP(8)``.  Those
-        two rep/exp farms are not ported, so this checks the state they would
-        produce and stops with a message when it is not met -- rather than
-        silently farming nothing.
+        The C# runs ``Farm.Experience(15)`` and ``Farm.GoodREP(8)`` first, and so
+        does this -- a Good rank below 8 makes quest 548 unacceptable, which used
+        to stop the run with a message.
     """
     if await cmd.has_item("Purified Claymore of Destiny"):
         return True
 
+    await farm_experience(cmd, 15)
+    await farm_faction(cmd, "Good", 8)
+
     rank = cmd.get_faction_rank("Good")
     level = cmd.get_player().LEVEL
     if rank < 8 or (level and level < 15):
-        print(f"[nation] the Purified Claymore needs Good rank 8 and level 15 "
-              f"(have rank {rank}, level {level or 'unknown'}). The rep/exp "
-              f"farms are not ported yet, so this stops here.")
+        print(f"[nation] the Purified Claymore still needs Good rank 8 and level "
+              f"15 (have rank {rank}, level {level or 'unknown'}). Stopping.")
         return False
 
     cmd.add_drop("Purified Claymore of Destiny")
@@ -1697,6 +1677,8 @@ async def totems_via_taros(cmd: Command, quant: int = 100) -> None:
     if (cmd.get_player().is_member
             and not await cmd.has_item("Purified Claymore of Destiny")):
         print("[nation] member route needs the Purified Claymore first.")
+        # the C# runs Farm.GoodREP() before GetPCoD(), which needs the same rank
+        await farm_faction(cmd, "Good")
         if not await get_pcod(cmd):
             return
 
@@ -2027,10 +2009,8 @@ async def the_assistant(cmd: Command, item: Optional[str] = None,
         return_policy: Run the Swindle's Return step on each pass.
 
     Note:
-        ``Farm.Gold(1000000)`` is not ported, so the memorabilia buy runs on
-        whatever the account already holds -- announced once rather than
-        silently skipped.  The C#'s ``LogMobItemQuant`` helpers are skipped
-        too: they only log, and each costs a 1.5 s sleep.
+        The C#'s ``LogMobItemQuant`` helpers are skipped: they only log, and each
+        costs a 1.5 s sleep.
     """
     if item and await cmd.has_item(item, quant):
         return
@@ -2063,8 +2043,8 @@ async def the_assistant(cmd: Command, item: Optional[str] = None,
         await do_swindles_return_area(cmd, return_policy, reward)
 
     if farm_gold and cmd.get_player().GOLD < 1_000_000:
-        print("[nation] the gold farm is not ported; the War-Torn Memorabilia "
-              "buy runs on whatever gold the account already has.")
+        # the reference's Farm.Gold(1000000) before the memorabilia buy
+        await farm_gold(cmd, 1_000_000)
 
     if item is None:
         for thing in BAG_DROPS_PRINCIPAL:

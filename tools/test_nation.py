@@ -83,6 +83,11 @@ class _Player:
 class _Bot:
     def __init__(self, others=()):
         self.player_in_area = [_Other(n) for n in others]
+        self.areaId = "evilwarnul-9909"
+        self.sent: list[str] = []
+
+    def write_message(self, msg):
+        self.sent.append(msg)
 
 
 class Stub:
@@ -227,11 +232,13 @@ class Stub:
     async def register_quest(self, quest_id):
         self.calls.append(("register_quest", quest_id))
 
-    async def ensure_accept_quest(self, quest_id):
+    async def ensure_accept_quest(self, quest_id, max_attempts=3):
         self.calls.append(("ensure_accept_quest", quest_id))
+        return True
 
     async def ensure_turn_in_quest(self, quest_id, item_id=-1, amount=1):
         self.calls.append(("ensure_turn_in_quest", quest_id))
+        return True
 
     def add_quest_rewards(self, quest_id):
         self.calls.append(("add_quest_rewards", quest_id))
@@ -477,8 +484,9 @@ def main() -> None:
 
     pcod_low = Stub(good_rank=3, level=40)
     assert asyncio.run(get_pcod(pcod_low)) is False
-    assert pcod_low.calls == [], pcod_low.calls
-    print("pcod       : Good rank 3 -> False, stops instead of farming nothing")
+    # the C# farms the prerequisites here, so this is no longer a no-op
+    assert "register_quest" in pcod_low.kinds(), pcod_low.kinds()
+    print("pcod       : Good rank 3 -> farms Good rep first, then stops")
 
     # --- the FarmX family: every one must bail before sending anything ---
     family = [

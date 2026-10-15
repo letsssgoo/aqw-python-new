@@ -76,6 +76,11 @@ ENTRY_MODULES = [
     "bot.nation.time_is_money",
     "bot.nation.voucher_item_choose",
     "bot.bank_check",
+    "bot.farm.leveling",
+    "bot.farm.gold_farm",
+    "bot.farm.dark_war_legion_gold",
+    "bot.farm.rep.good_rep",
+    "bot.farm.rep.vampire_rep",
 ]
 
 #: Modules that deliberately define no class -- they re-export one from
@@ -90,6 +95,8 @@ SUPPORT_MODULES = [
     "bot.ultra.config",
     "bot.ultra.core_ultra",
     "bot.nation.core_nation",
+    "bot.core_bots",
+    "bot.core_farms",
 ]
 
 
