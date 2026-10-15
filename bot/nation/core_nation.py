@@ -78,6 +78,7 @@ import random
 from typing import List, Optional, Sequence, Tuple
 
 from core.command import Command
+from model.quest import Quest
 from templates.hunt import DEFAULT_SKILL_LIST, hunt_item, kill_quest
 
 #: The principal Nulgath drops, straight from the reference bot's ``CoreNation.bagDrops``.
@@ -453,9 +454,7 @@ async def new_worlds_new_opportunities(cmd: Command,
 
     if item is None:
         quest = cmd.get_loaded_quest(quest_id)
-        if quest is None:
-            print(f"[nation] quest {quest_id} did not load; cannot enumerate "
-                  f"its rewards. Nothing farmed.")
+        if _quest_rewards_or_warn(quest_id, quest) is None:
             cmd.cancel_registered_quests()
             return
         for _, name, max_stack in quest.reward_entries:
@@ -540,9 +539,7 @@ async def void_knight_sword_quest(cmd: Command, item: Optional[str] = None,
 
     if item is None:
         quest = cmd.get_loaded_quest(quest_id)
-        if quest is None:
-            print(f"[nation] quest {quest_id} did not load; cannot enumerate "
-                  f"its rewards. Nothing farmed.")
+        if _quest_rewards_or_warn(quest_id, quest) is None:
             return
         for _, name, max_stack in quest.reward_entries:
             if cmd.is_in_inventory(name, max_stack):
@@ -814,6 +811,37 @@ async def dirty_deeds_done_dirt_cheap(cmd: Command, quant: int = 1000,
         cmd.farming_logger("Unidentified 10", quant)
 
 
+def _quest_rewards_or_warn(quest_id: int,
+                           quest: Optional[Quest]) -> Optional[List[str]]:
+    """Reward names for a quest, or ``None`` with a loud, actionable reason.
+
+    A quest can be loaded and still hand over no names: the ``getQuests``
+    payload only carries them inside its ``oRewards`` block, and not every
+    quest sends one.  An empty list from that looks exactly like "nothing left
+    to farm", which quietly ends the run -- so this reports what the payload
+    actually carried and tells the caller to name the item.
+
+    Returns:
+        Optional[List[str]]: The names, or ``None`` when they are unavailable.
+    """
+    if quest is None:
+        print(f"[nation] quest {quest_id} is not loaded; nothing to do.")
+        return None
+    names = quest.reward_names
+    if names:
+        return names
+    ids = quest.reward_ids
+    if ids:
+        print(f"[nation] quest {quest_id} listed {len(ids)} reward ids ({ids}) "
+              f"but sent no names, so its rewards cannot be enumerated from "
+              f"the payload. Pass the item you want as the argument instead. "
+              f"(payload keys: {sorted(quest.keys())})")
+    else:
+        print(f"[nation] quest {quest_id} sent no rewards at all; nothing to "
+              f"farm. (payload keys: {sorted(quest.keys())})")
+    return None
+
+
 def has_obon_pet(cmd: Command) -> bool:
     """True for members holding one of the two OBoN stand-in pets."""
     return bool(cmd.get_player().is_member) and has_any_item_id(cmd, OBO_PETS)
@@ -910,9 +938,7 @@ async def do_swindles_return_area(cmd: Command, return_policy_active: bool,
 
     await cmd.ensure_accept_quest(7551)
     quest = cmd.get_loaded_quest(7551)
-    if quest is None or not quest.reward_entries:
-        print("[nation] quest 7551 did not load with rewards; skipping the "
-              "Swindle's Return turn-in.")
+    if _quest_rewards_or_warn(7551, quest) is None:
         return
 
     candidates = [entry for entry in quest.reward_entries
@@ -1077,12 +1103,14 @@ async def _farm_all_supplies(cmd: Command, ultra_alteon: bool, hydra: bool,
                              return_item: Optional[str], return_policy: bool,
                              sell_mem_voucher: bool) -> None:
     """Max every Supplies reward, pet route first when a pet is owned."""
+    quest = cmd.get_loaded_quest(2857)
+    if _quest_rewards_or_warn(2857, quest) is None:
+        return
+
     for thing in SUPPLIES_REWARDS:
         if not cmd.is_still_connected():
             return
-        quest = cmd.get_loaded_quest(2857)
-        entry = next((e for e in (quest.reward_entries if quest else [])
-                      if e[1] == thing), None)
+        entry = next((e for e in quest.reward_entries if e[1] == thing), None)
         if entry is None:
             continue
         _, name, max_stack = entry
@@ -1326,6 +1354,11 @@ async def farm_contract_exchage(cmd: Command, item: Optional[str] = None,
 
     await equip_class(cmd)
     cmd.add_quest_rewards(870)
+
+    if item is None:
+        await cmd.ensure_accept_quest(870)
+        if _quest_rewards_or_warn(870, cmd.get_loaded_quest(870)) is None:
+            return
 
     for name in ([item] if item else list(CONTRACT_REWARDS)):
         await cmd.ensure_accept_quest(870)
@@ -1744,18 +1777,23 @@ async def swindle_return(cmd: Command, item: Optional[str] = None,
     """
     await cmd.ensure_accept_quest(7551)
     quest = cmd.get_loaded_quest(7551)
-    if quest is None:
-        print("[nation] quest 7551 did not load.")
+    if _quest_rewards_or_warn(7551, quest) is None:
         return
 
-    entry = next((e for e in quest.reward_entries if e[1] == item), None)
+    if item is None:
+        # the C# script picks this from its options and, with none set, does
+        # nothing at all -- the first reward that is not maxed is taken instead
+        # so the run is not a silent no-op
+        entry = next((e for e in quest.reward_entries
+                      if not cmd.is_in_inventory(e[1], e[2])), None)
+    else:
+        entry = next((e for e in quest.reward_entries if e[1] == item), None)
     if entry is None or cmd.is_in_inventory(entry[1], quant):
         return
     _, item_name, _ = entry
 
     cmd.add_drop(RECEIPT_DROPS)
-    if item:
-        cmd.add_drop(item)
+    cmd.add_drop(item_name)
     cmd.farming_logger(item_name, quant)
 
     while cmd.is_still_connected() and not cmd.is_in_inventory(item_name, quant):
@@ -1850,15 +1888,14 @@ async def nulgath_larvae(cmd: Command, item: Optional[str] = None,
     """
     await cmd.ensure_accept_quest(LARVAE_QUEST)
     larvae = cmd.get_loaded_quest(LARVAE_QUEST)
-    if larvae is None:
-        print("[nation] quest 2566 (Nulgath Larvae) did not load.")
-        return
     if item and cmd.is_in_inventory(item, quant):
         return
+    names = _quest_rewards_or_warn(LARVAE_QUEST, larvae)
+    if names is None:
+        return
 
-    known = [name for _, name, _ in larvae.reward_entries]
     if item is not None:
-        if item not in known:
+        if item not in names:
             print(f"[nation] {item!r} is not a Nulgath Larvae reward.")
             return
         targets = [(item, quant)]
@@ -1876,7 +1913,11 @@ async def nulgath_larvae(cmd: Command, item: Optional[str] = None,
 async def nulgaths_roulette_of_misfortune(cmd: Command, item: Optional[str],
                                           quant: int) -> None:
     """The same Larvae loop, without the voucher-quest side trip."""
-    if item is None or cmd.is_in_inventory(item, quant):
+    if item is None:
+        print("[nation] nulgaths_roulette_of_misfortune needs the item name "
+              "(the C# takes it as a parameter too); nothing farmed.")
+        return
+    if cmd.is_in_inventory(item, quant):
         return
     cmd.farming_logger(item, quant)
     cmd.add_drop(item)
@@ -1941,8 +1982,7 @@ async def the_assistant(cmd: Command, item: Optional[str] = None,
         return
     await cmd.ensure_accept_quest(2859)
     assistant = cmd.get_loaded_quest(2859)
-    if assistant is None:
-        print("[nation] quest 2859 (The Assistant) did not load.")
+    if _quest_rewards_or_warn(2859, assistant) is None:
         return
 
     cmd.add_drop([item] if item else list(BAG_DROPS_PRINCIPAL))

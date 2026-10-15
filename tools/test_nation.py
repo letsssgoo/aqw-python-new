@@ -31,8 +31,8 @@ from bot.nation.core_nation import (  # noqa: E402
     has_any_item, has_any_item_id, has_item_id, kill_escherion, kill_vath,
     kissthe_void, nation_round_4_medal, new_worlds_new_opportunities,
     nulgath_larvae, nulgaths_roulette_of_misfortune, sell_voucher_of_nulgath,
-    supplies, swindle_bulk, the_assistant, totems_via_taros, uni,
-    void_knight_sword_quest)
+    supplies, swindle_bulk, swindle_return, the_assistant, totems_via_taros,
+    uni, void_knight_sword_quest)
 
 
 class _Other:
@@ -64,7 +64,7 @@ class Stub:
 
     def __init__(self, inventory=None, member=False, completed=(),
                  others=(), connected=True, items_by_id=None, level=0,
-                 gold=0, good_rank=0, all_owned=False):
+                 gold=0, good_rank=0, all_owned=False, quests=None):
         self.inv = dict(inventory or {})
         self.calls = []
         self.player = _Player(member, items_by_id, level, gold)
@@ -73,6 +73,7 @@ class Stub:
         self._connected = connected
         self._good_rank = good_rank
         self._all_owned = all_owned
+        self._quests = {str(k): v for k, v in (quests or {}).items()}
         self.fill_inventory_on_skill = False
 
     # --- sync predicates ------------------------------------------------
@@ -98,6 +99,11 @@ class Stub:
 
     def get_monster(self, name):
         return None
+
+    def is_monster_alive(self, name="*"):
+        # always true so the "wait for the spawn" loops fall through and the
+        # fight loop reaches use_next_skill, which ends the run deterministically
+        return True
 
     def get_farm_class(self):
         return "Farm Class"
@@ -182,7 +188,7 @@ class Stub:
 
     def get_loaded_quest(self, quest_id):
         self.calls.append(("get_loaded_quest", quest_id))
-        return None
+        return self._quests.get(str(quest_id))
 
     def get_quant_item(self, name):
         return self.inv.get(name, 0)
@@ -488,6 +494,28 @@ def main() -> None:
     asyncio.run(the_assistant(asst2))
     assert asst2.kinds() == ["ensure_accept_quest", "get_loaded_quest"], asst2.kinds()
     print("assistant  : quest not loaded -> accepted, looked, then stopped")
+
+    # --- a loaded quest that names no rewards must not read as "all done" ---
+    from model.quest import Quest
+    nameless = Stub(quests={2566: Quest.from_payload(
+        {"QuestID": 2566, "reward": [{"ItemID": 1, "iQty": 1}]})})
+    asyncio.run(nulgath_larvae(nameless))
+    assert nameless.kinds() == ["ensure_accept_quest", "get_loaded_quest"], \
+        nameless.kinds()
+    print("larvae     : rewards with ids but no names -> reported, farmed nothing")
+
+    empty = Stub(quests={2566: Quest.from_payload({"QuestID": 2566})})
+    asyncio.run(nulgath_larvae(empty))
+    assert "add_drop" not in empty.kinds(), empty.kinds()
+    print("larvae     : quest with no rewards at all -> reported, farmed nothing")
+
+    named = Stub(quests={7551: Quest.from_payload(
+        {"QuestID": 7551, "oRewards": {"itemsC": {
+            "0": {"ItemID": 4769, "sName": "Tainted Gem", "iStk": 1000}}}})})
+    asyncio.run(swindle_return(named))
+    assert "add_drop" in named.kinds(), named.kinds()
+    print("swindle    : no item given -> picked the first reward instead of "
+          "silently stopping")
 
     # --- every wrapper is runnable, and no-ops when all is banked -----
     WRAPPERS = [

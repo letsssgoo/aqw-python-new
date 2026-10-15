@@ -245,12 +245,24 @@ class Quest(dict):
     def reward_names(self) -> List[str]:
         """Reward item names, in payload order; ``[]`` when none are sent.
 
-        The port of the reference bot's ``Core.QuestRewards``, with one difference that
-        matters: the reference bot reads a client-side quest cache, while this reads the
-        live ``getQuests`` payload -- which does carry the reward names, under
-        ``oRewards``.
+        The port of the reference bot's ``Core.QuestRewards``, with one
+        difference that matters: that one reads a client-side quest cache,
+        while this reads the live ``getQuests`` payload -- which carries the
+        names under ``oRewards``.  Not every quest sends that block, so an
+        empty list can mean "no rewards" *or* "this payload named none"; see
+        :attr:`reward_ids` to tell the two apart.
         """
         return [str(item["sName"]) for item in self.reward_items if item.get("sName")]
+
+    @property
+    def reward_ids(self) -> List[int]:
+        """Reward item ids from the light ``reward`` array.
+
+        Present on quests that ship no ``oRewards`` block, which is how a
+        caller can say "there are rewards, they just have no names here".
+        """
+        ids = (_int(row.get("ItemID"), -1) for row in self.rewards)
+        return [item_id for item_id in ids if item_id >= 0]
 
     @property
     def reward_entries(self) -> List[Tuple[int, str, int]]:

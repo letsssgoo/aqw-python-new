@@ -117,15 +117,11 @@ class Command:
         Returns:
             None: Exits once the quest is tracked or a failure is recorded."""
         quest_id = normalize_quest_id(quest_id)
-        print("A")
         while self.quest_not_in_progress(quest_id) and self.is_still_connected():
-            print("B")
             await self.accept_quest(quest_id)
-            print("C")
             await self.sleep(1000)
             if quest_id in self.bot.failed_get_quest_datas:
                 return
-        print("D")
 
     @check_alive
     async def ensure_turn_in_quest(self, quest_id: int, item_id = -1, amount = 1) -> None:
