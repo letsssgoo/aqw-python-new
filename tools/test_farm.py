@@ -63,10 +63,18 @@ class _Bot:
 class _ShopItem:
     """Mirrors ``ItemInventory``: the model lower-cases ``sName`` on the way in."""
 
-    def __init__(self, name, item_id=0, shop_item_id=None):
+    def __init__(self, name, item_id=0, shop_item_id=None, faction="None",
+                 required_rep=0, level=0, cost=0, is_acs=False):
         self.item_name = name.lower()
         self.item_id = item_id
         self.shop_item_id = item_id if shop_item_id is None else shop_item_id
+        # the shop-entry requirements GetItemReq farms before a purchase
+        self.required_faction = faction
+        self.required_rep = required_rep
+        self.required_quest = ""
+        self.level = level
+        self.cost = cost
+        self.is_acs = is_acs
 
 
 class _Shop:
@@ -608,7 +616,7 @@ def main() -> None:
     assert asyncio.run(farm_faction(unknown, "Arcangrove", 10)) is False
     assert unknown.calls == [], unknown.calls          # reported, never farmed
     assert set(FACTION_FARMS) == {"Good", "Vampire", "Yokai", "Evil",
-                                  "ChronoSpan", "CraggleRock"}, \
+                                  "ChronoSpan", "CraggleRock", "Sandsea"}, \
         sorted(FACTION_FARMS)
     known = Stub(vampire_rank=10)
     assert asyncio.run(farm_faction(known, "Vampire", 10)) is True
@@ -683,6 +691,85 @@ def main() -> None:
         print("shop       : one request, then the reply is in the cache")
     finally:
         asyncio.sleep = real_sleep
+
+    # --- buy_item: the entry's own requirements (CoreAdvanced.GetItemReq) ---
+    # the reference's RepThresholds, verbatim: points -> rank
+    from bot.core_bots import points_to_level
+    import bot.core_farms as core_farms
+
+    assert [points_to_level(p) for p in (0, 900, 3600, 10000, 22500, 44100,
+                                         78400, 129600, 202500, 302500)] == \
+        list(range(1, 11)), [points_to_level(p) for p in
+                             (0, 900, 3600, 10000, 22500, 44100)]
+    print("points     : the reputation table maps points to ranks verbatim")
+
+    # a shop entry that wants Sandsea rank 6, level 35 and 1000 gold: the
+    # reference farms all three before buying, in this order
+    needs = Stub(level=1)
+    needs.bot.loaded_shop_datas.append(
+        _Shop(1129, [_ShopItem("Cape of Awe", faction="Sandsea",
+                               required_rep=44100, level=35, cost=1000)]))
+    done = []
+    real_farm = {n: getattr(core_farms, n) for n in
+                 ("farm_faction", "farm_experience", "farm_gold")}
+
+    async def fake_faction(cmd, faction, rank=10):
+        done.append(("faction", faction, rank))
+        return True
+
+    async def fake_exp(cmd, level=100, rank_up_class=False):
+        done.append(("exp", level))
+
+    async def fake_gold(cmd, quant=0):
+        done.append(("gold", quant))
+
+    core_farms.farm_faction = fake_faction
+    core_farms.farm_experience = fake_exp
+    core_farms.farm_gold = fake_gold
+    try:
+        assert asyncio.run(buy_item(needs, 1129, "Cape of Awe",
+                                    map_name="museum")) is True
+    finally:
+        for name, fn in real_farm.items():
+            setattr(core_farms, name, fn)
+
+    assert done == [("faction", "Sandsea", 6), ("exp", 35), ("gold", 1000)], done
+    assert any(line.startswith("Farming reputation for Sandsea (Required: 44100)")
+               for line in needs.bot.logs), needs.bot.logs
+    assert "Farming experience to reach level 35" in needs.bot.logs, \
+        needs.bot.logs
+    assert ("buy_item", 1129, "cape of awe", 1, 0) in needs.calls, needs.calls
+    print("buy_item   : rep, level and gold are farmed before the purchase")
+
+    plain = Stub()
+    plain.bot.loaded_shop_datas.append(_Shop(68, ["Blade of Affliction"]))
+    assert asyncio.run(buy_item(plain, 68, "Blade of Affliction")) is True
+    assert "register_quest" not in plain.kinds(), plain.calls
+    print("buy_item   : an entry with no requirements farms none of the three")
+
+    # --- SandseaREP: the farm Adv.BuyItem reaches for --------------------
+    from bot.core_farms import sandsea_rep
+
+    rich = Stub(ranks={"Sandsea": 10})
+    asyncio.run(sandsea_rep(rich, 10))
+    assert rich.calls == [], rich.calls
+    print("sandsea    : already rank 10 -> no calls")
+
+    refused_rep = Stub(accept=False)
+    asyncio.run(sandsea_rep(refused_rep, 10))
+    assert "use_next_skill" not in refused_rep.kinds(), refused_rep.calls
+    print("sandsea    : a refused accept stops before any killing")
+
+    rep = Stub(ranks={"Sandsea": 0})
+    rep.player.CELL = "r1"          # so the walk to the entrance is exercised
+    _rank_gain(rep, "Sandsea", 10)
+    asyncio.run(sandsea_rep(rep, 10))
+    assert ("join_map", "sandsea") in rep.calls, rep.calls
+    assert ("jump_cell", "Enter", "Spawn") in rep.calls, rep.calls
+    assert [c[1] for c in rep.calls if c[0] == "register_quest"] == \
+        [916, 917, 919, 921, 922], rep.calls
+    assert "Farming rank 10" in rep.bot.logs, rep.bot.logs
+    print("sandsea    : quests 916/917/919/921/922 at the map entrance")
 
     # --- the four newer reputation methods -----------------------------
     from bot.core_farms import (chronospan_rep, craggle_rock_rep, evil_rep,

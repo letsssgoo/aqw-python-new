@@ -818,9 +818,37 @@ async def craggle_rock_rep(cmd: Command, rank: int = 10) -> None:
     cmd.cancel_registered_quests()
 
 
+#: ``CoreFarms.SandseaREP``: the five reputation quests, at the map's entrance.
+SANDSEA_QUESTS = (916, 917, 919, 921, 922)
+SANDSEA_MAP = "sandsea"
+SANDSEA_CELL = "Enter"
+SANDSEA_PAD = "Spawn"
+
+
+async def sandsea_rep(cmd: Command, rank: int = 10) -> None:
+    """``CoreFarms.SandseaREP``: quests 916/917/919/921/922 in /sandsea.
+
+    The reference pins a save state and toggles the reputation boost around this
+    loop; this engine has neither, and the boost stays off here as it does by
+    default there.  Its trailing ``JumpWait`` is this engine's polling.
+
+    This is the farm ``Adv.BuyItem`` reaches for when a shop entry needs Sandsea
+    reputation -- Master Ranger's shop is one.
+    """
+    if cmd.get_faction_rank("Sandsea") >= rank:
+        return
+
+    await equip_class(cmd)
+    cmd.bot.log(f"Farming rank {rank}")
+    await farm_until(cmd, _rep_done(cmd, "Sandsea", rank), SANDSEA_MAP,
+                     cell=SANDSEA_CELL, pad=SANDSEA_PAD, monster="*",
+                     quests=SANDSEA_QUESTS)
+
+
 #: Faction name -> the ported method, mirroring ``CoreFarms.<Name>REP``.
 FACTION_FARMS = {
     "Good": good_rep,
+    "Sandsea": sandsea_rep,
     "Vampire": vampire_rep,
     "Yokai": yokai_rep,
     "Evil": evil_rep,

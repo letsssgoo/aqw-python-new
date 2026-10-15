@@ -57,10 +57,17 @@ class _Player:
 class _ShopItem:
     """Mirrors ``ItemInventory`` as a shop entry."""
 
-    def __init__(self, name, item_id=0, shop_item_id=None):
+    def __init__(self, name, item_id=0, shop_item_id=None, faction="None",
+                 required_rep=0, level=0, cost=0, is_acs=False):
         self.item_name = name.lower()
         self.item_id = item_id
         self.shop_item_id = item_id if shop_item_id is None else shop_item_id
+        self.required_faction = faction
+        self.required_rep = required_rep
+        self.required_quest = ""
+        self.level = level
+        self.cost = cost
+        self.is_acs = is_acs
 
 
 class _Shop:

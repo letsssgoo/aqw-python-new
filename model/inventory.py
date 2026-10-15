@@ -88,6 +88,17 @@ class ItemInventory:
         self.is_temp: bool = _flag(data, 'bTemp')       # temp (non-inventory) item
         self.is_upgrade: bool = _flag(data, 'bUpg')     # requires upgrade / legend
         self.is_house: bool = _flag(data, 'bHouse')
+
+        # --- shop-entry requirements ----------------------------------
+        # What a shop entry asks for before it may be bought, which is what the
+        # reference's ``CoreAdvanced.GetItemReq`` checks and farms: the faction
+        # and its reputation (``sFaction``/``iReqRep``), the player level
+        # (``iLvl``, which is ``self.level`` just below) and the quest that
+        # unlocks the entry (``sQuest``).  Both shapes of payload are parsed by
+        # this one class, and an inventory item sends "None"/0 for all of them.
+        self.required_faction: str = str(data.get('sFaction') or 'None')
+        self.required_rep: int = _int(data, 'iReqRep')
+        self.required_quest: str = str(data.get('sQuest') or '')
         self.is_staff: bool = _flag(data, 'bStaff')
         self.stackable: int = _int(data, 'iStk')        # max stack size
 
