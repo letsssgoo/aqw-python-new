@@ -98,6 +98,12 @@ class Command:
     #: which no bail-out consults.
     ENSURE_MAX_ATTEMPTS: int = 60
 
+    #: How long ``join_map`` waits for the client to report the new map before
+    #: giving up and letting the caller's own loop retry.  A transfer normally
+    #: lands in about two seconds; the bound only covers a server that never
+    #: answers.
+    MAP_JOIN_TIMEOUT_MS: int = 10000
+
     def __init__(self, bot, init_handler = False):
         from core.bot import Bot
         self.bot: Bot = bot
@@ -1171,6 +1177,35 @@ class Command:
         else:
             msg = f"%xt%zm%cmd%1%tfer%{self.bot.player.USER}%{mapName}%"
         self.bot.write_message(msg)
+        await self.wait_for_map(mapName)
+
+    async def wait_for_map(self, mapName: str,
+                           timeout_ms: Optional[int] = None) -> bool:
+        """Wait until the client reports being in ``mapName``, bounded.
+
+        The transfer packet alone is not the join.  The map name this class
+        compares against comes from the ``moveToArea`` packet, which lands after
+        the server's "You joined" line -- so a caller that loops on
+        ``is_not_in_map`` (every farm in ``bot/`` does) used to send the
+        transfer a second time and collect "Cannot join a room you are already
+        in" for its trouble.  Waiting here means one transfer per map change.
+
+        Args:
+            mapName (str): Map the caller expects to end up in.
+            timeout_ms (int | None): Give up after this long; defaults to
+                :data:`MAP_JOIN_TIMEOUT_MS`.
+
+        Returns:
+            bool: True when the map changed, False on timeout or a dropped
+            connection -- the caller's own loop then retries.
+        """
+        if timeout_ms is None:
+            timeout_ms = self.MAP_JOIN_TIMEOUT_MS
+        deadline = time.monotonic() + timeout_ms / 1000
+        while (self.is_still_connected() and self.is_not_in_map(mapName)
+               and time.monotonic() < deadline):
+            await asyncio.sleep(0.05)
+        return self.is_in_map(mapName)
 
     def is_not_in_map(self, mapName: str) -> bool:
         """Return True when the player is not currently in the given map.
