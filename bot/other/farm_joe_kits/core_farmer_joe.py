@@ -1,12 +1,14 @@
 """``CoreFarmerJoe`` -- the Farmer Joe kit's pre-endgame progression.
 
 Port of ``Other/FarmJoeKits/CoreFarmerJoe.cs``.  The kit is what
-``0_farmer_joe_do_all`` runs, and it is being ported step by step; this is step 1:
+``0_farmer_joe_do_all`` runs, and it is being ported step by step:
 
 * ``do_all`` -- the reference's own order: the level brackets, then the endgame
   stage, then the outfit and the two pets;
 * ``set_class`` -- the configured farm/solo class resolved against the pools the
   reference keeps, then equipped;
+* ``beginner_items`` -- step 2: the starter slots at Class Halla, Rogue, Ninja
+  and Mage, with the tutorial badges reported;
 * ``level_30_to_75`` -- the level ladder (30, 50, 55, 60, 65, 70, 75, 80), the
   one-a-day Elders' Blood, and banking the classes that are not in use;
 * the small extras ``shirt_and_hat``, ``servers_are_down``, ``pets``, ``outfit``.
@@ -16,8 +18,8 @@ run and by name, with a ``[joe]`` tag -- never skipped quietly:
 
 * ``Adv.GearStore`` / ``Adv.SmartEnhance`` / ``Adv.RankUpClass`` (gear snapshots,
   enhancement profiles, class ranks: none of them exist here),
-* ``BeginnerItems``, the eight per-bracket handlers, ``level_75_to_100`` and
-  ``end_game``, which are the later steps of this port.
+* the eight per-bracket handlers, ``level_75_to_100`` and ``end_game``, which are
+  the later steps of this port (3, 4 and 5).
 
 Log lines are the reference's own text, word for word, through ``cmd.bot.log`` --
 so a run of this can be read next to a run of the reference bot.
@@ -63,6 +65,26 @@ PET_AKRILOTH = "Akriloth"
 HOT_MAMA = "Hot Mama"
 AKRILOTH_PET = "Akriloth Pet"
 
+#: ``BeginnerItems``' own lists.  Its exclusions are spelled exactly as the
+#: reference spells them: ``Except`` compares case-sensitively, so the pool's
+#: "Mage (Rare)" is *not* the "Mage (rare)" it excludes and stays in the check.
+BEGINNER_SOLO_EXCEPT = ("Assassin", "Ninja Warrior", "Ninja")
+BEGINNER_FARM_EXCEPT = ("Mage", "Mage (rare)")
+NINJA_NAMES = ("Assassin", "Ninja Warrior", "Ninja")
+MAGE_NAMES = ("Mage (Rare)", "Mage")
+ROGUE_NAMES = ("Rogue (Rare)", "Rogue")
+
+#: The shops and items ``BeginnerItems`` buys from Class Halla.
+CLASSHALLA = "classhalla"
+BATTLE_ORACLE_SHOP = 299
+ROGUE_SHOP = 172
+NINJA_SHOP = 178
+NINJA_NAME = "Ninja"
+MAGE_SHOP = 174
+MAGE_ITEM_ID = 15653
+MAGE_SHOP_ITEM_ID = 9845
+DEFAULT_WEAPON_PREFIX = "Default"
+
 #: The reference's options, which are module constants here (no option window).
 #: Their defaults are the reference's own: the outfit is fetched, but not worn,
 #: the boosts stay off, and no pet is chosen except by ``do_all``.
@@ -79,6 +101,28 @@ _last_farm: Optional[str] = None
 
 #: Reports that only make sense once per run.
 _reported: set = set()
+
+#: ``GetClass``'s cache, cleared by ``set_class`` as the reference clears it.
+_class_cache: dict = {}
+
+
+def _get_class(cmd: Command, class_name: str):
+    """``GetClass``: the class item with that name, from the inventory or the bank.
+
+    The reference trims the name and compares case-insensitively, insists the item
+    is a class, and caches the answer until the next ``set_class``.
+    """
+    if class_name in _class_cache:
+        return _class_cache[class_name]
+
+    found = None
+    for candidate in list(cmd.bot.player.INVENTORY) + list(cmd.bot.player.BANK):
+        if (candidate.s_name.strip().lower() == class_name.lower()
+                and candidate.s_es == ItemType.CLASS.value):
+            found = candidate
+            break
+    _class_cache[class_name] = found
+    return found
 
 
 def report_once(cmd: Command, key: str, message: str) -> None:
@@ -136,6 +180,7 @@ async def set_class(cmd: Command) -> None:
     """
     global _last_checked_level, _last_solo, _last_farm
 
+    _class_cache.clear()
     level = cmd.get_player().LEVEL or 0
     solo, farm = cmd.get_solo_class(), cmd.get_farm_class()
     if level <= _last_checked_level and solo == _last_solo and farm == _last_farm:
@@ -255,16 +300,117 @@ async def outfit(cmd: Command) -> None:
 
 
 async def level_1_to_30(cmd: Command) -> None:
-    """``CoreFarmerJoe.Level1to30``: the beginner items, then the class-points note.
-
-    ``BeginnerItems`` is step 2 of this port: it needs ``Story/Tutorial``,
-    ``Mazumi`` and ``Adv.RankUpClass``.
-    """
-    report_once(cmd, "beginner_items",
-                "BeginnerItems is not ported yet (step 2): it needs "
-                "Story/Tutorial, Mazumi and Adv.RankUpClass.")
+    """``CoreFarmerJoe.Level1to30``: the beginner items, then the class-points note."""
+    await beginner_items(cmd)
     cmd.bot.log("Class points may be desynced at Rank 9, if you are stuck at "
                 "rank 9, please stop the bot & relog if this happens")
+
+
+async def _starter_slots(cmd: Command) -> None:
+    """``BeginnerItems``' slot pass: Battle Oracle hood, wings and battlestaff.
+
+    The reference walks every item category.  Only three cases do anything: an
+    empty helm slot, an empty cape slot, and a ``Default`` weapon still in hand,
+    which it replaces with the battlestaff and sells on the spot.
+    """
+    inventory = cmd.bot.player.INVENTORY
+
+    if not any(i.is_equipped and i.s_es == ItemType.HELM.value for i in inventory):
+        await buy_item(cmd, BATTLE_ORACLE_SHOP, "Battle Oracle Hood",
+                       map_name=CLASSHALLA)
+        await cmd.equip_item("Battle Oracle Hood")
+
+    if not any(i.is_equipped and i.s_es == ItemType.CAPE.value for i in inventory):
+        await buy_item(cmd, BATTLE_ORACLE_SHOP, "Battle Oracle Wings",
+                       map_name=CLASSHALLA)
+        await cmd.equip_item("Battle Oracle Wings")
+
+    default_weapon = next((i for i in inventory
+                           if i.s_name.startswith(DEFAULT_WEAPON_PREFIX)), None)
+    if default_weapon is None:
+        return
+    await buy_item(cmd, BATTLE_ORACLE_SHOP, "Battle Oracle Battlestaff",
+                   map_name=CLASSHALLA)
+    await cmd.equip_item("Battle Oracle Battlestaff")
+    await cmd.sell_item(default_weapon.s_name)
+    # the reference waits (up to 20 tries) for the sale to clear the inventory
+    for _ in range(20):
+        if not await cmd.has_item(default_weapon.s_name):
+            return
+        await cmd.sleep(100)
+
+
+async def beginner_items(cmd: Command) -> None:
+    """``CoreFarmerJoe.BeginnerItems``: the tutorial badges and the starter kit.
+
+    The guard is the reference's: an account that already has a high-tier class in
+    both pools, or both beginner classes at rank 10, is left alone with its own
+    line in the log.  Skipped here, because this engine cannot reach the pieces
+    they need, are ``Tutorial.Badges``, ``Mazumi.MazumiQuests`` and
+    ``Adv.RankUpClass`` -- and with Mazumi missing the Ninja purchase is skipped
+    too, since its shop would refuse it.
+    """
+    solo_others = [name for name in SOLO_CLASSES
+                   if name not in BEGINNER_SOLO_EXCEPT]
+    farm_others = [name for name in FARM_CLASSES
+                   if name not in BEGINNER_FARM_EXCEPT]
+    has_high_tier = (await cmd.has_any_item(solo_others)
+                     and await cmd.has_any_item(farm_others))
+
+    ninja = _get_class(cmd, NINJA_NAME)
+    mage = _get_class(cmd, "Mage")
+    ninja_points = ninja.qty if ninja else 0
+    mage_points = mage.qty if mage else 0
+    has_both_rank10 = (
+        await cmd.has_any_item(list(NINJA_NAMES))
+        and ninja_points >= RANK_10_CLASS_POINTS
+        and await cmd.has_any_item(list(MAGE_NAMES))
+        and mage_points >= RANK_10_CLASS_POINTS
+        and (cmd.get_player().LEVEL or 0) >= 30)
+
+    if has_high_tier or has_both_rank10:
+        cmd.bot.log("Acc is lvl 30+, skipping beginner items.")
+        return
+
+    cmd.bot.log('As the Acc is still "new", we\'re going todo the tutorial badges')
+
+    report_once(cmd, "tutorial_badges",
+                "Tutorial.Badges (Story/Tutorial) is not ported; the starter "
+                "badges are skipped.")
+
+    await _starter_slots(cmd)
+
+    cmd.bot.log("Starting out acc:\n\tGoals: Ninja class & Mage Class")
+
+    await farm_experience(cmd, 10)
+
+    cmd.bot.log("Getting Started: Beginner Levels/Equipment")
+
+    if not await cmd.has_any_item(list(ROGUE_NAMES)):
+        cmd.bot.log("Getting rogue.. so we can get ninja (there's a 10k hp "
+                    "\"boss\" to kill during the \"Hit Job\" quest.)")
+        await buy_item(cmd, ROGUE_SHOP, "Rogue", map_name=CLASSHALLA)
+
+    if not await cmd.has_any_item(list(NINJA_NAMES)):
+        cmd.bot.log("Getting starter Dodge class (Ninja)")
+        report_once(cmd, "rank_up_rogue",
+                    'Adv.RankUpClass("Rogue") needs the class rank, which this '
+                    'engine cannot read; skipped.')
+        await farm_experience(cmd, 25)
+        await set_class(cmd)
+        report_once(cmd, "mazumi",
+                    f"Mazumi.MazumiQuests is not ported, so the {NINJA_NAME} shop "
+                    f"({CLASSHALLA} {NINJA_SHOP}) would refuse the purchase; it is "
+                    f"skipped.")
+
+    await set_class(cmd)
+
+    if not await cmd.has_any_item(list(MAGE_NAMES)):
+        cmd.bot.log("Getting Starter Farm class (Mage)")
+        await buy_item(cmd, MAGE_SHOP, MAGE_ITEM_ID, map_name=CLASSHALLA,
+                       shop_item_id=MAGE_SHOP_ITEM_ID)
+
+    await set_class(cmd)
 
 
 async def level_30_to_75(cmd: Command) -> None:

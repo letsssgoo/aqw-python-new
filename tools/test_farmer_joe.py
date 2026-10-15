@@ -27,13 +27,14 @@ from model.inventory import ItemType  # noqa: E402
 
 
 class _Item:
-    """A class in the inventory: slot, name and quantity are what get read."""
+    """An inventory item: slot, name and quantity are what get read."""
 
-    def __init__(self, name, qty=1):
+    def __init__(self, name, qty=1, slot=None):
         self.s_name = name
         self.item_name = name.lower()
-        self.s_es = ItemType.CLASS.value
+        self.s_es = slot or ItemType.CLASS.value
         self.qty = qty
+        self.is_equipped = False
 
 
 class _Player:
@@ -41,12 +42,32 @@ class _Player:
         self.USER = "me"
         self.LEVEL = level
         self.INVENTORY = []
+        self.BANK = []
 
-    def get_item_inventory(self, name):
-        for item in self.INVENTORY:
+    def _find(self, source, name):
+        for item in source:
             if item.item_name == name.lower():
                 return item
         return None
+
+    def get_item_inventory(self, name):
+        return self._find(self.INVENTORY, name)
+
+
+class _ShopItem:
+    """Mirrors ``ItemInventory`` as a shop entry."""
+
+    def __init__(self, name, item_id=0, shop_item_id=None):
+        self.item_name = name.lower()
+        self.item_id = item_id
+        self.shop_item_id = item_id if shop_item_id is None else shop_item_id
+
+
+class _Shop:
+    def __init__(self, shop_id, items):
+        self.shop_id = shop_id
+        self.items = [i if isinstance(i, _ShopItem) else _ShopItem(i)
+                      for i in items]
 
 
 class _Bot:
@@ -56,6 +77,7 @@ class _Bot:
         self.player = _Player()
         self.logs = []
         self.sent = []
+        self.loaded_shop_datas = []
 
     def write_message(self, msg):
         self.sent.append(msg)
@@ -71,7 +93,7 @@ class Stub:
     """Duck-typed Command: records calls, never touches the network."""
 
     def __init__(self, inventory=None, level=30, solo=None, farm=None,
-                 classes_held=()):
+                 classes_held=(), items=(), shops=()):
         self.bot = _Bot()
         self.bot.player.LEVEL = level
         self.bot.farmClass = farm
@@ -81,6 +103,8 @@ class Stub:
                 else {name: 1 for name in classes_held})
         self.bot.player.INVENTORY = [_Item(name, qty)
                                      for name, qty in held.items()]
+        self.bot.player.INVENTORY += list(items)
+        self.bot.loaded_shop_datas = list(shops)
         self.calls = []
 
     # --- logging --------------------------------------------------------
@@ -101,7 +125,10 @@ class Stub:
         return self.inv.get(name, 0)
 
     def is_in_inventory(self, name, qty=1, operator=">=", isTemp=False):
-        return self.inv.get(name, 0) >= qty
+        if self.inv.get(name, 0) >= qty:
+            return True
+        found = self.bot.player.get_item_inventory(name)
+        return found is not None and found.qty >= qty
 
     def is_in_bank(self, name, qty=1, operator=">="):
         return False
@@ -152,11 +179,25 @@ class Stub:
     async def bank_to_inv(self, names):
         self.calls.append(("bank_to_inv", names))
 
+    async def sell_item(self, name, qty=1):
+        self.calls.append(("sell_item", name))
+        self.inv[name] = max(0, self.inv.get(name, 0) - qty)
+
     async def inv_to_bank(self, names):
         self.calls.append(("inv_to_bank", tuple(names)))
 
     async def has_item(self, name, qty=1, operator=">=", isTemp=False):
-        return self.inv.get(name, 0) >= qty
+        return self.is_in_inventory(name, qty)
+
+    async def has_any_item(self, names):
+        for name in names:
+            if await self.has_item(name):
+                return True
+        return False
+
+    async def has_item_id(self, item_id):
+        self.calls.append(("has_item_id", item_id))
+        return False
 
     async def use_next_skill(self, *args, **kwargs):
         self.calls.append(("use_next_skill",))
@@ -293,6 +334,86 @@ def main() -> None:
     assert any(line.startswith("Joe will handle each level bracket (0-30")
                for line in ladder.bot.logs), ladder.bot.logs
     print("ladder     : brackets 30..80, the daily first, every handler called")
+
+    # --- BeginnerItems: the guard, and a fresh account -------------------
+    def fresh_run():
+        """Module state as a new run finds it: the class cache is empty."""
+        joe._reported.clear()
+        joe._class_cache.clear()
+        joe._last_checked_level, joe._last_solo, joe._last_farm = 0, None, None
+
+    fresh_run()
+    veteran = Stub(classes_held=["Void Highlord", "ArchMage"])
+    asyncio.run(joe.beginner_items(veteran))
+    assert veteran.calls == [], veteran.calls
+    assert "Acc is lvl 30+, skipping beginner items." in veteran.bot.logs
+    print("beginner   : a class in both pools -> skipped, as it says")
+
+    # both beginner classes at rank 10 counts too, but only from level 30
+    points = {name: joe.RANK_10_CLASS_POINTS for name in ("Ninja", "Mage")}
+    fresh_run()
+    ranked = Stub(level=30, inventory={"Ninja": 1, "Mage": 1},
+                  classes_held=points)
+    asyncio.run(joe.beginner_items(ranked))
+    assert ranked.calls == [], ranked.calls
+    fresh_run()
+    low = Stub(level=1, inventory={"Ninja": 1, "Mage": 1}, classes_held=points)
+    seen = []
+    real_exp = joe.farm_experience
+
+    async def spy_exp(cmd, level=100, rank_up_class=False):
+        seen.append(level)
+
+    joe.farm_experience = spy_exp
+    try:
+        asyncio.run(joe.beginner_items(low))
+    finally:
+        joe.farm_experience = real_exp
+    assert seen == [10], seen
+    print("beginner   : beginner classes at rank 10 skip it from level 30 only")
+
+    fresh = Stub(
+        level=1, inventory={"Default Sword": 1},
+        items=[_Item("Default Sword", slot="Weapon")],
+        shops=[_Shop(299, ["Battle Oracle Hood", "Battle Oracle Wings",
+                           "Battle Oracle Battlestaff"]),
+               _Shop(172, ["Rogue"]),
+               _Shop(174, [_ShopItem("Mage", 15653, 9845)])])
+    fresh_run()
+    levels = []
+
+    async def spy_exp2(cmd, level=100, rank_up_class=False):
+        levels.append(level)
+
+    joe.farm_experience = spy_exp2
+    try:
+        asyncio.run(joe.beginner_items(fresh))
+    finally:
+        joe.farm_experience = real_exp
+
+    assert levels == [10, 25], levels
+    assert ("buy_item", 299, "battle oracle hood", 1, 0) in fresh.calls, \
+        fresh.calls
+    assert ("buy_item", 299, "battle oracle wings", 1, 0) in fresh.calls, \
+        fresh.calls
+    assert ("buy_item", 299, "battle oracle battlestaff", 1, 0) in fresh.calls, \
+        fresh.calls
+    assert ("equip_item", "Battle Oracle Battlestaff") in fresh.calls, \
+        fresh.calls
+    assert ("sell_item", "Default Sword") in fresh.calls, fresh.calls
+    assert ("buy_item", 172, "rogue", 1, 0) in fresh.calls, fresh.calls
+    # the Ninja shop needs Mazumi's quests, which are not ported: not bought
+    assert not any(c[0] == "buy_item" and c[1] == 178 for c in fresh.calls), \
+        [c for c in fresh.calls if c[0] == "buy_item"]
+    assert ("buy_item", 174, "mage", 1, 9845) in fresh.calls, fresh.calls
+    for line in ('As the Acc is still "new", we\'re going todo the tutorial badges',
+                 "Starting out acc:\n\tGoals: Ninja class & Mage Class",
+                 "Getting rogue.. so we can get ninja (there's a 10k hp "
+                 "\"boss\" to kill during the \"Hit Job\" quest.)",
+                 "Getting starter Dodge class (Ninja)",
+                 "Getting Starter Farm class (Mage)"):
+        assert line in fresh.bot.logs, fresh.bot.logs
+    print("beginner   : fresh account -> Oracle slots, Rogue, Mage; Ninja reported")
 
     # --- the two later steps are loud, not silent ------------------------
     later = Stub()
