@@ -101,6 +101,7 @@ ENTRY_MODULES = [
     "bot.nation.various.behemoth_blades",
     "bot.nation.various.the_game_of_gemstones",
     "bot.nation.various.dragon_blade",
+    "bot.nation.various.proof_of_recruitment",
     "bot.nation.afdl.willpower_extraction",
     "bot.nation.evolved_orb.evolved_blood_orb",
     "bot.nation.evolved_orb.evolved_hex_orb",

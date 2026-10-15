@@ -22,8 +22,7 @@ from bot.nation.core_nation import (  # noqa: E402
     assisting_crag_and_bamboozle, assisting_drudgen,
     bamboozle_vs_drudge, bloody_chaos, blood_from_the_void, can_we_aggro,
     carve_uni_gem_stone, contract_exchange, CRAG_PET, crags_thirst,
-    dark_makai_item,
-    deal, diamond_exchange,
+    dark_makai_item, deal, diamond_exchange,
     dirty_deeds_done_dirt_cheap, do_swindles_return_area,
     dragon_slayer_reward, dreadrock_gem_exchange, dwobo_coin,
     emblem_of_nulgath,
@@ -778,6 +777,28 @@ def main() -> None:
     assert owned_hire.calls == [], owned_hire.calls
     print("larvae     : non-member or already hired -> no calls")
 
+    # --- proof of recruitment's chain ---------------------------------
+    from bot.nation.various.proof_of_recruitment import arch_tokens
+    from bot.nation.various.proof_of_recruitment import main as proof_main
+
+    chain_done = Stub(completed=tuple(range(4751, 4762)))
+    assert asyncio.run(arch_tokens(chain_done)) is True
+    assert [c for c in chain_done.calls if c[0] != "is_completed_before"] == [], \
+        chain_done.calls
+    print("archtoken  : every chain quest done -> only the checks, no work")
+
+    doomwood = Stub(completed=(4751,))
+    assert asyncio.run(arch_tokens(doomwood)) is False
+    assert ("ensure_accept_quest", 4752) not in doomwood.calls, doomwood.calls
+    print("archtoken  : quest 4752 without a Doomwood Token -> stops with why")
+
+    # with the chain done, the wrapper goes straight to the reward quest
+    rewardless = Stub(completed=tuple(range(4751, 4762)))
+    asyncio.run(proof_main(rewardless))
+    assert ("ensure_accept_quest", 4785) in rewardless.calls, rewardless.calls
+    assert "use_next_skill" not in rewardless.kinds(), rewardless.calls
+    print("proof      : chain done, quest 4785 reports no rewards and stops")
+
     # --- every wrapper is runnable, and no-ops when all is banked -----
     WRAPPERS = [
         "materials.0_max_bags", "materials.approval_and_favor",
@@ -822,6 +843,7 @@ def main() -> None:
         "various.behemoth_blades",
         "various.the_game_of_gemstones",
         "various.dragon_blade",
+        "various.proof_of_recruitment",
         "afdl.willpower_extraction",
         "evolved_orb.evolved_blood_orb",
         "evolved_orb.evolved_hex_orb",
