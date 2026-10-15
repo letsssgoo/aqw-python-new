@@ -133,7 +133,7 @@ VOID_KNIGHT_SWORDS: Tuple[int, ...] = (38275, 38254)
 #: compare against that, so in the reference they never match an item either.
 #: Kept verbatim: the routes that would use the pet take their fallbacks, exactly
 #: as the reference does.  Change this one string to make them run.
-CRAG_PET = "Crag &amp; Bamboozle"
+CRAG_PET = "Crag & Bamboozle"
 
 #: Extra drops handed out while Bloody Chaos is running with the relic branch.
 BLOODY_CHAOS_SUPPLIES: Tuple[str, ...] = (
