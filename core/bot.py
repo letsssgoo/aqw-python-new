@@ -65,6 +65,7 @@ class Bot:
         self.showDebug = showDebug
         self.showChat = showChat
         self.items_drop_whitelist: list[str] = itemsDropWhiteList
+        self.dropped_items: list[dict] = []
         self.auto_relogin = autoRelogin
         self.follow_player = followPlayer
         self.slaves_player = slavesPlayer
@@ -134,6 +135,7 @@ class Bot:
 
         self.missing_turn_in_item_questid: list[int] = [] # this mean quest is unlocked (green quest)
         self.missing_quest_progress_questid: list[int] = [] # this mean quest is locked (red quest)
+        self.one_time_questid: list[int] = [] # one-time story quests already completed
 
         self.player_in_area: list[PlayerArea] = []
 
@@ -772,17 +774,42 @@ class Bot:
                     self.player.addRepToFaction(data.get('FactionID', 0), data.get('iRep', 0))
                 self.debug(Fore.YELLOW + str(debug_data_gold) + Fore.WHITE)
             elif cmd == "dropItem":
-                dropItems = data.get('items')
-                lowered_droplist= [item.lower() for item in self.items_drop_whitelist]
-                for itemDrop in dropItems.values():
-                    itemDrop: ItemInventory = ItemInventory(itemDrop)
-                    if itemDrop.item_name.lower() in lowered_droplist:
+                dropItems = data.get('items', {})
+                lowered_droplist = [item.lower() for item in self.items_drop_whitelist]
+                for itemDropRaw in dropItems.values():
+                    itemDrop: ItemInventory = ItemInventory(itemDropRaw)
+                    is_whitelisted = itemDrop.item_name.lower() in lowered_droplist
+                    drop_info = {
+                        "item_id": str(itemDrop.item_id),
+                        "item_name": str(itemDrop.item_name),
+                        "qty": int(itemDrop.qty),
+                        "is_acs": bool(itemDrop.is_acs),
+                        "is_temp": bool(itemDrop.is_temp),
+                        "s_type": str(itemDrop.s_type),
+                        "time": datetime.now().strftime("%H:%M:%S"),
+                        "picked_up": is_whitelisted
+                    }
+                    if not hasattr(self, "dropped_items"):
+                        self.dropped_items = []
+                    existing = next((d for d in self.dropped_items if d.get("item_id") == drop_info["item_id"]), None)
+                    if existing:
+                        existing.update(drop_info)
+                    else:
+                        self.dropped_items.insert(0, drop_info)
+                        if len(self.dropped_items) > 50:
+                            self.dropped_items.pop()
+
+                    if is_whitelisted:
                         print(f"get drop {itemDrop.item_name}")
                         self.get_drop(self.username_id, itemDrop.item_id)
                         self.player.INVENTORY.append(itemDrop)
-                        break
             elif cmd == "addItems":
-                dropItems = data.get('items')
+                dropItems = data.get('items', {})
+                if hasattr(self, "dropped_items"):
+                    for d_id in dropItems.keys():
+                        for d in self.dropped_items:
+                            if str(d.get("item_id")) == str(d_id):
+                                d["picked_up"] = True
                 for itemId, dropItem in dropItems.items():
                     dropItem: ItemInventory = ItemInventory(dropItem)
                     # Item inventory
@@ -853,7 +880,8 @@ class Bot:
                     if quest_id and "Missing Quest Progress" in ccqr_msg:
                         self.missing_quest_progress_questid.append(quest_id)
                     if "One Time Quest Only" in ccqr_msg:
-                        pass
+                        if quest_id is not None and int(quest_id) not in self.one_time_questid:
+                            self.one_time_questid.append(int(quest_id))
             elif cmd == "Wheel":
                 dropItems = data.get('dropItems')
                 dropItemsName = [item["sName"] for item in dropItems.values() if "sName" in item]
@@ -1220,22 +1248,37 @@ class Bot:
         self.player.setPlayerPositionXY(x, y)
     
     def find_best_cell(self, monster_name, byMostMonster: bool = True, byAliveMonster: bool = False):
+        if not self.monsters:
+            return None
         if monster_name.startswith('id.'):
             monster_name = monster_name.split('.')[1]
-        if byMostMonster:
-            filtered_monsters = [mon for mon in self.monsters if mon.mon_name.lower() == monster_name.lower() or mon.mon_map_id == monster_name]
+
+        def _is_match(mon):
+            if not mon.frame:
+                return False
+            if monster_name == "*":
+                return True
+            return mon.mon_name.lower() == monster_name.lower() or str(mon.mon_map_id) == str(monster_name)
+
         if byAliveMonster:
-            filtered_monsters = [mon for mon in self.monsters if (mon.mon_name.lower() == monster_name.lower() or mon.mon_map_id == monster_name) and mon.is_alive]
+            filtered_monsters = [mon for mon in self.monsters if _is_match(mon) and mon.is_alive and mon.current_hp > 0]
+            if not filtered_monsters:
+                filtered_monsters = [mon for mon in self.monsters if _is_match(mon)]
+        else:
+            filtered_monsters = [mon for mon in self.monsters if _is_match(mon)]
 
         if not filtered_monsters:
             return None
 
         cell_counts = {}
         for mon in filtered_monsters:
-            cell_counts[mon.frame] = cell_counts.get(mon.frame, 0) + 1
+            if mon.frame:
+                cell_counts[mon.frame] = cell_counts.get(mon.frame, 0) + 1
 
-        best_cell = max(cell_counts, key=cell_counts.get)
-        return best_cell
+        if not cell_counts:
+            return None
+
+        return max(cell_counts, key=cell_counts.get)
 
     def get_loaded_quest(self, quest_id) -> Optional[Quest]:
         """The tracked :class:`Quest` with this id, or ``None``.
