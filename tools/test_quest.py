@@ -234,6 +234,21 @@ def main() -> None:
     assert core13loc.ESCHERION_LAST == 272
     print("escherion  : 24 steps of quests 245-271, then 272 by hand")
 
+    # --- CoreSepulchure.ShadowfallRise: the step table, in source order ---
+    from bot.story.sepulchure_saga import core_sepulchure as ss
+
+    assert [s[0] for s in ss.SHADOWFALL_RISE_STEPS] == [
+        6539, 6540, 6541, 6542, 6543, 6544, 6544, 6545, 6546, 6547, 6548, 6549,
+        6550, 6560, 6561, 6562, 6563, 6564, 6565, 6566, 6567, 6581, 6581, 6582,
+        6582, 6583, 6584, 6585, 6586, 6586, 6587, 6588, 6589, 6590, 6592], \
+        [s[0] for s in ss.SHADOWFALL_RISE_STEPS]
+    # 6544 / 6581 / 6582 / 6586 are the source's map-item-then-kill pairs
+    paired = [q for q in {s[0] for s in ss.SHADOWFALL_RISE_STEPS}
+              if sum(1 for s in ss.SHADOWFALL_RISE_STEPS if s[0] == q) == 2]
+    assert sorted(paired) == [6544, 6581, 6582, 6586], paired
+    assert ss.SHADOWFALL_RISE_LAST == 6592 and ss.CORRUPTED_LUMA_QUEST == 6591
+    print("shadowfall : 35 steps of quests 6539-6592, 6591 by hand")
+
     print("\nquest tests OK")
 
 

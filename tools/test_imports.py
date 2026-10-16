@@ -119,6 +119,7 @@ ENTRY_MODULES = [
     "bot.enhancements.valiance",
     "bot.enhancements.forge_weapon",
     "bot.enhancements.lacerate",
+    "bot.enhancements.smite",
     "bot.other.classes.rep_based.master_ranger",
     "bot.bank_check",
     "bot.story.battle_under",
@@ -161,6 +162,7 @@ SUPPORT_MODULES = [
     "bot.nation.vhl.core_vhl",
     "bot.other.farm_joe_kits.core_farmer_joe",
     "bot.story.lordsofchaos.core13loc",
+    "bot.story.sepulchure_saga.core_sepulchure",
 ]
 
 
