@@ -120,6 +120,7 @@ ENTRY_MODULES = [
     "bot.enhancements.forge_weapon",
     "bot.enhancements.lacerate",
     "bot.enhancements.smite",
+    "bot.enhancements.forge_helm",
     "bot.other.classes.rep_based.master_ranger",
     "bot.bank_check",
     "bot.story.battle_under",
