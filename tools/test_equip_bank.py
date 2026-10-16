@@ -258,6 +258,16 @@ def main() -> int:
         player_mod.requests.request = real_request
         player_mod.time.sleep = real_sleep
 
+    # --- 8. enhance_item: the one write CoreAdvanced.AutoEnhance makes ---
+    # AutoEnhance does all of its choosing and then applies the result with a
+    # single packet, so this is the whole "apply an enhancement" surface.
+    print("\n-- enhance_item sends the enhanceItemShop packet --")
+    bot = StubBot([])
+    cmd = StubCommand(bot)
+    asyncio.run(cmd.enhance_item(6136, 70986, 2142))
+    check("packet sent", bot.sent[-1],
+          "%xt%zm%enhanceItemShop%ultratyndarius-1%6136%70986%2142%")
+
     print()
     print("=" * 74)
     print(f"passed {PASS}   failed {FAIL}")

@@ -758,6 +758,29 @@ class Command:
         return await self.equip_enhancement(enh_id)
 
     @check_alive
+    async def enhance_item(self, item_id: int, enhancement_item_id: int,
+                           shop_id: int) -> None:
+        """Socket an enhancement into an item (``CoreAdvanced``'s one write).
+
+        ``AutoEnhance`` does all of its choosing in C# and then applies the
+        result with a single packet::
+
+            %xt%zm%enhanceItemShop%{roomId}%{item.ID}%{bestEnhancement.ID}%{shopID}%
+
+        so this is the whole "apply an enhancement" surface, and everything above
+        it -- which shop, which entry -- is the caller's decision.
+
+        Args:
+            item_id (int): Id of the item to enhance.
+            enhancement_item_id (int): Id of the enhancement, as the shop sells
+                it (the shop entries in ``item.ItemID``).
+            shop_id (int): The enhancement shop it is being bought from.
+        """
+        packet = (f"%xt%zm%enhanceItemShop%{self.bot.areaId}%{item_id}%"
+                  f"{enhancement_item_id}%{shop_id}%")
+        self.bot.write_message(packet)
+        await asyncio.sleep(1)
+
     async def equip_enhancement(self, enhancement: Union[int, str],
                                 slot: Optional[str] = None, *,
                                 level: Optional[int] = None,
