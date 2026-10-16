@@ -611,8 +611,7 @@ async def quest_6_confluence_of_fates(cmd: Command, check_green: bool = False):
 
     # 2. Darkon's Receipt x100 (via bot.darkon_mats)
     if not cmd.is_in_inventory("Darkon's Receipt", 100):
-        held = cmd.get_quant_item("Darkon's Receipt")
-        log_info(f"Farming Darkon's Receipt ({held}/100)...")
+        log_info(f"Farming Darkon's Receipt ({cmd.get_quant_item('Darkon\'s Receipt')}/100)...")
         await darkons_receipts_arcangrove(cmd, 100)
 
     # 3. Semiramis Feather (/guardiantree - Quest 6286)
