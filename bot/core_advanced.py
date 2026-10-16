@@ -172,15 +172,6 @@ WEAPON_UNLOCK = {"Forge": "ForgeWeapon", "Lacerate": "Lacerate",
 #: The slots the reference's ``EnhanceableCatagories`` covers, as our sES codes.
 ENHANCEABLE_SLOTS = ("Weapon", "he", "ba", "ar", "co")
 
-#: Run-scoped memo of ``uXxx`` results, cleared by :func:`reset_unlock_cache`.
-_unlock_cache: dict = {}
-
-
-def reset_unlock_cache() -> None:
-    """Drop the memoised unlock results (the reference re-reads them per call)."""
-    _unlock_cache.clear()
-
-
 async def enhancement_unlocked(cmd: Command, name: str) -> bool:
     """``CoreAdvanced.uXxx()``: is that enhancement unlocked on this account?
 
@@ -188,9 +179,6 @@ async def enhancement_unlocked(cmd: Command, name: str) -> bool:
         cmd (Command): Facade to act through.
         name (str): Flag name from :data:`UNLOCKS`, e.g. ``"Valiance"``.
     """
-    if name in _unlock_cache:
-        return _unlock_cache[name]
-
     quests, factions = UNLOCKS[name]
     unlocked = True
     for quest in quests:
@@ -202,7 +190,6 @@ async def enhancement_unlocked(cmd: Command, name: str) -> bool:
             if cmd.get_faction_rank(faction) < rank:
                 unlocked = False
                 break
-    _unlock_cache[name] = unlocked
     return unlocked
 
 
@@ -237,16 +224,28 @@ def _current_special(cmd: Command, slot: str) -> str:
     return "None"
 
 
-async def _resolve_flags(cmd: Command, names) -> dict:
-    """Evaluate the flags one table entry needs, as its lambdas expect them."""
+async def _resolve_flags(cmd: Command, names, cache: dict = None) -> dict:
+    """Evaluate the flags one table entry needs, as its lambdas expect them.
+
+    Args:
+        cmd (Command): Facade to act through.
+        names: Flag names from the entry, incl. ``__quest:N``/``__cur:slot``.
+        cache (dict): Optional per-lookup memo.  Without it every flag is read
+            again, which is what the reference does.
+    """
     flags = {}
     for name in names:
+        if name in (cache or {}):
+            flags[name] = cache[name]
+            continue
         if name.startswith("__quest:"):
             flags[name] = await cmd.is_completed_before(int(name.split(":")[1]))
         elif name.startswith("__cur:"):
             flags[name] = _current_special(cmd, name.split(":", 1)[1])
         else:
             flags[name] = await enhancement_unlocked(cmd, name)
+        if cache is not None:
+            cache[name] = flags[name]
     return flags
 
 
@@ -266,34 +265,26 @@ async def library_plan(cmd: Command, class_name: str):
         Plan | None: None when neither table covers the class, which is the
         reference's ``type == null`` case.
     """
+    from bot.core_advanced_tables import AWE_LIBRARY, FORGE_LIBRARY
+
     lowered = class_name.strip().lower()
-    for library in (forge_library(), awe_library()):
+    cache: dict = {}
+    for library in (FORGE_LIBRARY, AWE_LIBRARY):
         for plan in library:
             if lowered not in plan.classes:
                 continue
             if plan.condition == "False":
                 continue
-            flags = await _resolve_flags(
-                cmd, _constant_names(plan.condition, plan.type, plan.cape,
-                                     plan.helm, plan.weapon))
-            if plan.condition is not None and plan.condition in ("False",):
-                continue
+            flags = await _resolve_flags(cmd, _constant_names(
+                plan.condition, plan.type, plan.cape, plan.helm, plan.weapon),
+                cache)
             if callable(plan.condition) and plan.condition(flags):
                 continue
-            if plan.requires and not all(flags.get(name) for name in plan.requires):
+            if plan.requires and not all(flags.get(name)
+                                         for name in plan.requires):
                 continue
             return plan
     return None
-
-
-def forge_library():
-    from bot.core_advanced_tables import FORGE_LIBRARY
-    return FORGE_LIBRARY
-
-
-def awe_library():
-    from bot.core_advanced_tables import AWE_LIBRARY
-    return AWE_LIBRARY
 
 
 async def smart_enhance(cmd: Command, class_name: str,
@@ -349,6 +340,12 @@ async def smart_enhance(cmd: Command, class_name: str,
             return
 
     await cmd.equip_item(selected.s_name)
+    for _ in range(40):
+        equipped = cmd.get_equipped_class()
+        if equipped is not None and equipped.s_name.strip().lower() == lowered:
+            break
+        await cmd.sleep(100)
+
     if weapon_override:
         weapon = weapon_override
     await enhance_equipped(cmd, type_, cape, helm, weapon)
@@ -440,10 +437,21 @@ def _weapon_already_has(item, type_: str, weapon: str) -> bool:
     return proc == special
 
 
-async def _best_enhancement(cmd: Command, item, shop_id: int):
-    """The shop entry ``_AutoEnhance`` would pick for ``item``, or None."""
-    from bot.core_bots import load_shop_entry  # noqa: F401  (kept for parity)
+async def _best_enhancement(cmd: Command, item, shop_id: int, cape: str = "None",
+                            helm: str = "None", weapon: str = "None"):
+    """The shop entry ``_AutoEnhance`` would pick for ``item``, or None.
 
+    The entry has to name the wanted special (or the slot) and pass the member and
+    level filters; of what is left, the highest level wins, then the upgrade flag.
+
+    Args:
+        cmd (Command): Facade to act through.
+        item: The inventory item being enhanced.
+        shop_id (int): Enhancement shop to search.
+        cape (str): Wanted ``CapeSpecial``, or ``"None"``.
+        helm (str): Wanted ``HelmSpecial``, or ``"None"``.
+        weapon (str): Wanted ``WeaponSpecial``, or ``"None"``.
+    """
     await cmd.ensure_load_shop(shop_id)
     shop = None
     for loaded in cmd.bot.loaded_shop_datas:
@@ -453,29 +461,49 @@ async def _best_enhancement(cmd: Command, item, shop_id: int):
     if shop is None:
         return None
 
-    level = cmd.get_player().LEVEL or 0
+    player = cmd.get_player()
+    level = player.LEVEL or 0
+    cape_on = cape != "None" and item.s_es == "ba"
+    helm_on = helm != "None" and item.s_es == "he"
+    weapon_on = weapon != "None" and item.s_es == "Weapon"
+
     available = []
     for entry in shop.items:
-        if (not cmd.get_player().is_member and entry.is_upgrade)                 or entry.level > level:
+        if (not player.is_member and entry.is_upgrade) or entry.level > level:
             continue
-        available.append(entry)
+        name = entry.item_name.replace(" ", "").replace("'", "")
+        if cape_on and cape.replace("_", "").lower() in name:
+            available.append(entry)
+        elif weapon_on and weapon.replace("_", "").lower() in name:
+            available.append(entry)
+        elif helm_on and helm.replace("_", "").lower() in name:
+            available.append(entry)
+        elif item.s_es == "ar" and "armor" in name:
+            available.append(entry)
+        elif item.s_es == "he" and "helm" in name:
+            available.append(entry)
+        elif item.s_es == "ba" and "cape" in name:
+            available.append(entry)
+        elif item.s_es == "Weapon" and "weapon" in name:
+            available.append(entry)
+
     if not available:
         return None
     if len(available) == 1:
         return available[0]
-    ordered = sorted(available,
-                     key=lambda e: (e.level, 1 if e.is_upgrade else 0),
-                     reverse=True)
-    return ordered[0]
+    return sorted(available,
+                  key=lambda e: (e.level, 1 if e.is_upgrade else 0),
+                  reverse=True)[0]
 
 
 async def _auto_enhance(cmd: Command, item, shop_id: int,
-                        map_name: str = None) -> None:
+                        map_name: str = None, cape: str = "None",
+                        helm: str = "None", weapon: str = "None") -> None:
     """``CoreAdvanced._AutoEnhance``: search a shop and send the one packet."""
     if map_name and cmd.is_not_in_map(map_name):
         await cmd.join_map(map_name)
 
-    best = await _best_enhancement(cmd, item, shop_id)
+    best = await _best_enhancement(cmd, item, shop_id, cape, helm, weapon)
     if best is None:
         return
     if (best.item_id == item.enh_id and item.enh_level > 0
@@ -525,7 +553,8 @@ async def auto_enhance(cmd: Command, items, type_: str, cape: str = "None",
         if await enhancement_unlocked(cmd, flag):
             if not already_has_requested(cape_item, level, type_, cape, helm,
                                          weapon):
-                await _auto_enhance(cmd, cape_item, CAPE_SHOP, FORGE_MAP)
+                await _auto_enhance(cmd, cape_item, CAPE_SHOP, FORGE_MAP,
+                                    cape=cape)
         else:
             cmd.bot.log(f"[advanced] Enhancement Failed:\tYou did not unlock the "
                         f"{cape} Enhancement yet")
@@ -541,7 +570,7 @@ async def auto_enhance(cmd: Command, items, type_: str, cape: str = "None",
                                          weapon):
                 await _auto_enhance(cmd, helm_item, HELM_SHOP,
                                     FORGE_MAP if HELM_SPECIALS.get(helm, 0)
-                                    else None)
+                                    else None, helm=helm)
         else:
             cmd.bot.log(f"[advanced] Enhancement Failed:\tYou did not unlock the "
                         f"{helm} Enhancement yet")
@@ -559,7 +588,8 @@ async def auto_enhance(cmd: Command, items, type_: str, cape: str = "None",
         if can and shop_id and not already_has_requested(
                 weapon_item, level, type_, cape, helm, weapon):
             await _auto_enhance(cmd, weapon_item, shop_id,
-                                FORGE_MAP if special > 6 else None)
+                                FORGE_MAP if special > 6 else None,
+                                weapon=weapon)
 
     if remaining:
         shop_id = BODY_SHOPS.get(type_, (0, 0))

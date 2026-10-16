@@ -6,6 +6,7 @@ or does it pick an arbitrary pattern-10 item?
 
     python tools/test_enhancement.py
 """
+import asyncio
 import json
 import pathlib
 import sys
@@ -319,6 +320,175 @@ def main() -> None:
                   "items": [{"ItemID": 1, "sName": "Stick", "sType": "Sword"}]})
     check("ordinary shop is not a forge", not plain.is_forge)
     check("ordinary shop registers nothing", plain.register_enhancements() == 0)
+
+
+    # --- SmartEnhance: the two tables, and the one packet ---------------
+    from bot import core_advanced as adv
+
+    class _Item:
+        def __init__(self, name, slot, pattern=0, proc=0, level=0, enh_id=0,
+                     item_id=0, equipped=False):
+            self.s_name = name
+            self.item_name = name.lower()
+            self.s_es = slot
+            self.enh_pattern_id = pattern
+            self.item_proc_id = proc
+            self.enh_level = level
+            self.enh_id = enh_id
+            self.item_id = item_id
+            self.is_equipped = equipped
+
+    class _ShopItem:
+        def __init__(self, item_id, name, level, upgrade=False):
+            self.item_id = item_id
+            self.item_name = name.lower()
+            self.level = level
+            self.is_upgrade = upgrade
+
+    class _Shop:
+        def __init__(self, shop_id, items):
+            self.shop_id = shop_id
+            self.items = items
+
+    class _Player:
+        def __init__(self, level, member):
+            self.LEVEL = level
+            self.is_member = member
+            self.INVENTORY = []
+
+    class _Bot:
+        def __init__(self, level, member):
+            self.player = _Player(level, member)
+            self.loaded_shop_datas = []
+            self.logs = []
+
+        def log(self, *args):
+            self.logs.append(" ".join(map(str, args)))
+
+        def debug(self, *args):
+            self.logs.append(" ".join(map(str, args)))
+
+    class Stub:
+        def __init__(self, quests=(), inventory=(), shops=(), level=100,
+                     member=True, ranks=None):
+            self.bot = _Bot(level, member)
+            self.bot.player.INVENTORY = list(inventory)
+            self.bot.loaded_shop_datas = list(shops)
+            self._quests = set(quests)
+            self._ranks = dict(ranks or {})
+            self.calls = []
+
+        def kinds(self):
+            return [c[0] for c in self.calls]
+
+        def get_player(self):
+            return self.bot.player
+
+        def get_equipped_class(self):
+            for item in self.bot.player.INVENTORY:
+                if item.s_es == "ar" and item.is_equipped:
+                    return item
+            return None
+
+        def get_faction_rank(self, name):
+            return self._ranks.get(name, 0)
+
+        def is_not_in_map(self, name):
+            return True
+
+        def is_in_inventory(self, name, qty=1, operator=">=", isTemp=False):
+            return any(i.item_name == name.lower()
+                       for i in self.bot.player.INVENTORY)
+
+        async def has_item(self, name, qty=1, operator=">=", isTemp=False):
+            return self.is_in_inventory(name)
+
+        async def is_completed_before(self, quest_id):
+            return quest_id in self._quests
+
+        async def join_map(self, name, room=None, safe_leave=True):
+            self.calls.append(("join_map", name))
+
+        async def sleep(self, ms):
+            pass
+
+        async def ensure_load_shop(self, shop_id):
+            return any(str(s.shop_id) == str(shop_id)
+                       for s in self.bot.loaded_shop_datas)
+
+        async def enhance_item(self, item_id, enhancement_item_id, shop_id):
+            self.calls.append(("enhance_item", item_id, enhancement_item_id,
+                               shop_id))
+
+        async def equip_item(self, name):
+            self.calls.append(("equip_item", name))
+            return True
+
+    def run(coro):
+        return asyncio.run(coro)
+
+    # tables: nothing unlocked -> the Awe table answers for horc evader,
+    # everything unlocked -> the Forge table
+    none = Stub()
+    plan = run(adv.library_plan(none, "Horc Evader"))
+    check("no unlocks -> awe table covers horc evader", plan is not None)
+    check("awe plan is Thief with Mana Vamp",
+          (plan.type, plan.weapon) == ("Thief", "Mana_Vamp"),
+          f"{plan.type}/{plan.weapon}")
+
+    stocked = Stub(quests=(8739, 8824, 8744))       # Lacerate, Vim, Vainglory
+    plan = run(adv.library_plan(stocked, "Horc Evader"))
+    check("with unlocks -> forge table: Thief, Vainglory, Vim, Lacerate",
+          (plan.type, plan.cape, plan.helm, plan.weapon)
+          == ("Thief", "Vainglory", "Vim", "Lacerate"),
+          f"{plan.type}/{plan.cape}/{plan.helm}/{plan.weapon}")
+
+    unknown = Stub()
+    check("a class in neither table -> None",
+          run(adv.library_plan(unknown, "Not A Real Class")) is None)
+
+    # already applied: the level has to match the player's
+    cape = _Item("Cape", "ba", pattern=24, level=100)
+    check("cape carries Vainglory at level 100",
+          adv.already_has_requested(cape, 100, "Lucky", "Vainglory", "None",
+                                    "None") is True)
+    check("same cape at player level 95 is not 'already applied'",
+          adv.already_has_requested(cape, 95, "Lucky", "Vainglory", "None",
+                                    "None") is False)
+
+    # auto_enhance: one packet per item, with the shop the source picks
+    weapon = _Item("Stick", "Weapon", item_id=111)
+    klass = _Item("Some Class", "ar", item_id=222)
+    helm = _Item("Hat", "he", item_id=333)
+    shop_forge = _Shop(2142, [_ShopItem(70752, "Valiance", 100),
+                              _ShopItem(70986, "Forge", 30)])
+    shop_helm = _Shop(2164, [_ShopItem(71540, "Vim", 100)])
+    shop_body = _Shop(763, [_ShopItem(66447, "Lucky Armor Enhancement", 100)])
+    stub = Stub(quests=(8739, 8741, 8824, 8744),
+                inventory=[weapon, klass, helm],
+                shops=[shop_forge, shop_helm, shop_body])
+
+    run(adv.auto_enhance(stub, [weapon, klass, helm], "Lucky", "None", "Vim",
+                         "Valiance"))
+    sent = [c for c in stub.calls if c[0] == "enhance_item"]
+    check("weapon enhanced from the forge shop",
+          ("enhance_item", 111, 70752, 2142) in sent, str(sent))
+    check("helm enhanced from shop 2164",
+          ("enhance_item", 333, 71540, 2164) in sent, str(sent))
+    check("class took the Lucky armor entry from shop 763",
+          ("enhance_item", 222, 66447, 763) in sent, str(sent))
+    check("forge is joined for the forge specials",
+          ("join_map", "forge") in stub.calls, str(stub.calls))
+
+    # an item already carrying the wanted enhancement is left alone
+    done_weapon = _Item("Stick", "Weapon", pattern=9, proc=9, level=100,
+                        enh_id=70752, item_id=444)
+    stub2 = Stub(quests=(8739, 8741, 8824, 8744),
+                 inventory=[done_weapon], shops=[shop_forge])
+    run(adv.auto_enhance(stub2, [done_weapon], "Lucky", "None", "None",
+                         "Valiance"))
+    check("already carrying Valiance -> no packet",
+          "enhance_item" not in stub2.kinds(), str(stub2.calls))
 
     print("\n" + "=" * 74)
     print(f"passed {len(PASSED)}   failed {len(FAILED)}")
