@@ -150,6 +150,7 @@ SUPPORT_MODULES = [
     "bot.ultra.core_ultra",
     "bot.nation.core_nation",
     "bot.core_advanced",
+    "bot.core_advanced_tables",
     "bot.core_bots",
     "bot.core_dailies",
     "bot.core_farms",
