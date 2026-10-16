@@ -118,6 +118,7 @@ ENTRY_MODULES = [
     "bot.other.farm_joe_kits.0_farmer_joe_do_all",
     "bot.enhancements.valiance",
     "bot.enhancements.forge_weapon",
+    "bot.enhancements.lacerate",
     "bot.other.classes.rep_based.master_ranger",
     "bot.bank_check",
     "bot.story.battle_under",
