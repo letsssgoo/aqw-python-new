@@ -139,6 +139,8 @@ class ItemInventory:
         self.enh_rarity: int = _int(data, 'EnhRty')
         self.enh_dps: int = _int(data, 'EnhDPS')
         self.enh_range: int = _int(data, 'EnhRng')
+        # Inventory payloads name it ``ProcID``, shop entries ``ItemProcID``.
+        self.item_proc_id: int = _int(data, 'ProcID', _int(data, 'ItemProcID'))
 
         # --- quests this item turns in ---------------------------------
         self.turn_in: List[ItemInventory] = []
