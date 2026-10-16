@@ -1,15 +1,9 @@
-"""SmartEnhance's two enhancement libraries, extracted from CoreAdvanced.cs.
+"""Tabel SmartEnhance, diekstrak dari CoreAdvanced.cs (jangan diedit tangan).
 
-The reference keeps these as two local functions inside ``SmartEnhance``:
-``bool ForgeEnhancementLibrary()`` and ``void AweEnhancementLibrary()``.  They are
-the same switch, so they are the same two tables here, one Plan per ``case``
-block: which classes it covers, which unlocks it needs, and what it sets.
-
-``requires``/``condition`` answer "does this block apply?"; when it does not, the
-Awe table is consulted instead, exactly as the reference's ``goto default``
-does.  Values may be lambdas where the source had a ternary.
-
-Regenerate with ``tools/extract_smart_enhance_tables.py``; do not hand-edit.
+Tiap Plan = satu blok ``case`` di sumber: kelas apa yang kena, flag apa yang
+harus terbuka, dan enhancement apa yang dipasang.  ``requires`` kosong dan
+``condition`` None berarti blok itu tanpa syarat; ``condition`` lambda dipakai
+untuk blok yang syaratnya bukan sekadar AND flag.
 """
 from dataclasses import dataclass
 from typing import Callable, Optional, Tuple
@@ -34,7 +28,7 @@ FORGE_LIBRARY: Tuple[Plan, ...] = (
     Plan(classes=("great thief",), condition=lambda unlocked: not unlocked["Dauntless"] or not unlocked["Vim"] or not unlocked["Lament"], type="Lucky", cape="Lament", helm="Vim", weapon="Dauntless"),
     Plan(classes=("timekeeper", "timekiller",), condition=lambda unlocked: not unlocked["Lacerate"] or not unlocked["Vim"] or not unlocked["Lament"], type="Lucky", cape="Lament", helm="Vim", weapon="Lacerate"),
     Plan(classes=("corrupted chronomancer", "underworld chronomancer", "eternal chronomancer", "immortal chronomancer", "dark metal necro",), condition=lambda unlocked: not unlocked["ForgeCape"], type="Lucky", cape="Forge", weapon="Spiral_Carve"),
-    Plan(classes=("glacial berserker",), condition=lambda unlocked: not completed_before(8758), type="Lucky", cape="Forge", weapon="Awe_Blast"),
+    Plan(classes=("glacial berserker",), condition=lambda unlocked: not unlocked["__quest:8758"], type="Lucky", cape="Forge", weapon="Awe_Blast"),
     Plan(classes=("legendary elemental warrior", "mythic elemental warrior", "ultra elemental warrior",), condition=lambda unlocked: not unlocked["ForgeCape"], type="Lucky", cape="Forge", weapon="Mana_Vamp"),
     Plan(classes=("Draconic Chronomancer",), condition=lambda unlocked: not unlocked["Smite"] or not unlocked["ForgeCape"], type="Lucky", cape="Forge", weapon="Smite"),
     Plan(classes=("ultra omniknight", "dark ultra omninight",), condition=lambda unlocked: not unlocked["Elysium"] or not unlocked["ForgeCape"], type="Lucky", cape="Forge", weapon="Elysium"),
@@ -46,7 +40,7 @@ FORGE_LIBRARY: Tuple[Plan, ...] = (
     Plan(classes=("yami no ronin",), condition=lambda unlocked: not unlocked["Praxis"] or not unlocked["Vainglory"] or not unlocked["Vim"], type="Lucky", cape="Vainglory", helm="Vim", weapon="Praxis"),
     Plan(classes=("nechronomancer", "necrotic chronomancer",), condition=lambda unlocked: not unlocked["Vainglory"] or not unlocked["ArcanasConcerto"] or not unlocked["Anima"], type="Lucky", cape="Vainglory", helm="Anima", weapon="Valiance"),
     Plan(classes=("shadowwalker of time", "shadowstalker of time", "shadowweaver of time",), condition=lambda unlocked: not unlocked["Vainglory"] or not unlocked["Elysium"] or not unlocked["Vim"], type="Lucky", cape="Vainglory", helm="Vim", weapon="Elysium"),
-    Plan(classes=("legion doomknight",), condition=lambda unlocked: not unlocked["Vainglory"] or not unlocked["Valiance"], type="Lucky", cape="Vainglory", helm=lambda unlocked: current_special("helm"), weapon="Valiance"),
+    Plan(classes=("legion doomknight",), condition=lambda unlocked: not unlocked["Vainglory"] or not unlocked["Valiance"], type="Lucky", cape="Vainglory", helm=lambda unlocked: unlocked["__cur:helm"], weapon="Valiance"),
     Plan(classes=("antique hunter", "artifact hunter",), condition=lambda unlocked: not unlocked["Vainglory"] or not unlocked["Elysium"] or not unlocked["Pneuma"], type="Lucky", cape="Vainglory", helm="Pneuma", weapon="Elysium"),
     Plan(classes=("abyssal angel", "abyssal angel's shadow",), condition=lambda unlocked: not unlocked["Lament"] or not unlocked["Elysium"] or not unlocked["Pneuma"], type="Lucky", cape="Vainglory", helm="Pneuma", weapon="Elysium"),
     Plan(classes=("verus doomknight",), condition=lambda unlocked: not unlocked["Ravenous"] or not unlocked["ForgeHelm"] or not unlocked["Vainglory"], type="Lucky", cape="Vainglory", helm=lambda unlocked: ("Anima" if unlocked["Anima"] else "Forge"), weapon=lambda unlocked: ("Dauntless" if unlocked["Dauntless"] else "Ravenous")),
@@ -56,7 +50,7 @@ FORGE_LIBRARY: Tuple[Plan, ...] = (
     Plan(classes=("archpaladin",), condition=lambda unlocked: not unlocked["Lacerate"] or not unlocked["ForgeHelm"] or not unlocked["Penitence"], type="Lucky", cape="Penitence", helm=lambda unlocked: ("Forge" if unlocked["ForgeHelm"] else None), weapon=lambda unlocked: ("Valiance" if unlocked["Valiance"] else ("Praxis" if unlocked["Praxis"] else "Lacerate"))),
     Plan(classes=("stonecrusher",), condition=lambda unlocked: not unlocked["Valiance"] or not unlocked["Anima"] or not unlocked["Absolution"], type="Fighter", cape="Absolution", helm="Anima", weapon="Valiance"),
     # lightcaster: sumbernya `if (A) { if (B) goto default; }` -- fallback hanya
-    # kalau A DAN B, jadi quirk sumber itu diikuti apa adanya (bukan di-"perbaiki").
+    # kalau A DAN B, jadi quirk sumber itu diikuti apa adanya.
     Plan(classes=("lightcaster",),
          condition=lambda unlocked: (
              (not unlocked["Valiance"] or not unlocked["Pneuma"]
@@ -64,10 +58,10 @@ FORGE_LIBRARY: Tuple[Plan, ...] = (
              and (not unlocked["Lament"] or not unlocked["Praxis"])),
          type="Wizard",
          cape=lambda unlocked: ("Lament" if not unlocked["Vainglory"] else "Vainglory"),
-         helm=lambda unlocked: (current_special("helm") if not unlocked["Pneuma"] else "Pneuma"),
+         helm=lambda unlocked: (unlocked["__cur:helm"] if not unlocked["Pneuma"] else "Pneuma"),
          weapon=lambda unlocked: ("Praxis" if not unlocked["Valiance"] else "Valiance")),
     Plan(classes=("archivist of time",), condition=lambda unlocked: not unlocked["Valiance"] or not unlocked["Pneuma"] or not unlocked["Vainglory"], type="Wizard", cape="Vainglory", helm="Pneuma", weapon="Valiance"),
-    Plan(classes=("infinity knight",), condition=lambda unlocked: not unlocked["ForgeCape"], type="Wizard", cape="Forge", helm=lambda unlocked: current_special("helm"), weapon="Awe_Blast"),
+    Plan(classes=("infinity knight",), condition=lambda unlocked: not unlocked["ForgeCape"], type="Wizard", cape="Forge", helm=lambda unlocked: unlocked["__cur:helm"], weapon="Awe_Blast"),
     Plan(classes=("archmage", "darklord", "arcana invoker",), condition=lambda unlocked: not unlocked["Vainglory"] or not unlocked["Valiance"] or not unlocked["Pneuma"], type="Wizard", cape="Vainglory", helm="Pneuma", weapon=lambda unlocked: ("Ravenous" if unlocked["Ravenous"] else "Valiance")),
     Plan(classes=("master of moglins", "dark master of moglins",), condition=lambda unlocked: not unlocked["Penitence"] or not unlocked["Acheron"] or not unlocked["Pneuma"], type="Wizard", cape="Penitence", helm="Pneuma", weapon="Acheron"),
     Plan(classes=("legion revenant", "legion revenant (ioda)",), condition=lambda unlocked: not unlocked["Vainglory"] or not unlocked["Valiance"] or not unlocked["Pneuma"], type="Wizard", cape="Vainglory", helm="Pneuma", weapon=lambda unlocked: ("Ravenous" if unlocked["Ravenous"] else "Valiance")),
@@ -84,11 +78,11 @@ FORGE_LIBRARY: Tuple[Plan, ...] = (
     Plan(classes=("arachnomancer",), condition=lambda unlocked: not unlocked["Absolution"] or not unlocked["Absolution"] or not unlocked["Vim"], type="Lucky", cape=lambda unlocked: ("Penitence" if unlocked["Penitence"] else "Absolution"), helm="Vim", weapon=lambda unlocked: ("Elysium" if unlocked["Elysium"] else "Valiance")),
     Plan(classes=("phantom chronomancer", "phantasm chronomancer",), condition=lambda unlocked: unlocked["Elysium"] or unlocked["Ravenous"], type="Wizard", cape="Lament", helm="Examen", weapon=lambda unlocked: ("Elysium" if unlocked["Elysium"] else "Ravenous")),
     Plan(classes=("scion of flames",), condition=lambda unlocked: ( not unlocked["Vainglory"] or not unlocked["Lament"]) and ( not unlocked["Pneuma"] or not unlocked["ForgeHelm"]) and ( not unlocked["Ravenous"] or not unlocked["Valiance"]), type="Wizard", cape=lambda unlocked: ("Vainglory" if unlocked["Vainglory"] else "Lament"), helm=lambda unlocked: ("Pneuma" if unlocked["Pneuma"] else "Forge"), weapon=lambda unlocked: ("Ravenous" if unlocked["Ravenous"] else "Valiance")),
-    Plan(classes=("healer", "healer (rare)",), type="Healer", cape=lambda unlocked: current_special("cape"), helm=lambda unlocked: current_special("helm"), weapon=lambda unlocked: ("Valiance" if unlocked["Valiance"] else "Awe_Blast")),
-    Plan(classes=("chrono shadowslayer", "chrono shadowhunter",), type="Lucky", cape=lambda unlocked: ("Lament" if unlocked["Lament"] else ("Forge" if unlocked["ForgeCape"] else current_special("cape"))), helm=lambda unlocked: ("Vim" if unlocked["Vim"] else ("Forge" if unlocked["ForgeHelm"] else current_special("helm"))), weapon=lambda unlocked: ("Ravenous" if unlocked["Ravenous"] else ("Arcanas_Concerto" if unlocked["ArcanasConcerto"] else ("Forge" if unlocked["ForgeWeapon"] else "Awe_Blast")))),
+    Plan(classes=("healer", "healer (rare)",), type="Healer", cape=lambda unlocked: unlocked["__cur:cape"], helm=lambda unlocked: unlocked["__cur:helm"], weapon=lambda unlocked: ("Valiance" if unlocked["Valiance"] else "Awe_Blast")),
+    Plan(classes=("chrono shadowslayer", "chrono shadowhunter",), type="Lucky", cape=lambda unlocked: ("Lament" if unlocked["Lament"] else ("Forge" if unlocked["ForgeCape"] else unlocked["__cur:cape"])), helm=lambda unlocked: ("Vim" if unlocked["Vim"] else ("Forge" if unlocked["ForgeHelm"] else unlocked["__cur:helm"])), weapon=lambda unlocked: ("Ravenous" if unlocked["Ravenous"] else ("Arcanas_Concerto" if unlocked["ArcanasConcerto"] else ("Forge" if unlocked["ForgeWeapon"] else "Awe_Blast")))),
     Plan(classes=("glacial warlord", "glaceran warlord", "dark glaceran warlord", "savage glaceran warlord",), condition=lambda unlocked: not unlocked["Vainglory"] or not unlocked["Valiance"] or not unlocked["Anima"], type="Lucky", cape="Vainglory", helm="Anima", weapon=lambda unlocked: ("Dauntless" if unlocked["Dauntless"] else "Valiance")),
     Plan(classes=("king's echo",), condition=lambda unlocked: not unlocked["Valiance"] or not unlocked["Examen"] or not unlocked["Vainglory"], type="Healer", cape=lambda unlocked: ("Lament" if unlocked["Lament"] else "Vainglory"), helm="Examen", weapon=lambda unlocked: ("Elysium" if unlocked["Elysium"] else "Mana_Vamp")),
-    Plan(classes=("dragonslayer general",), type="Lucky", cape=lambda unlocked: ("Vainglory" if unlocked["Vainglory"] else ("Forge" if unlocked["ForgeCape"] else current_special("cape"))), helm=lambda unlocked: ("Anima" if unlocked["Anima"] else ("Forge" if unlocked["ForgeHelm"] else current_special("helm"))), weapon=lambda unlocked: ("Valiance" if unlocked["Valiance"] else ("Smite" if unlocked["Smite"] else "Mana_Vamp"))),
+    Plan(classes=("dragonslayer general",), type="Lucky", cape=lambda unlocked: ("Vainglory" if unlocked["Vainglory"] else ("Forge" if unlocked["ForgeCape"] else unlocked["__cur:cape"])), helm=lambda unlocked: ("Anima" if unlocked["Anima"] else ("Forge" if unlocked["ForgeHelm"] else unlocked["__cur:helm"])), weapon=lambda unlocked: ("Valiance" if unlocked["Valiance"] else ("Smite" if unlocked["Smite"] else "Mana_Vamp"))),
     Plan(classes=("chrono chaorruptor",), condition=lambda unlocked: not unlocked["Ravenous"] or not unlocked["Anima"] or not unlocked["Vainglory"], type="Lucky", cape="Vainglory", helm="Anima", weapon=lambda unlocked: ("Dauntless" if unlocked["Dauntless"] else "Ravenous")),
     Plan(classes=("chrono dataknight", "chrono dragonknight",), condition=lambda unlocked: not unlocked["Ravenous"] or not unlocked["Pneuma"] or not unlocked["Vainglory"], type="Wizard", cape="Vainglory", helm="Pneuma", weapon="Ravenous"),
     Plan(classes=("legendary hero",), condition=lambda unlocked: not unlocked["Valiance"] or not unlocked["ForgeHelm"] or not unlocked["Absolution"], type="Wizard", cape="Absolution", helm="Forge", weapon=lambda unlocked: ("Ravenous" if unlocked["Ravenous"] else "Valiance")),

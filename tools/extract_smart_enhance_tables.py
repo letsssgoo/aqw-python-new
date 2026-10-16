@@ -1,4 +1,7 @@
-"""Extract SmartEnhance's two enhancement libraries into bot/core_advanced_tables.py.
+"""# NOTE: the `lightcaster` entry is hand-corrected in the output -- its block is
+# `if (A) { if (B) goto default; }`, which this line-based parser flattens.
+# Keep the hand-written Plan when regenerating.
+Extract SmartEnhance's two enhancement libraries into bot/core_advanced_tables.py.
 
 Dev tool: it reads the reference tree (outside this repo) and rewrites the
 table module, so a source update can be re-checked instead of trusted.
