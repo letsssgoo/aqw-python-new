@@ -296,21 +296,28 @@ def main() -> None:
     assert ("equip_item", "The Server is Down") in helm.calls, helm.calls
     print("serverdown : hunts the hamster in /undergroundlabb, then wears it")
 
-    # --- Pets -----------------------------------------------------------
+    # --- Pets: the source ignores its parameter (§16, a (iii) defect) ----
     none = Stub()
-    asyncio.run(joe.pets(none))
+    asyncio.run(joe.pets(none, joe.PET_HOT_MAMA))
     assert none.calls == [], none.calls
-    print("pets       : no choice -> nothing fetched")
+    print("pets       : the parameter is ignored, as the source ignores it")
 
-    mama = Stub(solo="King's Echo", classes_held=["King's Echo"])
-    asyncio.run(joe.pets(mama, joe.PET_HOT_MAMA))
-    assert ("join_map", "battleundere") in mama.calls, mama.calls
-    assert ("equip_item", joe.HOT_MAMA) in mama.calls, mama.calls
-    akriloth = Stub(solo="King's Echo", classes_held=["King's Echo"])
-    asyncio.run(joe.pets(akriloth, joe.PET_AKRILOTH))
-    assert ("join_map", "gravestrike") in akriloth.calls, akriloth.calls
-    assert ("equip_item", joe.AKRILOTH_PET) in akriloth.calls, akriloth.calls
-    print("pets       : the parameter is honoured, both pets in their own map")
+    real_choice = joe.PET_CHOICE
+    try:
+        joe.PET_CHOICE = joe.PET_HOT_MAMA
+        mama = Stub(solo="King's Echo", classes_held=["King's Echo"])
+        asyncio.run(joe.pets(mama, joe.PET_HOT_MAMA))
+        assert ("join_map", "battleundere") in mama.calls, mama.calls
+        assert ("equip_item", joe.HOT_MAMA) in mama.calls, mama.calls
+
+        joe.PET_CHOICE = joe.PET_AKRILOTH
+        akriloth = Stub(solo="King's Echo", classes_held=["King's Echo"])
+        asyncio.run(joe.pets(akriloth, joe.PET_AKRILOTH))
+        assert ("join_map", "gravestrike") in akriloth.calls, akriloth.calls
+        assert ("equip_item", joe.AKRILOTH_PET) in akriloth.calls, akriloth.calls
+    finally:
+        joe.PET_CHOICE = real_choice
+    print("pets       : with the option set, that pet is fetched and worn")
 
     # --- the level ladder -----------------------------------------------
     # the two things that would touch the network are replaced, so what is left

@@ -263,22 +263,30 @@ async def shirt_and_hat(cmd: Command) -> None:
 
 
 async def pets(cmd: Command, choice: Optional[str] = None) -> None:
-    """``CoreFarmerJoe.Pets``: fetch and wear the chosen pet, if any.
+    """``CoreFarmerJoe.Pets``: fetch and wear the chosen pet -- which cannot happen.
 
     Note:
-        The reference ignores its own parameter and reads a ``"Pets"`` config key,
-        which is not one of the options it declares (``"PetChoice"`` is), so its
-        two calls from ``DoAll`` do nothing whichever pet was picked.  The
-        parameter is honoured here -- that is the fix for it -- and the slip is in
-        the deviation register (``knowledge_script.md`` §16).
+        The reference *ignores* its own parameter and reads a config key ``"Pets"``,
+        which is not one of the options it declares -- those name ``"PetChoice"``.
+        So the value it reads is always that option's declared default,
+        ``PetChoice.None``, and the method returns without doing anything.  That is
+        reproduced here instead of repaired: ``PET_CHOICE`` is that option and it
+        is ``PET_NONE``, so ``choice`` is accepted and unused, exactly as in the
+        source.  ``DoAll``'s two pet calls are therefore no-ops there as well --
+        the source's own dead code, registered as a (iii) defect, not a port
+        decision.  Set ``PET_CHOICE`` to a pet to make the branch below run, which
+        is what setting the reference's option would have done.
     """
-    if choice == PET_HOT_MAMA and not await cmd.has_item(HOT_MAMA):
+    if PET_CHOICE == PET_NONE:
+        return
+
+    if PET_CHOICE == PET_HOT_MAMA and not await cmd.has_item(HOT_MAMA):
         await set_class(cmd)
         await hunt_item(cmd, HOT_MAMA, 1, "battleundere",
                         monster_name="Hot Mama", is_temp=False)
         await cmd.equip_item(HOT_MAMA)
 
-    if choice == PET_AKRILOTH and not await cmd.has_item(AKRILOTH_PET):
+    if PET_CHOICE == PET_AKRILOTH and not await cmd.has_item(AKRILOTH_PET):
         await set_class(cmd)
         await hunt_item(cmd, AKRILOTH_PET, 1, "gravestrike",
                         monster_name="Ultra Akriloth", is_temp=False)
