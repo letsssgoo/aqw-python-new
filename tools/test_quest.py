@@ -201,6 +201,19 @@ def main() -> None:
     assert pending_requirements(cmd, heart) == []
     print("requirements: ids joined to names, held ones dropped, temp detected")
 
+    # --- Core13LoC.Escherion: the step table, in the source's order -----
+    from bot.story.lordsofchaos import core13loc
+
+    assert len(core13loc.ESCHERION_STEPS) == 24, len(core13loc.ESCHERION_STEPS)
+    assert core13loc.ESCHERION_STEPS[0][:2] == (245, "mobius")
+    assert core13loc.ESCHERION_STEPS[-1][:2] == (271, "hydra")
+    assert [s[0] for s in core13loc.ESCHERION_STEPS] == [
+        245, 246, 247, 260, 248, 249, 250, 251, 252, 255, 256, 257, 261, 258,
+        262, 259, 263, 266, 267, 264, 268, 269, 270, 271], \
+        [s[0] for s in core13loc.ESCHERION_STEPS]
+    assert core13loc.ESCHERION_LAST == 272
+    print("escherion  : 24 steps of quests 245-271, then 272 by hand")
+
     print("\nquest tests OK")
 
 

@@ -116,6 +116,8 @@ ENTRY_MODULES = [
     "bot.nation.vhl.void_crystals",
     "bot.nation.vhl.void_highlords_challenge",
     "bot.other.farm_joe_kits.0_farmer_joe_do_all",
+    "bot.enhancements.valiance",
+    "bot.enhancements.forge_weapon",
     "bot.other.classes.rep_based.master_ranger",
     "bot.bank_check",
     "bot.story.battle_under",
@@ -157,6 +159,7 @@ SUPPORT_MODULES = [
     "bot.core_story",
     "bot.nation.vhl.core_vhl",
     "bot.other.farm_joe_kits.core_farmer_joe",
+    "bot.story.lordsofchaos.core13loc",
 ]
 
 

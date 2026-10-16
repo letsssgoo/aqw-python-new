@@ -24,7 +24,8 @@ noted where it happens:
 import random
 from typing import Awaitable, Callable, Optional, Sequence, Tuple
 
-from bot.core_bots import (Alignment, buy_item, can_we_aggro, change_alignment,
+from bot.core_bots import (Alignment, REP_THRESHOLDS, buy_item, can_we_aggro,
+                           change_alignment,
                            equip_class, wait_for_item)
 from core.command import Command
 from templates.hunt import DEFAULT_SKILL_LIST, hunt_item
@@ -912,3 +913,131 @@ async def black_knight_orb(cmd: Command) -> None:
                         is_temp=True)
     await cmd.ensure_turn_in_quest(BLACK_KNIGHT_ORB_QUEST)
     await wait_for_item(cmd, BLACK_KNIGHT_ORB)
+
+
+# ---------------------------------------------------------------------------
+# CoreFarms.BlacksmithingREP
+# ---------------------------------------------------------------------------
+
+BLACKSMITHING = "Blacksmithing"
+BLACKSMITHING_GOLD_QUEST = 8737
+BLACKSMITHING_GOLD_SHOP = 2036
+BLACKSMITHING_GOLD_VOUCHER = "Gold Voucher 500k"
+BLACKSMITHING_QUEST = 8736
+BLACKSMITHING_STARTER_QUEST = 2777
+BLACKSMITHING_STARTER_RANK = 4
+
+
+def remaining_faction_xp(cmd: Command, faction: str) -> int:
+    """Reputation still needed for the next rank of ``faction``.
+
+    The reference asks its client for ``RemainingRep``; this engine reads the
+    account's total reputation and takes it off the next threshold, which is the
+    same number from data the server sends.
+
+    Args:
+        cmd (Command): Facade to act through.
+        faction (str): Faction name, e.g. ``"Blacksmithing"``.
+
+    Returns:
+        int: Points to the next rank, or 302500 (rank 10's cost) when the faction
+        is not tracked, which is the reference's own fallback.
+    """
+    if not faction or not faction.strip():
+        return 302500
+    rank = cmd.get_faction_rank(faction)
+    if rank >= 10:
+        return 0
+    for threshold_rank, points in REP_THRESHOLDS:
+        if threshold_rank == rank + 1:
+            return max(0, points - cmd.get_faction_rep(faction))
+    return 302500
+
+
+async def blacksmithing_rep(cmd: Command, rank: int = 10, use_gold: bool = False,
+                            bulk_farm_gold: bool = False) -> None:
+    """``CoreFarms.BlacksmithingREP``: reputation by gold, or by three kills.
+
+    Args:
+        cmd (Command): Facade to act through.
+        rank (int): Target rank.
+        use_gold (bool): The reference's ``UseGold`` option: buy Gold Vouchers in
+            /alchemyacademy and hand them over, instead of the slow route.
+        bulk_farm_gold (bool): Accepted but unused, as it is in the source.
+
+    Note:
+        The gold branch buys the vouchers through ``CoreBots.BuyItem`` -- the plain
+        one, not ``Adv.BuyItem`` -- and the source calls it **twice** in a row: once
+        in the ``else`` of the "already have them" check and then again
+        unconditionally, so a missing stack is paid for twice.  That is reproduced
+        here rather than repaired; it is in the deviation register.
+    """
+    if cmd.get_faction_rank(BLACKSMITHING) >= rank:
+        return
+
+    await equip_class(cmd)
+    cmd.bot.log(f"Farming rank {rank}")
+
+    if use_gold:
+        cmd.bot.log("Using Gold Method")
+        while (cmd.is_still_connected()
+               and cmd.get_faction_rank(BLACKSMITHING) < rank):
+            await cmd.ensure_accept_quest(BLACKSMITHING_GOLD_QUEST)
+
+            remaining = remaining_faction_xp(cmd, BLACKSMITHING)
+            items_needed = (remaining + 999) // 1000
+            current = cmd.get_quant_item(BLACKSMITHING_GOLD_VOUCHER)
+
+            cmd.bot.log(f"Remaining Reputation XP: {remaining}")
+            cmd.bot.log(f"Current Gold Voucher Quantity: {current}")
+            cmd.bot.log(f"Items Needed: {items_needed}")
+
+            if remaining <= 0:
+                cmd.bot.log("Already at max rank.")
+                return
+
+            items_to_buy = min(200, max(0, min(items_needed, 300 - current)))
+            cmd.bot.log(f"Items to Buy in this Transaction: {items_to_buy}")
+
+            gold_needed = items_to_buy * 500000
+            cmd.bot.log(f"Gold Needed for {items_to_buy} vouchers: {gold_needed}")
+
+            await farm_gold(cmd, gold_needed)
+
+            if await cmd.has_item(BLACKSMITHING_GOLD_VOUCHER, items_to_buy):
+                cmd.bot.log(f"Already have {items_to_buy} Gold Vouchers, "
+                            f"skipping purchase.")
+            else:
+                await buy_item(cmd, BLACKSMITHING_GOLD_SHOP,
+                               BLACKSMITHING_GOLD_VOUCHER, items_to_buy,
+                               map_name="alchemyacademy")
+            await buy_item(cmd, BLACKSMITHING_GOLD_SHOP,
+                           BLACKSMITHING_GOLD_VOUCHER, items_to_buy,
+                           map_name="alchemyacademy")
+            await cmd.ensure_turn_in_quest(BLACKSMITHING_GOLD_QUEST,
+                                           amount=items_needed)
+        return
+
+    cmd.bot.log("Using Non-Gold Method")
+    await cmd.register_quest(BLACKSMITHING_STARTER_QUEST)
+    while (cmd.is_still_connected()
+           and cmd.get_faction_rank(BLACKSMITHING) < BLACKSMITHING_STARTER_RANK
+           and not use_gold):
+        await hunt_item(cmd, "Furry Lost Sock", 2, "greenguardeast",
+                        monster_name="Wolf")
+        await hunt_item(cmd, "Slimy Lost Sock", 5, "greenguardwest",
+                        monster_name="Slime")
+    cmd.cancel_registered_quests()
+
+    await cmd.register_quest(BLACKSMITHING_QUEST)
+    await equip_class(cmd, solo=True)
+    while (cmd.is_still_connected()
+           and cmd.get_faction_rank(BLACKSMITHING) < rank
+           and not use_gold):
+        await hunt_item(cmd, "Hydra Scale Piece", 75, "hydrachallenge",
+                        monster_name="Hydra Head 25", is_temp=False)
+        await hunt_item(cmd, "Creature Shard", 1, "maul",
+                        monster_name="Creature Creation", is_temp=False)
+        await hunt_item(cmd, "Monster Trophy", 15, "towerofdoom",
+                        monster_name="Dread Klunk", is_temp=False)
+    cmd.cancel_registered_quests()
