@@ -32,7 +32,7 @@ class CoreTempleBot:
         self.cmd.bot.taunt_error = False
 
     def print_debug(self, message):
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] "
+        self.bot.log(f"[{datetime.now().strftime('%H:%M:%S')}] "
               f"[{self.cmd.get_player().CELL}] {Fore.YELLOW}{message}{Fore.RESET}")
 
     def msg_handler(self, message):
@@ -77,7 +77,7 @@ class CoreTempleBot:
                     for mon_map_id, mon_condition in monsters.items():
                         is_alive = int(mon_condition.get("intHP")) > 0
                         if not is_alive:
-                            print(f"Monster id:{mon_map_id} is dead.")
+                            self.bot.log(f"Monster id:{mon_map_id} is dead.")
         except:
             return
 

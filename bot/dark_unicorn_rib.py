@@ -55,6 +55,6 @@ async def main(cmd: Command):
                 skillIndex = 0
         
         killTime = killTime + 1
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] Binky killed : {killTime}x")
+        cmd.bot.log(f"[{datetime.now().strftime('%H:%M:%S')}] Binky killed : {killTime}x")
         
 asyncio.run(b.start_bot(main))

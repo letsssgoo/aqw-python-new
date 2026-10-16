@@ -17,11 +17,27 @@ from model import Shop
 from model import Monster
 from model import ItemInventory, ItemType, Faction, PlayerArea
 from model import Skill
+from model import Quest, normalize_quest_id
 from handlers import register_quest_task, death_handler_task, aggro_handler_task
 import time
 import traceback
-    
+
+#: Seconds to wait for the bank before a script starts anyway.  The bank load is
+#: a single HTTP POST fired from the login packet that carries CHARID; it lands
+#: within a second in practice.  The bound exists only so a session that never
+#: sends that packet still runs, with a warning.
+BANK_WAIT_TIMEOUT_S = 10
+
+#: Seconds between losing the connection and logging back in.  The server keeps
+#: the old session for a while after a peer reset, and a relogin inside that
+#: window is refused -- which then looks like "the bot just stopped".
+RELOGIN_DELAY_S = 35
+
+
 class Bot:
+    #: See RELOGIN_DELAY_S: an attribute so a test can shorten it.
+    RELOGIN_DELAY_S: float = RELOGIN_DELAY_S
+
 
     def __init__(
             self, 
@@ -49,6 +65,7 @@ class Bot:
         self.showDebug = showDebug
         self.showChat = showChat
         self.items_drop_whitelist: list[str] = itemsDropWhiteList
+        self.dropped_items: list[dict] = []
         self.auto_relogin = autoRelogin
         self.follow_player = followPlayer
         self.slaves_player = slavesPlayer
@@ -118,6 +135,7 @@ class Bot:
 
         self.missing_turn_in_item_questid: list[int] = [] # this mean quest is unlocked (green quest)
         self.missing_quest_progress_questid: list[int] = [] # this mean quest is locked (red quest)
+        self.one_time_questid: list[int] = [] # one-time story quests already completed
 
         self.player_in_area: list[PlayerArea] = []
 
@@ -156,12 +174,48 @@ class Bot:
                 while self.is_client_connected:
                     while self.is_char_load_complete is False:
                         await asyncio.sleep(0.01)
-                    
+
+                    # The bank arrives on its own login packet -- the one that
+                    # fills in CHARID -- and not on the packet that marks the
+                    # character loaded.  Without this wait a script can start
+                    # with an empty BANK and farm what is already banked.  It
+                    # waits for the load to have been *attempted*, bounded, so a
+                    # session that never sends the packet still runs -- loudly.
+                    bank_deadline = time.time() + BANK_WAIT_TIMEOUT_S
+                    while (not self.player.bank_load_finished
+                           and self.is_client_connected
+                           and time.time() < bank_deadline):
+                        await asyncio.sleep(0.05)
+                    if not self.player.bank_load_finished:
+                        print(Fore.YELLOW + "[bank] not loaded yet; checks that "
+                              "consult the bank may farm what is already "
+                              "banked." + Fore.RESET)
+
                     if not self.is_register_quest_task_running:
                         self.run_register_quest_task()
                         self.is_register_quest_task_running = True
-                    
-                    await botMain(self._resolve_script_arg(botMain))
+
+                    # The script runs in its own task so a dropped connection can
+                    # end it.  Waiting on it directly was the reason a peer reset
+                    # mid-farm stopped nothing: the script sits in a loop that
+                    # never checks the connection, so ``botMain`` never returned
+                    # and the relogin below was never reached.
+                    script = asyncio.create_task(
+                        botMain(self._resolve_script_arg(botMain)))
+                    while self.is_client_connected and not script.done():
+                        await asyncio.sleep(0.2)
+                    if not script.done():
+                        print("Connection lost while the script was running; "
+                              "stopping it and relogging.")
+                        script.cancel()
+                        try:
+                            await script
+                        except asyncio.CancelledError:
+                            pass
+                    elif not script.cancelled() and script.exception() is not None:
+                        # let the traceback out through the task machinery
+                        script.result()
+
                     self.stop_bot()
                 if self.auto_relogin:
                     print("Relogin from start bot")
@@ -222,6 +276,20 @@ class Bot:
         combined_message = ' '.join(map(str, args))
         print(f"[{datetime.now().strftime('%H:%M:%S')}] [{caller_name}] {combined_message}")
 
+    def log(self, *args):
+        """Log one script line -- the reference bot's ``Core.Logger``.
+
+        ``showLog`` gates it and the timestamp matches the engine's other
+        output, so a run reads the same way whether the line came from here or
+        from a script.  Scripts call this instead of ``print``: their lines then
+        sit in the same stream as the engine's, which is what makes a port's log
+        comparable with the reference bot's.
+        """
+        if not self.showLog:
+            return
+        combined_message = ' '.join(map(str, args))
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] {combined_message}")
+
     def login(self, username, password, server):
         if self.player.login(username, password):
             self.server_info = self.player.getServerInfo(server)
@@ -238,8 +306,8 @@ class Bot:
         self.check_spam_time = None
         self.spam_backoff_ms = 0
         try:
-            print("Restarting bot in 35 secs...")
-            await asyncio.sleep(35)
+            print(f"Restarting bot in {self.RELOGIN_DELAY_S} secs...")
+            await asyncio.sleep(self.RELOGIN_DELAY_S)
             if not self.auto_relogin:
                 print("Relogin cancelled (bot stopped).")
                 return
@@ -421,6 +489,13 @@ class Bot:
                         if username.lower() == self.username.lower() and self.player.CHARID == 0:
                             self.player.CHARID = i["data"]["CharID"]
                             self.player.GOLD = int(i["data"]["intGold"])
+                            # Level sits in this payload under one of two keys
+                            # depending on the client build; neither is worth
+                            # raising over, so read whichever is present.
+                            self.player.LEVEL = int(
+                                i["data"].get("iLvl")
+                                or i["data"].get("intLevel") or 0
+                            )
                         self.check_user_access_level(username, access_level)
                     if not self.player.BANK:
                         # print("Load bank and inventory...")
@@ -432,6 +507,16 @@ class Bot:
                 username = data["data"]["strUsername"]
                 access_level = int(data["data"]["intAccessLevel"])
                 self.check_user_access_level(username, access_level)
+                # The Awe story counter.  ``CoreAdvanced.uAwe``-era code and
+                # ``CoreAwe.GetAweRelic`` read it off the client
+                # (``world.myAvatar.objData.intAQ``); it arrives on this packet,
+                # in the entry's ``data``.
+                aq = (data.get("data") or {}).get("intAQ")
+                if aq is None:
+                    aq = data.get("intAQ")
+                if aq is not None:
+                    self.player.intAQ = int(aq)
+                    self.debug(f"intAQ = {self.player.intAQ}")
             elif cmd == "equipItem":
                 pass
             elif cmd == "loadInventoryBig":
@@ -614,7 +699,7 @@ class Bot:
                         self.run_death_hanlder_task()
             elif cmd == "getQuests":
                 for quest_id, quest_data in data.get("quests").items():
-                    self.loaded_quest_datas.append(quest_data)
+                    self.loaded_quest_datas.append(Quest.from_payload(quest_data))
             elif cmd == "loadShop":
                 shop = Shop(data["shopinfo"])
                 # Opening a forge shop teaches the enhancement registry every
@@ -689,17 +774,42 @@ class Bot:
                     self.player.addRepToFaction(data.get('FactionID', 0), data.get('iRep', 0))
                 self.debug(Fore.YELLOW + str(debug_data_gold) + Fore.WHITE)
             elif cmd == "dropItem":
-                dropItems = data.get('items')
-                lowered_droplist= [item.lower() for item in self.items_drop_whitelist]
-                for itemDrop in dropItems.values():
-                    itemDrop: ItemInventory = ItemInventory(itemDrop)
-                    if itemDrop.item_name.lower() in lowered_droplist:
+                dropItems = data.get('items', {})
+                lowered_droplist = [item.lower() for item in self.items_drop_whitelist]
+                for itemDropRaw in dropItems.values():
+                    itemDrop: ItemInventory = ItemInventory(itemDropRaw)
+                    is_whitelisted = itemDrop.item_name.lower() in lowered_droplist
+                    drop_info = {
+                        "item_id": str(itemDrop.item_id),
+                        "item_name": str(itemDrop.item_name),
+                        "qty": int(itemDrop.qty),
+                        "is_acs": bool(itemDrop.is_acs),
+                        "is_temp": bool(itemDrop.is_temp),
+                        "s_type": str(itemDrop.s_type),
+                        "time": datetime.now().strftime("%H:%M:%S"),
+                        "picked_up": is_whitelisted
+                    }
+                    if not hasattr(self, "dropped_items"):
+                        self.dropped_items = []
+                    existing = next((d for d in self.dropped_items if d.get("item_id") == drop_info["item_id"]), None)
+                    if existing:
+                        existing.update(drop_info)
+                    else:
+                        self.dropped_items.insert(0, drop_info)
+                        if len(self.dropped_items) > 50:
+                            self.dropped_items.pop()
+
+                    if is_whitelisted:
                         print(f"get drop {itemDrop.item_name}")
                         self.get_drop(self.username_id, itemDrop.item_id)
                         self.player.INVENTORY.append(itemDrop)
-                        break
             elif cmd == "addItems":
-                dropItems = data.get('items')
+                dropItems = data.get('items', {})
+                if hasattr(self, "dropped_items"):
+                    for d_id in dropItems.keys():
+                        for d in self.dropped_items:
+                            if str(d.get("item_id")) == str(d_id):
+                                d["picked_up"] = True
                 for itemId, dropItem in dropItems.items():
                     dropItem: ItemInventory = ItemInventory(dropItem)
                     # Item inventory
@@ -752,39 +862,38 @@ class Bot:
                 #     if self.strMapName.lower() == "ultraspeaker":
                 #         await self.walk_to(100, 321)
             elif cmd == "ccqr":
-                quest_id = data.get('QuestID', None)
+                quest_id = normalize_quest_id(data.get('QuestID'))
                 s_name = data.get('sName', None)
                 faction_id = data.get('rewardObj', {}).get('FactionID', None)
                 i_rep = data.get('rewardObj', {}).get('iRep', 0)
                 is_success = data.get('bSuccess', 0)
                 ccqr_msg = data.get('msg', '')
                 if is_success == 1:
-                    for loaded_quest in self.loaded_quest_datas:
-                        if str(loaded_quest["QuestID"]) == str(quest_id) and int(quest_id) not in self.registered_auto_quest_ids:
-                            self.loaded_quest_datas.remove(loaded_quest)
-                            break
+                    quest = self.get_loaded_quest(quest_id)
+                    if quest is not None and quest_id not in self.registered_auto_quest_ids:
+                        self.loaded_quest_datas.remove(quest)
                     print(Fore.YELLOW + f"ccqr: [{datetime.now().strftime('%H:%M:%S')}] {quest_id} - {s_name} - {i_rep} rep" + Fore.WHITE)
                 else:
                     print(Fore.RED + f"ccqr: [{datetime.now().strftime('%H:%M:%S')}] {quest_id} - {s_name} | {ccqr_msg}" + Fore.WHITE)
-                    if "Missing Turn In Item" in ccqr_msg:
-                        self.missing_turn_in_item_questid.append(int(quest_id))
-                    if "Missing Quest Progress" in ccqr_msg:
-                        self.missing_quest_progress_questid.append(int(quest_id))
+                    if quest_id and "Missing Turn In Item" in ccqr_msg:
+                        self.missing_turn_in_item_questid.append(quest_id)
+                    if quest_id and "Missing Quest Progress" in ccqr_msg:
+                        self.missing_quest_progress_questid.append(quest_id)
                     if "One Time Quest Only" in ccqr_msg:
-                        pass
+                        if quest_id is not None and int(quest_id) not in self.one_time_questid:
+                            self.one_time_questid.append(int(quest_id))
             elif cmd == "Wheel":
                 dropItems = data.get('dropItems')
                 dropItemsName = [item["sName"] for item in dropItems.values() if "sName" in item]
                 print(Fore.YELLOW + f"Wheel: {dropItemsName}" + Fore.WHITE)
             elif cmd == "acceptQuest":
-                quest_id = data["QuestID"]
+                quest_id = normalize_quest_id(data["QuestID"])
                 if data["bSuccess"] == 1:
-                    loaded_quest_ids = [loaded_quest["QuestID"] for loaded_quest in self.loaded_quest_datas]
-                    if not str(quest_id) in str(loaded_quest_ids):
+                    if self.get_loaded_quest(quest_id) is None:
                         self.write_message(f"%xt%zm%getQuests%{self.areaId}%{quest_id}%")
                         self.do_wait(500)
                 elif data["bSuccess"] == 0:
-                    if quest_id not in self.failed_get_quest_datas:
+                    if quest_id and quest_id not in self.failed_get_quest_datas:
                         self.failed_get_quest_datas.append(quest_id)
             elif cmd == "addFaction":
                 # {"t":"xt","b":{"r":-1,"o":{"cmd":"addFaction","faction":{"FactionID":"75","bitSuccess":"1","CharFactionID":"48707365","sName":"Yew Mountains","iRep":"0"}}}}
@@ -1035,10 +1144,12 @@ class Bot:
         self.write_message(packet)
     
     def accept_quest(self, quest_id: int):
+        quest_id = normalize_quest_id(quest_id)
         self.write_message(f"%xt%zm%acceptQuest%{self.areaId}%{quest_id}%")
         self.do_wait(500)
         
     def turn_in_quest(self, quest_id: int, item_id: int = -1, qty: int = 1):
+        quest_id = normalize_quest_id(quest_id)
         packet = f"%xt%zm%tryQuestComplete%{self.areaId}%{quest_id}%{item_id}%false%{qty}%wvz%"
         self.write_message(packet)
         self.do_wait(500)
@@ -1137,44 +1248,65 @@ class Bot:
         self.player.setPlayerPositionXY(x, y)
     
     def find_best_cell(self, monster_name, byMostMonster: bool = True, byAliveMonster: bool = False):
+        if not self.monsters:
+            return None
         if monster_name.startswith('id.'):
             monster_name = monster_name.split('.')[1]
-        if byMostMonster:
-            filtered_monsters = [mon for mon in self.monsters if mon.mon_name.lower() == monster_name.lower() or mon.mon_map_id == monster_name]
+
+        def _is_match(mon):
+            if not mon.frame:
+                return False
+            if monster_name == "*":
+                return True
+            return mon.mon_name.lower() == monster_name.lower() or str(mon.mon_map_id) == str(monster_name)
+
         if byAliveMonster:
-            filtered_monsters = [mon for mon in self.monsters if (mon.mon_name.lower() == monster_name.lower() or mon.mon_map_id == monster_name) and mon.is_alive]
+            filtered_monsters = [mon for mon in self.monsters if _is_match(mon) and mon.is_alive and mon.current_hp > 0]
+            if not filtered_monsters:
+                filtered_monsters = [mon for mon in self.monsters if _is_match(mon)]
+        else:
+            filtered_monsters = [mon for mon in self.monsters if _is_match(mon)]
 
         if not filtered_monsters:
             return None
 
         cell_counts = {}
         for mon in filtered_monsters:
-            cell_counts[mon.frame] = cell_counts.get(mon.frame, 0) + 1
+            if mon.frame:
+                cell_counts[mon.frame] = cell_counts.get(mon.frame, 0) + 1
 
-        best_cell = max(cell_counts, key=cell_counts.get)
-        return best_cell
+        if not cell_counts:
+            return None
+
+        return max(cell_counts, key=cell_counts.get)
+
+    def get_loaded_quest(self, quest_id) -> Optional[Quest]:
+        """The tracked :class:`Quest` with this id, or ``None``.
+
+        A quest present in :attr:`loaded_quest_datas` is in progress -- the
+        server only lists it in ``getQuests`` once it has been accepted.  The
+        id is normalised, so a wire string and a script int agree; an id that
+        is not a number (``0``) matches nothing.
+        """
+        wanted = normalize_quest_id(quest_id)
+        if wanted <= 0:
+            return None
+        for loaded_quest in self.loaded_quest_datas:
+            if loaded_quest.quest_id == wanted:
+                return loaded_quest
+        return None
+
+    def loaded_quest_ids(self) -> list:
+        """Ids of every quest currently tracked as in progress."""
+        return [quest.quest_id for quest in self.loaded_quest_datas]
 
     def can_turn_in_quest(self, questId: int) -> bool:
-        for loaded_quest in self.loaded_quest_datas:
-            if str(loaded_quest.get("QuestID", 0))  == str(questId):
-                return self._check_req_inventory(loaded_quest["turnin"])
-        return False
+        quest = self.get_loaded_quest(questId)
+        return bool(quest and quest.requirements_met(self.player))
 
-    def _check_req_inventory(self, quest_data) -> bool:
-        all_items_met = True
-        for req_item in quest_data:
-            required_item_id = req_item["ItemID"]
-            required_qty = req_item["iQty"]
-
-            item = self.player.get_item_inventory_by_id(required_item_id) or \
-                self.player.get_item_temp_inventory_by_id(required_item_id)
-            if not item or int(item.qty) < int(required_qty):
-                all_items_met = False
-        return all_items_met
-    
     def quest_not_in_progress(self, quest_id: int) -> bool:
-        loaded_quest_ids = [loaded_quest["QuestID"] for loaded_quest in self.loaded_quest_datas]
-        return str(quest_id) not in str(loaded_quest_ids)
+        """Return True when the quest is not currently tracked in progress."""
+        return self.get_loaded_quest(quest_id) is None
 
     def reset_cmds(self):
         self.index = 0

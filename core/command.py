@@ -4,13 +4,15 @@ import time
 from datetime import datetime
 from functools import wraps
 from inspect import iscoroutinefunction
-from typing import List, Optional, Union
+from typing import List, Optional, Sequence, Tuple, Union
 from colorama import Fore
 from enum import Enum
 
 from core.player import Player
 from core.utils import normalize
 from model.inventory import ItemInventory, ItemType, ScrollType
+from model.faction import Faction, MAX_REP
+from model.quest import Quest, normalize_quest_id
 from model.monster import Monster
 from model.player_area import PlayerArea
 from model.shop import Shop
@@ -84,6 +86,28 @@ class Command:
     # Latency allowance handed to Player.updateNextUse -- see its docstring.
     CD_START_DELAY_MS: int = 200
 
+    #: How many times ``ensure_accept_quest`` / ``ensure_turn_in_quest`` will
+    #: retry before giving up and saying so.  One second per pass, so the
+    #: default is about a minute.
+    #:
+    #: These loops used to be unbounded, which is fine while the server is
+    #: merely slow and fatal when it is never going to answer: a quest whose
+    #: requirements cannot be met stays in progress forever, so the loop hangs
+    #: the bot with no error at all.  Nothing else would have ended it --
+    #: "Missing Turn In Item" only fills ``bot.missing_turn_in_item_questid``,
+    #: which no bail-out consults.
+    ENSURE_MAX_ATTEMPTS: int = 60
+
+    #: How long ``join_map`` waits for the client to report the new map before
+    #: giving up and letting the caller's own loop retry.  A transfer normally
+    #: lands in about two seconds; the bound only covers a server that never
+    #: answers.
+    MAP_JOIN_TIMEOUT_MS: int = 10000
+
+    #: How many times ``ensure_load_shop`` asks for a shop before giving up and
+    #: saying so.  One second per pass; a shop packet normally lands at once.
+    SHOP_LOAD_MAX_ATTEMPTS: int = 10
+
     def __init__(self, bot, init_handler = False):
         from core.bot import Bot
         self.bot: Bot = bot
@@ -106,37 +130,76 @@ class Command:
             return False
 
     @check_alive
-    async def ensure_accept_quest(self, quest_id: int) -> None:
+    async def ensure_accept_quest(self, quest_id: int,
+                                  max_attempts: int = ENSURE_MAX_ATTEMPTS
+                                  ) -> bool:
         """Keep accepting a quest until it is in progress or the client disconnects.
 
         Args:
             quest_id (int): Identifier of the quest to accept.
+            max_attempts (int): Give up after this many tries and report.
 
         Returns:
-            None: Exits once the quest is tracked or a failure is recorded."""
+            bool: True once the quest is tracked as in progress, False when it
+            never got there -- the caller can then stop instead of assuming the
+            farm is under way.
+        """
+        quest_id = normalize_quest_id(quest_id)
+        attempts = 0
         while self.quest_not_in_progress(quest_id) and self.is_still_connected():
+            if quest_id in self.bot.failed_get_quest_datas:
+                print(Fore.YELLOW + f"[accept] quest {quest_id} was refused by "
+                      f"the server; stopping." + Fore.RESET)
+                return False
+            attempts += 1
+            if attempts > max_attempts:
+                print(Fore.YELLOW + f"[accept] quest {quest_id} is still not in "
+                      f"progress after {max_attempts} attempts; stopping."
+                      + Fore.RESET)
+                return False
             await self.accept_quest(quest_id)
             await self.sleep(1000)
-            if quest_id in self.bot.failed_get_quest_datas:
-                return
+        return self.quest_in_progress(quest_id)
 
     @check_alive
-    async def ensure_turn_in_quest(self, quest_id: int, item_id = -1, amount = 1) -> None:
-        """Attempt to turn in a quest until it completes or the client disconnects.
+    async def ensure_turn_in_quest(self, quest_id: int, item_id: int = -1,
+                                   amount: int = 1,
+                                   max_attempts: int = ENSURE_MAX_ATTEMPTS
+                                   ) -> bool:
+        """Attempt to turn in a quest until it leaves the in-progress list.
 
         Args:
             quest_id (int): Identifier of the quest to complete.
             item_id (int): Required item id for turn-in when applicable.
             amount (int): Quantity of the required item.
+            max_attempts (int): Give up after this many tries and report.
 
         Returns:
-            None: Stops when the quest leaves the progress list or fails."""
+            bool: True when the quest left the progress list, False when it
+            could not be turned in.  Stops early -- without sending anything --
+            when the turn-in requirements are not in the inventory, because the
+            server would only answer "Missing Turn In Item" again.
+        """
+        quest_id = normalize_quest_id(quest_id)
+        attempts = 0
         while self.quest_in_progress(quest_id) and self.is_still_connected():
-            await self.turn_in_quest(quest_id, item_id,amount)
-            await self.sleep(1000)
             if quest_id in self.bot.failed_get_quest_datas:
-                return
-        print("quest turned in:", quest_id, item_id)
+                print(Fore.YELLOW + f"[turn-in] quest {quest_id} was refused by "
+                      f"the server; stopping." + Fore.RESET)
+                return False
+            if not self.can_turnin_quest(quest_id):
+                print(Fore.YELLOW + f"[turn-in] quest {quest_id} is in progress "
+                      f"but its requirements are not met; stopping." + Fore.RESET)
+                return False
+            attempts += 1
+            if attempts > max_attempts:
+                print(Fore.YELLOW + f"[turn-in] quest {quest_id} did not leave "
+                      f"the progress list after {max_attempts} attempts; "
+                      f"stopping." + Fore.RESET)
+                return False
+            await self.turn_in_quest(quest_id, item_id, amount)
+            await self.sleep(1000)
+        return not self.quest_in_progress(quest_id)
 
     @check_alive
     async def accept_quest(self, quest_id: int) -> None:
@@ -147,6 +210,7 @@ class Command:
 
         Returns:
             None: The coroutine simply delays to allow server processing."""
+        quest_id = normalize_quest_id(quest_id)
         self.bot.accept_quest(quest_id)
         print("trying accept quest:", quest_id)
         await asyncio.sleep(1)
@@ -162,63 +226,133 @@ class Command:
 
         Returns:
             None: Updates quest tracking state and delays for server processing."""
-        self.quest_to_check = quest_id
+        self.quest_to_check = normalize_quest_id(quest_id)
         await self.bot.ensure_leave_from_combat()
-        self.bot.turn_in_quest(quest_id, item_id, qty)
+        self.bot.turn_in_quest(self.quest_to_check, item_id, qty)
         await asyncio.sleep(1)
 
     def quest_not_in_progress(self, quest_id: int) -> bool:
         """Return True when the quest is not currently tracked in progress."""
-        loaded_quest_ids = [loaded_quest["QuestID"] for loaded_quest in self.bot.loaded_quest_datas]
-        return str(quest_id) not in str(loaded_quest_ids)
+        return self.bot.quest_not_in_progress(quest_id)
 
     def quest_in_progress(self, quest_id: int) -> bool:
         """Return True when the quest is present in the in-progress list."""
-        loaded_quest_ids = [loaded_quest["QuestID"] for loaded_quest in self.bot.loaded_quest_datas]
-        return str(quest_id) in str(loaded_quest_ids)
+        return not self.bot.quest_not_in_progress(quest_id)
+
+    def get_loaded_quest(self, quest_id: int) -> Optional[Quest]:
+        """Return the in-progress :class:`Quest` for ``quest_id``, or None.
+
+        The port of reading the reference bot's ``Core.EnsureLoad(id)`` result: the object
+        carries the chain position (``slot``/``value``), the one-time flags
+        (``is_once``/``field``) and the turn-in requirements
+        (``turn_in_items``) -- none of which the older dict-only access
+        exposed.  ``None`` means the quest is not accepted right now.
+        """
+        return self.bot.get_loaded_quest(quest_id)
+
+    def get_quest_rewards(self, quest_id: int) -> List[str]:
+        """Reward item names of an in-progress quest, straight from the payload.
+
+        The port of the reference bot's ``Core.QuestRewards``: feed the result to
+        :meth:`add_drop` so the reward is actually picked up.  Returns ``[]``
+        when the quest is not loaded or the server sent no rewards.
+
+        Note:
+            the reference bot reads these from a client-side quest cache; the live
+            ``getQuests`` payload carries them too, under ``oRewards``.
+        """
+        quest = self.bot.get_loaded_quest(quest_id)
+        return quest.reward_names if quest else []
+
+    def get_quest_reward_entries(self, quest_id: int
+                                 ) -> List[Tuple[int, str, int]]:
+        """A quest's rewards as ``(item_id, name, max_stack)``.
+
+        What a "farm this until it is full" loop actually needs: the item id the
+        turn-in packet wants, the name to match the inventory on, and the cap to
+        stop at.  Reading it here keeps callers out of ``Quest`` internals.
+
+        Args:
+            quest_id (int): Identifier of an in-progress quest.
+
+        Returns:
+            List[Tuple[int, str, int]]: One entry per reward, in payload order.
+            Empty when the quest is not loaded, or when the payload sent no
+            reward *names* -- the ``getQuests`` payload nests them differently
+            from quest to quest, and some send none at all.  ``Quest.reward_ids``
+            tells the two cases apart.
+        """
+        quest = self.bot.get_loaded_quest(quest_id)
+        return quest.reward_entries if quest else []
+
+    def add_quest_rewards(self, quest_id: int) -> List[str]:
+        """Whitelist a quest's reward items (the reference bot's ``AddDrop(QuestRewards(id))``).
+
+        Returns:
+            List[str]: The names that were whitelisted (empty when none).
+        """
+        names = self.get_quest_rewards(quest_id)
+        if names:
+            self.add_drop(names)
+        return names
 
     def can_turnin_quest(self, questId: int) -> bool:
         """Delegate to the bot helper that checks quest completion requirements."""
         return self.bot.can_turn_in_quest(questId)
 
     @check_alive
-    async def is_green_quest(self, quest_id: int) -> bool:
+    async def is_green_quest(self, quest_id: int, timeout_sec: float = 3.0) -> bool:
         """Check whether a quest is marked green (ready to turn in).
 
         Args:
             quest_id (int): Identifier of the quest to inspect.
+            timeout_sec (float): Maximum wait time for server response in seconds.
 
         Returns:
             bool: True when the server reports the quest as green."""
+        self.is_green_quest_var = None
         await self.turn_in_quest(quest_id)
+        start_time = time.time()
         while(self.is_still_connected()):
             if self.is_green_quest_var is not None:
                 output = self.is_green_quest_var
                 # print(f"{quest_id} is {self.is_green_quest_var}")
                 self.is_green_quest_var = None
                 return output
-            else:
-                await self.sleep(100)
+            if time.time() - start_time > timeout_sec:
+                self.is_green_quest_var = None
+                return False
+            await self.sleep(100)
         return False
 
     @check_alive
-    async def is_completed_before(self, quest_id: int) -> bool:
+    async def is_completed_before(self, quest_id: int, timeout_sec: float = 3.0) -> bool:
         """Determine whether the quest has been completed previously.
 
         Args:
             quest_id (int): Identifier of the quest to inspect.
+            timeout_sec (float): Maximum wait time for server response in seconds.
 
         Returns:
             bool: True when the server indicates prior completion."""
+        if hasattr(self.bot, "one_time_questid") and int(quest_id) in self.bot.one_time_questid:
+            return True
+
+        self.is_completed_before_var = None
         await self.turn_in_quest(quest_id)
+        start_time = time.time()
         while(self.is_still_connected()):
+            if hasattr(self.bot, "one_time_questid") and int(quest_id) in self.bot.one_time_questid:
+                self.is_completed_before_var = None
+                return True
             if self.is_completed_before_var is not None:
                 output = self.is_completed_before_var
-                # print(f"{quest_id} is {self.is_green_quest_var}")
                 self.is_completed_before_var = None
                 return output
-            else:
-                await self.sleep(100)
+            if time.time() - start_time > timeout_sec:
+                self.is_completed_before_var = None
+                return False
+            await self.sleep(100)
         return False
 
     @check_alive
@@ -242,9 +376,30 @@ class Command:
 
         Args:
             questId (int): Identifier of the quest to register."""
+        questId = normalize_quest_id(questId)
         if questId not in self.bot.registered_auto_quest_ids:
             self.bot.registered_auto_quest_ids.append(questId)
             await self.ensure_accept_quest(questId)
+
+    def unregister_quest(self, quest_id: int) -> None:
+        """Stop auto-accepting and auto-completing a registered quest (sync).
+
+        The counterpart of :meth:`register_quest`, and the port of the reference bot's
+        ``Core.CancelRegisteredQuests`` for one id.  The background task in
+        ``handlers/register_quest.py`` re-reads the list on every pass, so the
+        quest is left alone from its next tick.
+        """
+        quest_id = normalize_quest_id(quest_id)
+        if quest_id in self.bot.registered_auto_quest_ids:
+            self.bot.registered_auto_quest_ids.remove(quest_id)
+
+    def cancel_registered_quests(self) -> None:
+        """Forget every registered auto quest (sync).
+
+        the reference bot's ``Core.CancelRegisteredQuests``.  Useful at the end of a farm
+        loop: a registered quest keeps being turned in forever otherwise.
+        """
+        self.bot.registered_auto_quest_ids.clear()
 
     async def buy_item_cmd(self, item_name: str, shop_id: int, qty: int = 1) -> None:
         """Buy an item from a shop, loading data when necessary.
@@ -318,6 +473,62 @@ class Command:
             bool: True when either storage location satisfies the check.
         """
         return self.is_in_bank(itemName, itemQty, operator) or self.is_in_inventory(itemName, itemQty, operator, isTemp)
+
+    async def has_item(self, itemName: str, itemQty: int = 1,
+                       operator: str = ">=", isTemp: bool = False) -> bool:
+        """Bank-aware :meth:`is_in_inventory`: withdraw first, then answer.
+
+        The reference bot's ``Core.CheckInventory`` withdraws from the bank by
+        default (``toInv: true``), so a banked item counts as owned there.  This
+        engine's ``is_in_inventory`` never moves anything, so a guard built on it
+        reads a banked item as missing -- and the farm then runs again for
+        something already owned.
+
+        Args:
+            itemName (str): Name of the item to inspect.
+            itemQty (int): Quantity threshold to test.
+            operator (str): Comparison operator understood by the bot API.
+            isTemp (bool): When True, inspect the temporary inventory.  Banked
+                stock cannot satisfy a temp check, so nothing is withdrawn.
+
+        Returns:
+            bool: True when the inventory satisfies the check, after any
+            withdrawal the bank could supply.
+        """
+        if not isTemp and self.is_in_bank(itemName):
+            # any banked stock, not just enough of it: withdraw first, then let
+            # the inventory answer for itself
+            print(Fore.CYAN + f"[bank] {itemName}: pulling the banked stock "
+                  f"into the inventory." + Fore.RESET)
+            await self.bank_to_inv(itemName)
+        return self.is_in_inventory(itemName, itemQty, operator, isTemp)
+
+    async def has_item_id(self, itemId: int) -> bool:
+        """Bank-aware ownership test by item id (``CheckInventory(int)``).
+
+        Same rule as :meth:`has_item`, for call sites that only know the id --
+        the two Void Knight Swords and the pet gates are the common ones.
+        """
+        banked = self.bot.player.get_item_bank_by_id(itemId)
+        if banked is not None:
+            print(Fore.CYAN + f"[bank] {banked.item_name}: pulling the banked "
+                  f"stock into the inventory." + Fore.RESET)
+            await self.bank_to_inv(banked.item_name)
+        return self.bot.player.get_item_inventory_by_id(itemId) is not None
+
+    async def has_any_item(self, names: Sequence[str]) -> bool:
+        """True when at least one of ``names`` is held (``CheckInventory(…, any)``)."""
+        for name in names:
+            if await self.has_item(name):
+                return True
+        return False
+
+    async def has_any_item_id(self, item_ids: Sequence[int]) -> bool:
+        """True when at least one of ``item_ids`` is held."""
+        for item_id in item_ids:
+            if await self.has_item_id(item_id):
+                return True
+        return False
 
     def get_quant_item(self, itemName: str) -> int:
         """Return the current quantity of an item in the inventory.
@@ -547,6 +758,29 @@ class Command:
         return await self.equip_enhancement(enh_id)
 
     @check_alive
+    async def enhance_item(self, item_id: int, enhancement_item_id: int,
+                           shop_id: int) -> None:
+        """Socket an enhancement into an item (``CoreAdvanced``'s one write).
+
+        ``AutoEnhance`` does all of its choosing in C# and then applies the
+        result with a single packet::
+
+            %xt%zm%enhanceItemShop%{roomId}%{item.ID}%{bestEnhancement.ID}%{shopID}%
+
+        so this is the whole "apply an enhancement" surface, and everything above
+        it -- which shop, which entry -- is the caller's decision.
+
+        Args:
+            item_id (int): Id of the item to enhance.
+            enhancement_item_id (int): Id of the enhancement, as the shop sells
+                it (the shop entries in ``item.ItemID``).
+            shop_id (int): The enhancement shop it is being bought from.
+        """
+        packet = (f"%xt%zm%enhanceItemShop%{self.bot.areaId}%{item_id}%"
+                  f"{enhancement_item_id}%{shop_id}%")
+        self.bot.write_message(packet)
+        await asyncio.sleep(1)
+
     async def equip_enhancement(self, enhancement: Union[int, str],
                                 slot: Optional[str] = None, *,
                                 level: Optional[int] = None,
@@ -770,20 +1004,68 @@ class Command:
             if item not in self.bot.items_drop_whitelist:
                 self.bot.items_drop_whitelist.append(item)
 
+    def remove_drop(self, itemName: Union[str, List[str]]) -> None:
+        """Take items back off the drop whitelist.
+
+        The counterpart of :meth:`add_drop`, and the port of the reference
+        bot's ``Bot.Drops.Remove``.  Used after a farm whose by-products should
+        stop being auto-picked.
+
+        Args:
+            itemName (Union[str, List[str]]): Single name or list of names.
+
+        Returns:
+            None: Shortens the whitelist in place.
+        """
+        if isinstance(itemName, str):
+            itemName = [itemName]
+
+        for item in itemName:
+            if item in self.bot.items_drop_whitelist:
+                self.bot.items_drop_whitelist.remove(item)
+
     @check_alive
-    async def get_map_item(self, map_item_id: int, qty: int = 1) -> None:
-        """Collect a map item multiple times.
+    async def get_map_item(self, map_item_id: int, qty: int = 1, item_name: Optional[str] = None) -> None:
+        """Collect a map item until target quantity is reached.
 
         Args:
             map_item_id (int): Map item identifier to pick up.
-            qty (int): Number of pickup attempts.
-
-        Returns:
-            None: Sends the pickup packet for each requested iteration.
+            qty (int): Target quantity to collect.
+            item_name (str, optional): Expected temp item name to verify quantity.
         """
-        for _ in range(qty):
+        if item_name:
+            attempts = 0
+            while self.is_still_connected() and not self.is_in_inventory(item_name, qty, isTemp=True) and attempts < qty * 3 + 6:
+                self.bot.write_message(f"%xt%zm%getMapItem%{self.bot.areaId}%{map_item_id}%")
+                await asyncio.sleep(1.2)
+                attempts += 1
+            return
+
+        initial_counts = {item.item_id: item.qty for item in self.bot.player.TEMPINVENTORY}
+        detected_item_name = None
+        attempts = 0
+        max_attempts = qty * 3 + 6
+
+        while self.is_still_connected() and attempts < max_attempts:
+            if detected_item_name and self.is_in_inventory(detected_item_name, qty, isTemp=True):
+                break
+
             self.bot.write_message(f"%xt%zm%getMapItem%{self.bot.areaId}%{map_item_id}%")
-            await asyncio.sleep(1)
+            await asyncio.sleep(1.2)
+            attempts += 1
+
+            if not detected_item_name:
+                for item in self.bot.player.TEMPINVENTORY:
+                    old_qty = initial_counts.get(item.item_id, 0)
+                    if item.qty > old_qty:
+                        detected_item_name = item.item_name
+                        break
+
+            if detected_item_name and self.is_in_inventory(detected_item_name, qty, isTemp=True):
+                break
+
+            if attempts >= qty and not detected_item_name:
+                break
 
     @check_alive
     async def load_shop(self, shop_id: int) -> None:
@@ -831,13 +1113,18 @@ class Command:
             await self.sleep(500)
 
     @check_alive
-    async def buy_item(self, shop_id: int, item_name: str, qty: int = 1) -> None:
+    async def buy_item(self, shop_id: int, item_name: str, qty: int = 1,
+                       shop_item_id: int = 0) -> None:
         """Buy an item, loading the shop if it is not cached.
 
         Args:
             shop_id (int): Identifier of the shop containing the item.
             item_name (str): Name of the item to purchase.
             qty (int): Quantity to purchase in a single request.
+            shop_item_id (int): Which entry to buy when the shop carries the
+                same name more than once, which merge shops do -- it is the only
+                thing that tells those entries apart.  ``0`` takes the first
+                match, as before.
 
         Returns:
             None: Sends the buy packet once the shop data is available.
@@ -850,11 +1137,14 @@ class Command:
                 break
         if shop:
             for shop_item in shop.items:
-                if shop_item.item_name.lower() == item_name.lower():
-                    packet = f"%xt%zm%buyItem%{self.bot.areaId}%{shop_item.item_id}%{shop.shop_id}%{shop_item.shop_item_id}%{qty}%"
-                    self.bot.write_message(packet)
-                    await asyncio.sleep(1)
-                    break
+                if shop_item.item_name.lower() != item_name.lower():
+                    continue
+                if shop_item_id and str(shop_item.shop_item_id) != str(shop_item_id):
+                    continue
+                packet = f"%xt%zm%buyItem%{self.bot.areaId}%{shop_item.item_id}%{shop.shop_id}%{shop_item.shop_item_id}%{qty}%"
+                self.bot.write_message(packet)
+                await asyncio.sleep(1)
+                break
         else:
             packet = f"%xt%zm%loadShop%{self.bot.areaId}%{shop_id}%"
             self.bot.write_message(packet)
@@ -862,21 +1152,34 @@ class Command:
             # await self.buy_item(shop_id, item_name, qty)
 
     @check_alive
-    async def ensure_load_shop(self, shop_id: int) -> None:
-        """Keep loading a shop until it is present in the cache.
+    async def ensure_load_shop(self, shop_id: int) -> bool:
+        """Keep loading a shop until it is present in the cache, bounded.
 
         Args:
             shop_id (int): Identifier of the shop to ensure.
+
+        Returns:
+            bool: True once the shop is cached.  False when the client dropped
+            or the shop never arrived within
+            :data:`SHOP_LOAD_MAX_ATTEMPTS` tries -- reported, because a caller
+            that goes on to buy would otherwise look like it had.
         """
         await self.leave_combat()
-        while True:
+        attempts = 0
+        while self.is_still_connected():
             for loaded_shop in self.bot.loaded_shop_datas:
-                if str(loaded_shop.shop_id) == str(shop_id): 
+                if str(loaded_shop.shop_id) == str(shop_id):
                     print("loaded_Shop", loaded_shop.shop_id)
-                    return
+                    return True
+            attempts += 1
+            if attempts > self.SHOP_LOAD_MAX_ATTEMPTS:
+                print(Fore.YELLOW + f"[shop] {shop_id} never loaded after "
+                      f"{self.SHOP_LOAD_MAX_ATTEMPTS} tries." + Fore.RESET)
+                return False
             packet = f"%xt%zm%loadShop%{self.bot.areaId}%{shop_id}%"
             self.bot.write_message(packet)
             await asyncio.sleep(1)
+        return False
 
     def wait_count_player(self, player_count: int) -> bool:
         """Check if the current map has at least the requested player count."""
@@ -965,6 +1268,35 @@ class Command:
         else:
             msg = f"%xt%zm%cmd%1%tfer%{self.bot.player.USER}%{mapName}%"
         self.bot.write_message(msg)
+        await self.wait_for_map(mapName)
+
+    async def wait_for_map(self, mapName: str,
+                           timeout_ms: Optional[int] = None) -> bool:
+        """Wait until the client reports being in ``mapName``, bounded.
+
+        The transfer packet alone is not the join.  The map name this class
+        compares against comes from the ``moveToArea`` packet, which lands after
+        the server's "You joined" line -- so a caller that loops on
+        ``is_not_in_map`` (every farm in ``bot/`` does) used to send the
+        transfer a second time and collect "Cannot join a room you are already
+        in" for its trouble.  Waiting here means one transfer per map change.
+
+        Args:
+            mapName (str): Map the caller expects to end up in.
+            timeout_ms (int | None): Give up after this long; defaults to
+                :data:`MAP_JOIN_TIMEOUT_MS`.
+
+        Returns:
+            bool: True when the map changed, False on timeout or a dropped
+            connection -- the caller's own loop then retries.
+        """
+        if timeout_ms is None:
+            timeout_ms = self.MAP_JOIN_TIMEOUT_MS
+        deadline = time.monotonic() + timeout_ms / 1000
+        while (self.is_still_connected() and self.is_not_in_map(mapName)
+               and time.monotonic() < deadline):
+            await asyncio.sleep(0.05)
+        return self.is_in_map(mapName)
 
     def is_not_in_map(self, mapName: str) -> bool:
         """Return True when the player is not currently in the given map.
@@ -999,7 +1331,7 @@ class Command:
         Returns:
             None: Executes a jump command and waits briefly for sync.
         """
-        if self.bot.player.CELL.lower() != cell.lower() or self.bot.player.PAD.lower() != pad.lower():
+        if str(self.bot.player.CELL or "").lower() != str(cell or "").lower() or str(self.bot.player.PAD or "").lower() != str(pad or "").lower():
             self.bot.jump_cell(cell, pad)
             #print(f"jump cell: {cell} {pad}")
             await asyncio.sleep(1)
@@ -1013,7 +1345,7 @@ class Command:
         Returns:
             bool: True when the active cell does not match ``cell``.
         """
-        return self.bot.player.CELL.lower() != cell.lower()
+        return str(self.bot.player.CELL or "").lower() != str(cell or "").lower()
 
     @check_alive
     async def walk_to(self, X: int, Y: int, speed: int = 8) -> None:
@@ -1090,38 +1422,103 @@ class Command:
         """Jump to the cell that currently hosts the requested monster.
 
         Args:
-            monsterName (str): Display name or ``id.X`` identifier for the monster.
+            monsterName (str): Display name, comma-separated names, or ``id.X`` identifier for the monster.
             byMostMonster (bool): Prefer the cell with the highest monster population when True.
             byAliveMonster (bool): Prefer a cell that still has the monster alive when True.
 
         Returns:
             None: The coroutine adjusts player position and exits.
         """
-        if monsterName.startswith('id.'):
-            monsterName = monsterName.split('.')[1]
-        for monster in self.bot.monsters:
-            if (monster.mon_name.lower() == monsterName.lower() or monster.mon_map_id == monsterName )\
-                    and monster.is_alive \
-                    and self.bot.player.CELL == monster.frame:
+        # Wait briefly if map transfer is in progress or monster definitions haven't loaded yet
+        for _ in range(15):
+            if not self.bot.is_joining_map and self.bot.monsters:
+                break
+            await asyncio.sleep(0.2)
+
+        if not self.bot.monsters:
+            return
+
+        targets = [t.strip().lower() for t in str(monsterName or "*").split(',') if t.strip()]
+        if not targets:
+            targets = ["*"]
+
+        def _is_match(mon: Monster) -> bool:
+            if not mon.frame:
+                return False
+            if "*" in targets:
+                return True
+            m_name = (mon.mon_name or "").lower()
+            m_id = str(mon.mon_map_id)
+            for t in targets:
+                if t.startswith("id.") and t.split(".")[1] == m_id:
+                    return True
+                if t == m_id or t == m_name:
+                    return True
+            return False
+
+        matching_monsters = [m for m in self.bot.monsters if _is_match(m)]
+        if not matching_monsters:
+            return
+
+        player_cell = str(self.bot.player.CELL or "").lower()
+        current_cell_monsters = [m for m in matching_monsters if str(m.frame or "").lower() == player_cell]
+        current_cell_alive = [m for m in current_cell_monsters if m.is_alive and m.current_hp > 0]
+
+        # Case 1: If searching for alive monsters and an alive monster is already in our cell, stay.
+        if byAliveMonster and current_cell_alive:
+            return
+
+        # Case 2: If alive monster preferred and there are alive monsters in other cells, pick the best one.
+        target_cell = None
+        if byAliveMonster:
+            alive_other = [m for m in matching_monsters if m.is_alive and m.current_hp > 0 and str(m.frame or "").lower() != player_cell]
+            if alive_other:
+                cell_counts = {}
+                for m in alive_other:
+                    cell_counts[m.frame] = cell_counts.get(m.frame, 0) + 1
+                target_cell = max(cell_counts, key=cell_counts.get)
+
+        # Case 3: If target_cell not determined yet (or not byAliveMonster):
+        if not target_cell:
+            if current_cell_monsters and not byMostMonster:
                 return
 
-        # Hunt monster in other cell
-        if byMostMonster or byAliveMonster:
-            cell = self.bot.find_best_cell(monsterName, byMostMonster, byAliveMonster)
-            if cell:
-                if cell == self.bot.player.CELL:
+            cell_counts = {}
+            for m in matching_monsters:
+                cell_counts[m.frame] = cell_counts.get(m.frame, 0) + 1
+
+            if cell_counts:
+                best_cell = max(cell_counts, key=cell_counts.get)
+                if str(best_cell).lower() == player_cell:
                     return
-                self.bot.jump_cell(cell, "Left")
-                await asyncio.sleep(1)
-                return
-        for monster in self.bot.monsters:
-            if (monster.mon_name.lower() == monsterName.lower() or monster.mon_map_id == monsterName )\
-                    and monster.is_alive \
-                    and self.bot.player.CELL != monster.frame:
-                # TODO need to handle the rigth pad
-                self.bot.jump_cell(monster.frame, "Left")
-                await asyncio.sleep(1)
-                return
+                target_cell = best_cell
+
+        if not target_cell:
+            return
+
+        if str(target_cell).lower() == player_cell:
+            return
+
+        self.bot.jump_cell(target_cell, "Left")
+        await asyncio.sleep(1)
+
+    def choose_best_cell(self, monster: str) -> Optional[str]:
+        """Cell holding the most of ``monster`` (the reference bot's ``ChooseBestCell``).
+
+        Args:
+            monster (str): Display name or ``id.X`` identifier.
+
+        Returns:
+            Optional[str]: Cell name, or ``None`` when ``monster`` is not in
+            the map at all.
+
+        Note:
+            the reference bot returns a cell/pad pair.  The map payload only ranks cells, so
+            no pad is chosen here -- ``jump_to_monster`` is usually the better
+            call, because it picks the best cell and jumps to it in one go.
+        """
+        return self.bot.find_best_cell(monster, byMostMonster=True,
+                                       byAliveMonster=False)
 
     @check_alive
     async def wait_use_skill(self, index: int, target_monsters: str = "*") -> None:
@@ -1252,8 +1649,9 @@ class Command:
             priority_monsters_id = []
             if hunt and len(target_monsters.split(",")) == 1 and target_monsters != "*":
                 await self.jump_to_monster(target_monsters, byAliveMonster=True)
-            cell_monsters_id = [mon.mon_map_id for mon in self.bot.monsters if mon.frame == self.bot.player.CELL and mon.is_alive]
-            cell_monsters = [mon for mon in self.bot.monsters if mon.frame == self.bot.player.CELL and mon.is_alive]
+            player_cell = str(self.bot.player.CELL or "").lower()
+            cell_monsters_id = [mon.mon_map_id for mon in self.bot.monsters if str(mon.frame or "").lower() == player_cell and mon.is_alive and mon.current_hp > 0]
+            cell_monsters = [mon for mon in self.bot.monsters if str(mon.frame or "").lower() == player_cell and mon.is_alive and mon.current_hp > 0]
             final_ids = []
             if target_monsters != "*":
                 # Mapping priority_monsters_id
@@ -1266,7 +1664,7 @@ class Command:
                         target_names.append(target_monster.lower())
 
                 # Step 1: build a map of alive monsters in current cell
-                alive_monsters = {mon.mon_map_id: mon for mon in self.bot.monsters if mon.frame == self.bot.player.CELL and mon.is_alive}
+                alive_monsters = {mon.mon_map_id: mon for mon in self.bot.monsters if str(mon.frame or "").lower() == player_cell and mon.is_alive and mon.current_hp > 0}
 
                 priority_monsters_id = []
 
@@ -1279,7 +1677,7 @@ class Command:
                     else:
                         name = target.lower()
                         for mon in self.bot.monsters:
-                            if mon.frame == self.bot.player.CELL and mon.is_alive and mon.mon_name.lower() == name:
+                            if str(mon.frame or "").lower() == player_cell and mon.is_alive and mon.current_hp > 0 and mon.mon_name.lower() == name:
                                 priority_monsters_id.append(mon.mon_map_id)
 
                 # Step 3: merge into cell_monsters_id (dedup, keep priority first)
@@ -1430,11 +1828,14 @@ class Command:
         """
         if monster.startswith('id.'):
             monster = monster.split('.')[1]
+        player_cell = str(self.bot.player.CELL or "").lower()
         for mon in self.bot.monsters:
-            if mon.is_alive and mon.frame == self.bot.player.CELL:
-                if mon.mon_name.lower() == monster.lower() or mon.mon_map_id == monster:
+            if mon.is_alive and mon.current_hp > 0 and str(mon.frame or "").lower() == player_cell:
+                if monster == "*":
                     return True
-                elif monster == "*":
+                elif mon.mon_name and mon.mon_name.lower() == monster.lower():
+                    return True
+                elif mon.mon_map_id == monster:
                     return True
         return False
 
@@ -1523,6 +1924,40 @@ class Command:
         """Return list of registered Slaves username"""
         return self.bot.slaves_player
 
+    def get_faction(self, faction_name: str) -> Optional[Faction]:
+        """Return the tracked :class:`Faction` for ``faction_name``, or None."""
+        return self.bot.player.get_faction(faction_name)
+
+    def get_faction_rank(self, faction_name: str) -> int:
+        """Rank (1-10) of ``faction_name``, or 0 when it is not tracked.
+
+        the reference bot's ``CoreFarms.FactionRank``.
+        """
+        return self.bot.player.getFactionRank(faction_name)
+
+    def get_faction_rep(self, faction_name: str) -> int:
+        """Total reputation accumulated in ``faction_name`` (0 when unknown).
+
+        the reference bot's ``CoreFarms.FactionRep``.
+        """
+        faction = self.bot.player.get_faction(faction_name)
+        return faction.rep if faction else 0
+
+    def get_faction_remaining_to_max(self, faction_name: str) -> int:
+        """Reputation still needed for rank 10 in ``faction_name``.
+
+        the reference bot's ``CoreFarms.RemainingFactionRepToMax``.  An untracked faction
+        returns :data:`model.faction.MAX_REP` -- the same "nothing banked yet"
+        default the reference bot uses.
+        """
+        faction = self.bot.player.get_faction(faction_name)
+        return faction.remaining_to_max() if faction else MAX_REP
+
+    def is_faction_max(self, faction_name: str) -> bool:
+        """True when ``faction_name`` is at rank 10."""
+        faction = self.bot.player.get_faction(faction_name)
+        return bool(faction and faction.is_max())
+
     def is_player_alive(self) -> bool:
         """Return True when the local player is not dead."""
         return not self.bot.player.ISDEAD
@@ -1561,6 +1996,20 @@ class Command:
     async def send_chat(self, message: str) -> None:
         """Send a zone chat message through the server packet API."""
         await self.send_packet(f"%xt%zm%message%{self.bot.areaId}%{message}%zone%")
+
+    async def use_potion(self, potion_id: int) -> None:
+        """Drink a potion on the local player (the reference bot's ``Core.UsePotion``).
+
+        Args:
+            potion_id (int): Inventory id of the potion to use.
+
+        Note:
+            This is the raw potion packet (``Bot.use_potion``).  The equipped
+            slot-5 scroll/potion is a different thing: ``equip_scroll`` first,
+            then ``use_skill(5, ...)``.
+        """
+        self.bot.use_potion(potion_id)
+        await asyncio.sleep(0.5)
 
     async def rest(self) -> None:
         """Request the rest action."""
@@ -1601,16 +2050,23 @@ class Command:
         cmd = data.get("cmd")
         if cmd != "ccqr":
             return
-        quest_id = data.get('QuestID')
+        quest_id = normalize_quest_id(data.get('QuestID'))
         ccqr_msg = data.get('msg', '')
         if data.get('bSuccess', 0) == 1:
+            if quest_id is not None and int(quest_id) == self.quest_to_check:
+                self.is_green_quest_var = True
+                self.is_completed_before_var = True
             return
-        if quest_id is None or int(quest_id) != self.quest_to_check:
+        if quest_id <= 0 or quest_id != self.quest_to_check:
             return
         if "Missing Turn In Item" in ccqr_msg:
             self.is_green_quest_var = True
+            self.is_completed_before_var = False
         if "Missing Quest Progress" in ccqr_msg:
             self.is_green_quest_var = False
+            self.is_completed_before_var = False
         if "One Time Quest Only" in ccqr_msg:
             self.is_green_quest_var = False
             self.is_completed_before_var = True
+            if hasattr(self.bot, "one_time_questid") and int(quest_id) not in self.bot.one_time_questid:
+                self.bot.one_time_questid.append(int(quest_id))

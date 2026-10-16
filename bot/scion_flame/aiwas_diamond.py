@@ -45,7 +45,7 @@ async def main(cmd: Command):
     while (cmd.is_still_connected() and complete_count < 1000):
         await do_farm_tasks(cmd, item_to_farm)
         complete_count = complete_count + 1
-        print(Fore.GREEN + f"Complete count : {complete_count}" + Fore.RESET)
+        cmd.bot.log(Fore.GREEN + f"Complete count : {complete_count}" + Fore.RESET)
 
 
 item_to_farm: list[str] = [

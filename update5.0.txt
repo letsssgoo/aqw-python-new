@@ -1,0 +1,83 @@
+# Catatan Perubahan (Changelog) - Bot AQW
+
+
+## 1. Ringkasan Masalah & Solusi
+
+
+
+| Gejala / Masalah | Penyebab Teknis | Solusi yang Diterapkan |
+
+| :--- | :--- | :--- |
+
+| **Bot diam / stuck setelah `Running bot commands...`** | Kondisi masuk room sebelumnya hanya menunggu respon lama: `%xt%server%-1%Profanity filter On.%`. Jika status akun adalah *Profanity filter Off*, kode tidak pernah jalan. | Mengubah pemicu ke paket resmi `%xt%loginResponse%` dengan penanda `first_join_sent` agar `firstJoin%1%` segera dikirim setelah login server diterima. |
+
+| **Server menolak login:** `Server requires AQW game version 5.0 or higher` | Paket XML login sebelumnya mengirim versi client lama: `SPIDER#0001~user~3.0098`. Server AQW baru saja memperbarui syarat minimum ke `5.0`. | Mengubah versi login XML menjadi `5.0` (dibuat dinamis via atribut `self.game_version`). |
+
+| **Log terminal kosong** | Parameter `showLog=False` dan `showDebug=False` aktif secara default pada skrip pemanggil. | Mengaktifkan `showLog=True` dan `showDebug=True` agar user dapat memantau eksekusi perintah dan paket data secara langsung. |
+
+| **Paket acak berawalan `Z` (`ZeJz...` / `ZSIn...`) & `retrieveUserDatas%None%`** | SmartFoxServer mengompresi data map (`moveToArea`) dan data karakter (`initUserDatas`) menggunakan **Zlib + Base64**. Karena tidak didekompresi, `self.areaId` tetap `None` dan inventori gagal dimuat. | Menambahkan fungsi dekompresi paket (`decompress_message`) dan integrasi di fungsi pembacaan batch untuk otomatis mengekstrak paket berawalan `Z` menjadi JSON utuh. |
+
+| **Potensi paket data socket terpotong** | Ukuran buffer penerimaan data terlalu kecil dan tidak memiliki buffer persisten saat terjadi `socket.timeout`. | Meningkatkan ukuran buffer dan menambahkan buffer persisten untuk menyambung potongan data antar-loop. |
+
+
+
+---
+
+
+
+## 2. Rincian Perubahan per File
+
+
+
+### A. Modul Inti Bot (`core/bot.py`)
+
+
+
+1. **Import Module:**
+
+   - Menambahkan modul `base64` dan `zlib`.
+
+2. **Paket Login XML (Versi 5.0):**
+
+   ```python
+
+   # Sebelum:
+
+   self.write_message(f"<msg t='sys'><body action='login' r='0'><login z='zone_master'><nick><![CDATA[SPIDER#0001~{self.player.USER}~3.0098]]></nick><pword><![CDATA[{self.player.TOKEN}]]></pword></login></body></msg>")
+
+
+
+   # Sesudah:
+
+   version = getattr(self, "game_version", "5.0")
+
+   self.write_message(f"<msg t='sys'><body action='login' r='0'><login z='zone_master'><nick><![CDATA[SPIDER#0001~{self.player.USER}~{version}]]></nick><pword><![CDATA[{self.player.TOKEN}]]></pword></login></body></msg>")
+
+   ```
+
+3. **Pemicu `firstJoin%1%` & Error Handling:**
+
+   - Memvalidasi hasil `loginResponse`. Jika server menolak (status `0`), bot menampilkan pesan error penolakan dan berhenti (`self.stop_bot()`).
+
+   - Jika sukses, mengirim `%xt%zm%firstJoin%1%` dan `%xt%zm%cmd%1%ignoreList%$clearAll%`.
+
+4. **Logging Paket Real-Time:**
+
+   - Pada fungsi pengiriman pesan (`write_message`): Menampilkan warna Cyan `[SEND] <packet>`.
+
+   - Pada fungsi pembacaan data (`read_batch`): Menampilkan warna Kuning `[RECV] <packet>` dan Hijau `[DECOMPRESSED] <json>`.
+
+5. **Dekompresi SFS Zlib (`decompress_message`):**
+
+   - Otomatis memproses paket berawalan `Z` (seperti `ZeJz...` dan `ZSIn...`) sehingga perintah `moveToArea` (pengisian `self.areaId`) dan `initUserDatas` (pemuatan inventori) berjalan normal.
+
+
+
+---
+
+
+### C. Repositori Alternatif dan Pendukung
+
+- Memperbarui versi client XML dari `3.0098` ke `5.0`.
+
+- Menambahkan dukungan fungsi dekompresi dan buffer persisten pada modul inti bot di berbagai direktori terkait agar tugas terjadwal dan proses otomatisasi tidak ditolak oleh server AQW.

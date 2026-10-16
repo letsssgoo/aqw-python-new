@@ -39,11 +39,25 @@ class Player:
         self.INVENTORY: List[ItemInventory] = []
         self.TEMPINVENTORY: List[ItemInventory] = []
         self.BANK: List[ItemInventory] = []
+        #: True once the bank has been *asked* for -- success, empty or failure.
+        #: The bank rides a different login packet than the one that marks the
+        #: character loaded, so a script can start with an empty ``BANK`` and
+        #: then farm what is already banked.  ``start_bot`` waits on this flag
+        #: (bounded) rather than on ``BANK`` itself, because a genuinely empty
+        #: bank must not hold anything back.
+        self.bank_load_finished: bool = False
         self.FACTIONS: list[Faction] = []
         self.CHARID: int = 0
         self.GOLD: int = 0
         self.GOLDFARMED: int = 0
         self.EXPFARMED: int = 0
+        #: The Awe story counter, off ``initUserData`` (``data.intAQ``).  The
+        #: reference reads it from the client (``objData.intAQ``).
+        self.intAQ: int = 0
+        #: Character level, parsed from ``initUserDatas``.  the reference bot exposes this as
+        #: ``Bot.Player.Level`` and several Core loops gate on it (HonorHall
+        #: needs 61, ``CoreFarms.Experience`` stops at a target level).
+        self.LEVEL: int = 0
         self.ISDEAD: bool = False
         self.MAX_HP: int = 9999
         self.MAX_MP: int = 100
@@ -93,6 +107,12 @@ class Player:
         return None
 
     def loadBank(self):
+        """Fetch the bank over HTTP, filling ``BANK``.
+
+        Sets :attr:`bank_load_finished` either way -- success, empty bank, or
+        three failed requests -- so callers that wait for the bank cannot hang
+        on a session the server never answers.
+        """
         random_v = f"0.{random.randint(10**16, 10**17 - 1)}"
         url = f"https://game.aq.com/game/api/char/bank?v={random_v}"
 
@@ -114,18 +134,22 @@ class Player:
         # The bank POST is the request that resets (10054) on a busy login.  One
         # reset used to leave BANK empty for the whole session, which then looks
         # like "class not in bank" to equip_item.  Retry a couple of times.
-        for attempt in range(3):
-            try:
-                response = requests.request("POST", url, headers=headers,
-                                            data=data, timeout=15)
-                for item in response.json():
-                    self.BANK.append(ItemInventory(item))
-                return True
-            except (requests.exceptions.RequestException, ValueError) as error:
-                if attempt == 2:
-                    print(f"loadBank failed after 3 tries: {error}")
-                    return False
-                time.sleep(2 * (attempt + 1))
+        try:
+            for attempt in range(3):
+                try:
+                    response = requests.request("POST", url, headers=headers,
+                                                data=data, timeout=15)
+                    for item in response.json():
+                        self.BANK.append(ItemInventory(item))
+                    print(f"bank: {len(self.BANK)} items loaded from the bank")
+                    return True
+                except (requests.exceptions.RequestException, ValueError) as error:
+                    if attempt == 2:
+                        print(f"loadBank failed after 3 tries: {error}")
+                        return False
+                    time.sleep(2 * (attempt + 1))
+        finally:
+            self.bank_load_finished = True
     
     def getServerInfo(self, serverName):
         for server in self.SERVERS:
@@ -399,6 +423,18 @@ class Player:
                 fac.add_rep(faction_rep)
                 return
     
+    def get_faction(self, faction_name: str) -> Optional[Faction]:
+        """The tracked :class:`Faction` for ``faction_name``, or ``None``.
+
+        Matches on the normalised name, the same way :meth:`getFactionRank`
+        does, so ``"Yew Mountains"`` and ``"yew mountains"`` agree.
+        """
+        normalized_faction = normalize(faction_name)
+        for fac in self.FACTIONS:
+            if fac.faction_name == normalized_faction:
+                return fac
+        return None
+
     def getFactionRank(self, faction_name: str) -> int:
         normalized_faction = normalize(faction_name)
         for fac in self.FACTIONS:

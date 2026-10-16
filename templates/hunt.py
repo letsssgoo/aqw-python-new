@@ -69,13 +69,57 @@ async def hunt_item(
             await cmd.use_next_skill(skill_list, monster_name, hunt)
     return
 
+async def hunt_item_by_id(
+        cmd: Command,
+        item_id: int,
+        item_qty: int,
+        map_name: str,
+        cell: str = None,
+        pad: str = "Left",
+        monster_map_id: int = 0,
+        is_temp: bool = True,
+    ):
+    """Kill a monster *by its map id* until the item *by its id* is held.
+
+    ``Core.KillMonster`` has an overload that names both by id rather than by
+    name -- ``fiendshard``'s quest 7898 is one -- and ``hunt_item`` matches by
+    name only.  The item is looked for in the temp bag when ``is_temp``, which is
+    where quest progress items land.
+    """
+    def held() -> bool:
+        item = (cmd.bot.player.get_item_temp_inventory_by_id(item_id)
+                if is_temp else None)
+        item = item or cmd.bot.player.get_item_inventory_by_id(item_id)
+        return bool(item and int(item.qty) >= item_qty)
+
+    if held():
+        return
+
+    while cmd.is_not_in_map(map_name):
+        await cmd.join_map(map_name, None)
+        await cmd.sleep(1000)
+
+    if cell:
+        while cmd.is_not_in_cell(cell):
+            await cmd.jump_cell(cell, pad)
+            await cmd.sleep(1000)
+
+    target = f"id.{monster_map_id}" if monster_map_id else "*"
+    while cmd.is_still_connected():
+        if held():
+            await cmd.leave_combat()
+            break
+        await cmd.use_next_skill(DEFAULT_SKILL_LIST, target)
+
+
 async def kill_quest(
         cmd: Command,
         quest_id: int,
         map_name: str, 
         monster_name: str = "*",
         room_number: int = None, 
-        hunt: bool = False
+        hunt: bool = False,
+        skill_list: list[int] = DEFAULT_SKILL_LIST
     ):
     await cmd.ensure_accept_quest(quest_id)
     
@@ -94,7 +138,8 @@ async def kill_quest(
             await cmd.ensure_turn_in_quest(quest_id)
             return
         
-        await attack_script(cmd, monster_name, hunt)
+        await attack_script(cmd, monster_name, hunt, skill_list)
+        await cmd.sleep(200)
 
 async def quest_item_req(cmd: Command, map_name: str, item_name: str, qty: int = 1, monster: str = "*", is_temp: bool = True):    
     if cmd.is_not_in_map(map_name):
@@ -107,14 +152,18 @@ async def quest_item_req(cmd: Command, map_name: str, item_name: str, qty: int =
         await attack_script(cmd, monster)
 
         
-async def attack_script(cmd: Command, monster_name: str = "*", hunt: bool = False):
+async def attack_script(cmd: Command, monster_name: str = "*", hunt: bool = False,
+                        skill_list: list[int] = DEFAULT_SKILL_LIST):
     """One scheduler tick: cast whichever listed skill is ready.
 
     Callers already loop on this, so it deliberately performs a single cast
     instead of replaying the whole fixed rotation each pass -- replaying it
     meant every pass re-attempted skills that were still on cooldown.
+
+    ``skill_list`` is the rotation to cast; the reference's advanced ``"1 | 4"``,
+    for instance, is ``[0, 1, 4]`` here -- slot 0 is mandatory.
     """
-    await cmd.use_next_skill(DEFAULT_SKILL_LIST, monster_name, hunt)
+    await cmd.use_next_skill(skill_list, monster_name, hunt)
 
 
 def hunt_item_cmds(

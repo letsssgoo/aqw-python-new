@@ -30,4 +30,4 @@ async def main(cmd: Command):
             await cmd.sell_item("Voucher of Nulgath")
             await cmd.sleep(1000)
         complete_count = complete_count + 1
-        print(Fore.GREEN + f"Complete count : {complete_count}" + Fore.RESET)
+        cmd.bot.log(Fore.GREEN + f"Complete count : {complete_count}" + Fore.RESET)

@@ -6,6 +6,7 @@ from .player_area import PlayerArea
 from .aura import Aura
 from .stats import PlayerStats, MAX_COOLDOWN_REDUCTION
 from .skill import Skill
+from .quest import Quest, normalize_quest_id
 from . import enhancement
 
 __all__ = [
@@ -20,5 +21,7 @@ __all__ = [
     "PlayerStats",
     "MAX_COOLDOWN_REDUCTION",
     "Skill",
+    "Quest",
+    "normalize_quest_id",
     "enhancement",
 ]

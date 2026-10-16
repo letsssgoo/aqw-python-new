@@ -30,9 +30,9 @@ async def main(bot: Bot):
 
     while cmd.is_monster_alive("The First Speaker") and cmd.is_still_connected():
         mons_hp = cmd.get_monster_hp("The First Speaker")
-        print("my hp:", cmd.bot.player.CURRENT_HP,"/", cmd.bot.player.MAX_HP)
+        bot.log("my hp:", cmd.bot.player.CURRENT_HP,"/", cmd.bot.player.MAX_HP)
         if mons_hp > -1:
-            print("The First Speaker:", mons_hp)
+            bot.log("The First Speaker:", mons_hp)
         
         if cmd.hp_below_percentage(60):
             equipped_class = cmd.get_equipped_class()
@@ -52,7 +52,7 @@ async def main(bot: Bot):
     
     await cmd.join_map("battleon", private_room_number)
 
-    print("finished ultra speaker")
+    bot.log("finished ultra speaker")
     await cmd.sleep(100000)
 
 
@@ -72,12 +72,12 @@ def message_handler(message):
                 for anim in anims:
                     msg = anim.get("msg")
                     if msg:
-                        print(msg)
+                        bot.log(msg)
                         if "truth" in msg or "listen" in msg:
                             whoTaunt, whoZone, whatZone, delay = malgorHandler()
-                            print(speaker_counter)
+                            bot.log(speaker_counter)
         elif cmd == "event":
-            print(Fore.GREEN + data["args"]["zoneSet"] + Fore.WHITE)
+            bot.log(Fore.GREEN + data["args"]["zoneSet"] + Fore.WHITE)
 
 def malgorHandler():
     global speaker_counter
