@@ -127,7 +127,7 @@ Semua yang penting untuk menulis script. `async` kecuali ditandai **sync**.
 | `cmd.can_turnin_quest(qid)` **sync** | butuh item-nya ada (cek inventory+temp) |
 | `cmd.quest_in_progress(qid)` / `cmd.quest_not_in_progress(qid)` **sync** | |
 | `await cmd.register_quest(qid)` | auto accept+turn-in latar (`handlers/register_quest.py`) |
-| `await cmd.is_green_quest(qid)` / `await cmd.is_completed_before(qid)` | baca jawaban `ccqr` |
+| `await cmd.is_green_quest(qid)` / `await cmd.is_completed_before(qid)` | satu kali **tembakan turn-in** (`ccqr`), lalu baca penolakannya. `bSuccess=1` → keduanya True; `"Missing Turn In Item"` → hijau saja (quest terbuka, belum selesai); `"Missing Quest Progress"` → keduanya False; `"One Time Quest Only"` → selesai saja. **Hijau ≠ sudah selesai** — quest one-time yang sudah selesai justru hijau=False (dikunci `tools/test_quest.py`) |
 
 ### Item / shop / bank
 | Panggilan | Catatan |
@@ -951,6 +951,32 @@ readiness + pacing internal) dan koordinasi party lintas-proses
 - `IScriptInterface` sendiri **tidak ada** di folder `Scripts` (bagian app
   bot sumber). Kalau butuh definisi lengkapnya, tambahkan repo bot sumber di GitHub sebagai
   reference git.
+- **Log lewat jalur log engine, bukan `print`**: `Core.Logger(...)` →
+  `cmd.bot.log(...)` (terlihat; di balik `Bot.showLog`, bertimestamp seperti
+  keluaran engine yang lain), dan yang sifatnya verbose → `cmd.bot.debug(...)`
+  (di balik `showDebug`). Baris yang **ada di sumber** ditulis dengan teks
+  sumber apa adanya, supaya log satu run bisa dibandingkan baris-per-baris
+  dengan bot sumber; yang **tambahan kita** (mis. "engine ini tidak bisa X")
+  diberi tag seperti `[vhl]` supaya bisa dibedakan di aliran yang sama.
+  `tools/check_log_scope.py` mengaudit keduanya: `print` mentah, dan
+  `cmd.bot.log` di fungsi yang tidak punya `cmd` (NameError yang menunggu run
+  yang mencapainya).
+- **Resolusi penerima dulu, jangan cocokkan nama**: kelas `Core*` di referensi
+  **tidak saling mewarisi** (tidak ada `class CoreAdvanced : CoreBots`), jadi
+  `Adv.BuyItem` dan `Core.BuyItem` adalah dua metode **berbeda** yang kebetulan
+  senama — hanya versi CoreAdvanced yang menjalankan `GetItemReq` (rep, level,
+  gold). Sebelum memetakan `X.Method` ke fungsi kita, tetapkan dulu kelas `X`-nya
+  (`Adv.` → `bot/core_advanced.py`, `Core.` → `bot/core_bots.py`, `Farm.` →
+  `bot/core_farms.py`, `Story.` → `bot/core_story.py`, `Daily.` →
+  `bot/core_dailies.py`), lalu bandingkan badannya. Kalau nama itu muncul di lebih
+  dari satu core, sebutkan kelas mana yang diikuti di docstring/komen kode kita.
+  `tools/core_surface.py` memetakan kelas per berkas dan nama yang bertabrakan.
+- **Python 3.12 minimum** (mesin ini: 3.12.10, `py -3.12`; 3.10 masih terpasang).
+  Alasannya konkret: `bot/dragon_of_time/dragon_of_time.py` memakai backslash di
+  dalam f-string, yang legal **sejak 3.12** saja. Jangan "perbaiki" berkas orang
+  untuk menurunkannya — naikkan interpreter-nya. Dependensi yang harus ada di
+  interpreter itu: `colorama` (engine: `Fore`), `requests` (login/HTTP),
+  `bottle` + `Pillow` (GUI).
 
 ### Contoh tervalidasi: `Ultras/UltraWarden.cs` → `bot/ultra/ultra_warden.py`
 
@@ -1082,3 +1108,61 @@ Itulah sebabnya routine seperti `new_worlds_new_opportunities` menerima `item`
 sebagai argumen, dan kenapa kembalinya daftar kosong tanpa pesan itu bahaya:
 di engine ini `main()` yang selesai = bot berhenti, jadi "tidak ada yang
 di-farm" terlihat persis seperti "selesai".
+
+## 16. Register cacat bot sumber (deviasi port)
+
+Aturan kerjanya: **ikut sumbernya apa adanya; deviasi hanya kalau cacatnya masuk
+kelas (i)/(ii) di bawah DAN pemilik repo sudah memutuskannya.** Jangan
+menyimpulkan nilai yang sumbernya tidak tulis (nama item, cell, nama reward) —
+pakai literal sumbernya, walau kelihatannya salah. Tiap deviasi yang disetujui
+dapat tiga hal: catatan satu baris di berkasnya, tes offline yang mengunci
+perilaku port, dan satu baris di tabel bawah ini. Tabelnya untuk audit: kalau
+sumbernya berganti versi, tiap baris bisa dicek ulang (grep nama metode di kolom
+1, baca ulang, putuskan baris itu masih berlaku).
+
+Klasifikasi cacatnya, dan wajib-tidaknya deviasi:
+
+| Jenis | Akibat kalau ditiru | Sikap |
+|---|---|---|
+| (i) farming selamanya | bot menggantung tanpa pesan | **wajib deviasi** |
+| (ii) diam-diam tidak melakukan apa pun | bot berhenti, terlihat "selesai" | **wajib deviasi** |
+| (iii) mati / kosong | tidak ada | cukup dicatat |
+
+| Sumber | Cacat | Perilaku port | Verifikasi live | Tes |
+|---|---|---|---|---|
+| `CoreNation.ApprovalAndFavor` | `!ShouldExit && a < q \|\| f < q` — `&&` lebih kuat, jadi tetap loop setelah ShouldExit | berhenti saat disconnect | — | `approval : partial …` |
+| `CoreNation.BambloozevsDrudgen(null)` | `CheckInventory(null, quant)` tak pernah benar → (i) | `item=None` ditolak + dilaporkan | — | `bamboozle : no item …` |
+| `CoreNation.CragName` | literal berisi HTML escape `Crag &amp; Bamboozle`, jadi 20 cek pet Crag-nya tak pernah cocok | escape-nya **sudah diperbaiki** jadi `Crag & Bamboozle` (commit `fb46fe5`) → rute pet hidup; `CRAG_PET` memakai nama polos | — | — |
+| `CoreNation.Forge*` (4 dari 5 guard) | guard `!gemstone && !member` — longgar dari pesannya sendiri | **diikuti C#**; loop melaporkan penolakan server, bukan spin | accept 4920/4921 tanpa Gemstone → pesan penolakan | `forge dcs : loose guard …` |
+| `CoreNation.ForgeTaintedGems` | guard `\|\|` (yang ketat) — satu-satunya yang konsisten | diikuti | — | `forge : strict guard …` |
+| `CoreNation.ForgeDarkCrystalShards` | cek `"Dark Crystal Shards"` (plural) → stop condition tak pernah benar → (i) | **diikuti sumber**: loop jalan sampai bot dihentikan | — | `forge dcs : the literal … ends the farm` |
+| `CoreNation.ForgeDiamondsOfNulgath` | cek `"Diamonds for Nulgath"` — nama itu tak ada itemnya | **diikuti sumber** | — | `forge dia : the literal …` |
+| `CoreNation.CarveUniGemStone(null)` | loop sampai bot dihentikan | "All" = sampai kelima reward penuh | — | `carve : a named reward …` |
+| `CoreNation.SwindlesBilk` | isinya hanya `AddDrop`, tanpa aksi | tidak diport | — | — |
+| `CoreFarms.IcestormArena` | pita 35-50: jalur hidup `r11` (cell pita 30-35), jalur mati `r14` | **diikuti sumber** (`r11`) | — | belum |
+| `CoreFarms.ToggleBoost` / `GetBoost` | butuh boost item (fitur klien sumber); default-nya semua off | dihapus; ada komentar di tiap titik yang di sumber memanggilnya | — | — |
+| `CoreFarms.Experience(rankUpClass: true)` | butuh rank class | dilaporkan tak didukung, lanjut ke target level | — | belum |
+| `Nation/Various/HanzoOrbQuest.cs` | reward default `"Any"` bukan nama reward → (i) | nama tak dikenal → lapor + daftar reward asli | — | `carve`-style, `hanzo …` |
+| `Nation/Various/VoidDestroyer.cs`, `VoidSpartan.cs`, `JuggernautItems.cs` | guard `toInv: false` (hanya inventory) padahal itemnya **dibank** di akhir → run berikutnya farming ulang | cek bank-aware (sesuai permintaan) | — | jalan wrapper |
+| `Nation/Various/TendurrrTheAssistantQuests.cs` | opsi reward berisi *indeks* (0-3) tapi dicari sebagai item id; cabang All kehilangan `!`; membaca reward list quest 837 | pakai payload quest 5814 + cek bank-aware | — | jalan wrapper |
+| `Nation/Various/CarveTheUnidentifiedGemStone[Member].cs` | enum hanya 4 dari 5 reward; `ToString()` memberi `Dark_Crystal_Shard` yang bukan nama item → (i) | daftar lima nama; `REWARD = None` = semua | — | `carve : unknown reward …` |
+| `Nation/NulgathsCombatStyles/SoulReaperofNulgath.cs` | template kosong (`//INSERT CODE HERE`) | tidak diport | — | — |
+| `CoreBots.EnsureAccept` (`BlackKnightOrb`, `VHLChallenge`) | tak punya jalur gagal: `Bot.Quests.EnsureAccept` + `Wait.ForQuestAccept` tanpa batas, kembaliannya selalu `true` | `ensure_accept_quest` dibatasi + lapor; pemanggil berhenti daripada berburu untuk quest yang tak aktif | — | `blackknight : quest 318 refused …`, `vhl : quest 5660 refused …` |
+| `CoreAdvanced.RankUpClass` (lewat `CoreVHL.GetVHL`) | butuh rank class, yang engine ini tak bisa baca | dilaporkan, dilewati; kelasnya sendiri tetap didapat | — | `vhl : the class is already held …` |
+| `CoreDailies.CheckDailyv2` / `DailyRoutine` (lewat `EldersBlood`) | gate harian dari flag klien `Bot.Quests.IsDailyComplete`; engine tak menyimpannya | gate = penolakan server saat accept; ditolak → lapor, tidak bertani | — | `elders : a refused accept …` |
+| `Bot.Wait.ForPickup` (`BlackKnightOrb`, `EldersBlood`, `VHLChallenge`) | tunggu tanpa batas sampai drop masuk | `wait_for_item`: poll terbatas + lapor kalau tak datang | — | `pickup : held is immediate …` |
+| `CoreVHL.FarmExtra` | nama reward 57446 dibaca dari cache quest klien, sebelum quest di-accept | quest di-accept dulu (`swindle_return` juga begitu) lalu dibaca dari payload; tetap tak ada → lapor | — | `vhl : reward 57446 …` |
+| `CoreFarms.BlacksmithingREP` | cabang gold memanggil `Core.BuyItem` **dua kali** berturut-turut: sekali di `else` cek "sudah punya voucher", lalu sekali lagi tanpa syarat → saat stok kurang, voucher dibayar dobel | **diikuti sumber** (tidak "diperbaiki"); `RemainingFactionXp` diturunkan dari rep + tabel kita, sebab sumber membacanya dari daftar rep klien | — | gerbang; tes khusus menyusul |
+| `Bot.Quests.IsUnlocked(q)` (dipakai `UnlockForgeEnhancements`) | cek nilai slot quest sisi klien: `q.Slot < 0 \|\| world.getQuestValue(q.Slot) >= q.Value - 1` — engine ini tidak punya klien untuk ditanya | untuk quest **one-time** (`bOnce`/`sField`) diganti `is_completed_before(q)` dan rantainya dikerjakan **berurutan**, jadi saat giliran tiba prasyaratnya baru selesai dan quest itu memang terbuka; quest yang tetap ditolak dilaporkan `ensure_accept_quest`. Mekanisme beda, hasil setara untuk rantai linier | — | `lacerate`, `forge_weapon` (import + gerbang) |
+| `CoreStory.QuestProgression` | bukan sekadar cek: loop pemulihan — selesaikan ulang quest sebelumnya bila itemnya ada, relog setelah 5 gagal | **tidak diport**; port kita memakai `is_completed_before` sebagai gerbang lalu mengerjakan langkahnya. Pemulihan otomatisnya hilang | — | — |
+| `CoreFarmerJoe.Pets` | parameternya diabaikan; badannya membaca key config `"Pets"` yang bukan opsi yang ia deklarasikan (`"PetChoice"`), jadi nilainya selalu default `None` → **metodenya mati**: dua panggilan `Pets(HotMama)`/`Pets(Akriloth)` dari `DoAll` tak pernah berbuat apa-apa | **(iii) diikuti sumber**: parameter diterima tapi tidak dipakai, `PET_CHOICE` = `PET_NONE`; mengubah konstanta itu menghidupkan cabangnya, sama seperti menyetel opsi di sumber | — | `pets : the parameter is ignored, as the source ignores it …` |
+
+Empat titik yang **selera, bukan bug** — sudah diputuskan pemilik repo:
+
+| Titik | Pilihan | Alternatif |
+|---|---|---|
+| `bamboozle_vs_drudge(item=None)` | tolak + lapor | tiru C# (loop selamanya) |
+| `carve_uni_gem_stone(item=None)` | "All" = sampai penuh | C# = loop sampai dihentikan |
+| guard `toInv: false` | cek bank-aware | C# = hanya inventory, lalu dibank |
+| guard Forge `&&` | **ikut C#** (longgar) + loop melaporkan penolakan | wajibkan keduanya |
+| nama item Forge, cell arena, nama Crag | **ikut literal sumber** (ejaan "salah" sekalipun) | pakai ejaan yang menurut kita "seharusnya" |

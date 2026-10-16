@@ -89,6 +89,26 @@ def main() -> None:
     assert bot.get_loaded_quest(4432) is None, "ccqr 4432 did not remove it"
     print("ccqr      : '443' kept it, '4432' removed it")
 
+    # --- the green/completed table, i.e. what a TurnIn probe answers ---
+    # Both ``is_green_quest`` and ``is_completed_before`` are one turn-in
+    # attempt: they send ``ccqr`` and read the refusal.  The two flags are not
+    # opposites -- "green" means the quest is unlocked and turnable, which is
+    # False both when the quest is locked and when it was already completed.
+    cmd.quest_to_check = 7716
+
+    def probe(quest_id, msg, success=0):
+        cmd.is_green_quest_var = cmd.is_completed_before_var = None
+        cmd._message_handler(_server("ccqr", QuestID=str(quest_id),
+                                     bSuccess=success, msg=msg))
+        return cmd.is_green_quest_var, cmd.is_completed_before_var
+
+    assert probe(7716, "Missing Turn In Item") == (True, False)    # unlocked
+    assert probe(7716, "Missing Quest Progress") == (False, False)  # not yet done
+    assert probe(7716, "One Time Quest Only") == (False, True)      # done before
+    assert probe(7716, "", success=1) == (True, True)               # just turned in
+    assert probe(7717, "Missing Turn In Item") == (None, None)      # another quest
+    print("probe     : green=unlocked | completed=done | mismatch ignored")
+
     # --- acceptQuest handler: a wire string lands as an int -----------
     asyncio.run(bot.handle_server_response(
         _server("acceptQuest", QuestID="9999", bSuccess=0)))
