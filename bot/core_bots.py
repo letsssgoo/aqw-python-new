@@ -23,6 +23,7 @@ from typing import Optional, Union
 
 from core.command import Command
 from core.utils import is_valid_json
+from model.inventory import ItemType
 from templates.hunt import DEFAULT_SKILL_LIST
 
 #: Kitsune's own name -- ``KillKitsune`` attacks it by name.
@@ -319,6 +320,46 @@ def points_to_level(points: int) -> int:
         if points <= required:
             return rank
     return 10
+
+
+def find_class_item(cmd: Command, class_name: str):
+    """The class item with that name, from the inventory or the bank.
+
+    ``CoreBots.CheckClassRank`` looks its class up in both, and insists the item
+    is a class.
+    """
+    for candidate in list(cmd.bot.player.INVENTORY) + list(cmd.bot.player.BANK):
+        if (candidate.s_name.strip().lower() == class_name.strip().lower()
+                and candidate.s_es == ItemType.CLASS.value):
+            return candidate
+    return None
+
+
+def check_class_rank(cmd: Command, class_name: Optional[str] = None,
+                     current_class: bool = False) -> int:
+    """``CoreBots.CheckClassRank``: a class's rank, read from its class points.
+
+    The reference finds the class item in the inventory or the bank and walks its
+    ``ClassPointRanks`` table -- the same thresholds as ``RepThresholds`` -- so
+    under 900 is rank 1 and 302500 is rank 10.  A class that is not owned reports
+    rank 1, as the source's fall-through does.
+
+    Note:
+        The source's ``CurrentClass`` branch returns a *client* value
+        (``Bot.Player.CurrentClassRank``) rather than deriving it, so it is not
+        ported here: derive the rank by passing the class name instead.  Whether
+        this engine can read that client value at all is an open question.
+    """
+    if current_class and class_name is None:
+        equipped = cmd.get_equipped_class()
+        class_name = equipped.s_name if equipped else None
+    if not class_name:
+        return 1
+
+    item = find_class_item(cmd, class_name)
+    if item is None:
+        return 1
+    return points_to_level(int(item.qty))
 
 
 async def wait_for_item(cmd: Command, item_name: str, quant: int = 1,

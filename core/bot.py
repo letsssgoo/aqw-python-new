@@ -505,6 +505,16 @@ class Bot:
                 username = data["data"]["strUsername"]
                 access_level = int(data["data"]["intAccessLevel"])
                 self.check_user_access_level(username, access_level)
+                # The Awe story counter.  ``CoreAdvanced.uAwe``-era code and
+                # ``CoreAwe.GetAweRelic`` read it off the client
+                # (``world.myAvatar.objData.intAQ``); it arrives on this packet,
+                # in the entry's ``data``.
+                aq = (data.get("data") or {}).get("intAQ")
+                if aq is None:
+                    aq = data.get("intAQ")
+                if aq is not None:
+                    self.player.intAQ = int(aq)
+                    self.debug(f"intAQ = {self.player.intAQ}")
             elif cmd == "equipItem":
                 pass
             elif cmd == "loadInventoryBig":

@@ -51,6 +51,9 @@ class Player:
         self.GOLD: int = 0
         self.GOLDFARMED: int = 0
         self.EXPFARMED: int = 0
+        #: The Awe story counter, off ``initUserData`` (``data.intAQ``).  The
+        #: reference reads it from the client (``objData.intAQ``).
+        self.intAQ: int = 0
         #: Character level, parsed from ``initUserDatas``.  the reference bot exposes this as
         #: ``Bot.Player.Level`` and several Core loops gate on it (HonorHall
         #: needs 61, ``CoreFarms.Experience`` stops at a target level).
