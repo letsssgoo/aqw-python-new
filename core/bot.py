@@ -33,10 +33,26 @@ BANK_WAIT_TIMEOUT_S = 10
 #: window is refused -- which then looks like "the bot just stopped".
 RELOGIN_DELAY_S = 35
 
+#: How many relogin attempts a single ``start_bot`` makes before it gives up and
+#: lets its thread end.  A pane that cannot come back must end, or the app layer
+#: (which owns the retry that keeps trying until the bot really runs) can never
+#: take over: it would keep seeing a live thread whose bot never connects.
+RELOGIN_MAX_ATTEMPTS = 3
+
+#: A read that returns this fast, with nothing read, is a broken socket rather
+#: than the reader's own one-second idle timeout.
+READ_FAIL_FAST_S = 0.5
+
+#: Consecutive fast failures before the session is dropped.  Looping straight
+#: back on a dead socket is what let one orphaned reader eat a core.
+READ_FAILURES_BEFORE_DROP = 3
+
 
 class Bot:
     #: See RELOGIN_DELAY_S: an attribute so a test can shorten it.
     RELOGIN_DELAY_S: float = RELOGIN_DELAY_S
+    #: See RELOGIN_MAX_ATTEMPTS: likewise an attribute, for the same reason.
+    RELOGIN_MAX_ATTEMPTS: int = RELOGIN_MAX_ATTEMPTS
 
 
     def __init__(
@@ -142,6 +158,14 @@ class Bot:
         self.bot_main = None
         self.command = Command(self, init_handler=True)
 
+        #: The reader task of the current session.  One per session: a relogin
+        #: used to start a second one without ending the first, and an orphaned
+        #: reader on a closed socket kept calling ``recv`` on it -- which fails
+        #: instantly, so it spun at full CPU.
+        self.reader_task = None
+        #: Why a relogin was asked for, for the log line that follows it.
+        self.relogin_reason = ""
+
     def subscribe(self, callback):
         """Subscribe to messages."""
         if callable(callback):
@@ -164,65 +188,155 @@ class Bot:
         self.server = server
         
     async def start_bot(self, botMain: Optional[Callable[[Command], Awaitable[None]]] = None):
+        """Run the bot, and keep bringing it back while it can come back.
+
+        One relogin is one more *session* on this same object -- not another
+        ``start_bot`` call from inside the dying one.  The old shape recursed
+        (``start_bot`` -> ``relogin_and_restart`` -> ``start_bot``), so a long run
+        collected an await stack, a reader task and a register-quest task per
+        relogin, and the orphaned readers then spun on their closed sockets: that
+        is where a CPU graph that only ever climbs came from.
+
+        This loop is bounded and says so; the retry that never gives up belongs to
+        the app layer, which restarts a pane whose thread has ended.
+        """
+        if botMain is not None:
+            self.bot_main = botMain
+
+        attempts = 0
+        while True:
+            await self._run_session()
+            if not self.auto_relogin:
+                return
+            attempts += 1
+            if attempts > self.RELOGIN_MAX_ATTEMPTS:
+                print(f"[relogin] {attempts - 1} attempts did not get the bot "
+                      f"running; stopping here so the app can restart it.")
+                return
+            reason = f" ({self.relogin_reason})" if self.relogin_reason else ""
+            self.relogin_reason = ""
+            print(f"[relogin] attempt {attempts}/{self.RELOGIN_MAX_ATTEMPTS}"
+                  f"{reason} in {self.RELOGIN_DELAY_S} secs...")
+            await asyncio.sleep(self.RELOGIN_DELAY_S)
+            if not self.auto_relogin:
+                print("[relogin] cancelled (the bot was stopped).")
+                return
+
+    async def _run_session(self) -> bool:
+        """One login, one connection, one script run.
+
+        Returns:
+            bool: True when a session ran to its end; False when the login or the
+            connection failed, which is what the caller's own retry is for.
+        """
+        self._reset_session_state()
         self.login(self.username, self.password, self.server)
-        if self.server_info:
-            await self.connect_client()
-            if self.isScriptable and botMain:
-                self.bot_main = botMain
-                asyncio.create_task(self.read_server_in_background())
+        if not self.server_info:
+            print("[relogin] the login did not go through; retrying.")
+            return False
+        await self.connect_client()
+        if not self.is_client_connected:
+            print("[relogin] could not connect; retrying.")
+            return False
 
-                while self.is_client_connected:
-                    while self.is_char_load_complete is False:
-                        await asyncio.sleep(0.01)
+        if self.isScriptable and self.bot_main:
+            self._start_reader()
 
-                    # The bank arrives on its own login packet -- the one that
-                    # fills in CHARID -- and not on the packet that marks the
-                    # character loaded.  Without this wait a script can start
-                    # with an empty BANK and farm what is already banked.  It
-                    # waits for the load to have been *attempted*, bounded, so a
-                    # session that never sends the packet still runs -- loudly.
-                    bank_deadline = time.time() + BANK_WAIT_TIMEOUT_S
-                    while (not self.player.bank_load_finished
-                           and self.is_client_connected
-                           and time.time() < bank_deadline):
-                        await asyncio.sleep(0.05)
-                    if not self.player.bank_load_finished:
-                        print(Fore.YELLOW + "[bank] not loaded yet; checks that "
-                              "consult the bank may farm what is already "
-                              "banked." + Fore.RESET)
+            while self.is_client_connected:
+                while self.is_char_load_complete is False:
+                    # The character load never arrives on a session that has
+                    # already ended, and waiting for it without this check hung
+                    # the thread for good -- the pane looked alive and never ran.
+                    if not self.is_client_connected:
+                        return False
+                    await asyncio.sleep(0.01)
 
-                    if not self.is_register_quest_task_running:
-                        self.run_register_quest_task()
-                        self.is_register_quest_task_running = True
+                # The bank arrives on its own login packet -- the one that
+                # fills in CHARID -- and not on the packet that marks the
+                # character loaded.  Without this wait a script can start
+                # with an empty BANK and farm what is already banked.  It
+                # waits for the load to have been *attempted*, bounded, so a
+                # session that never sends the packet still runs -- loudly.
+                bank_deadline = time.time() + BANK_WAIT_TIMEOUT_S
+                while (not self.player.bank_load_finished
+                       and self.is_client_connected
+                       and time.time() < bank_deadline):
+                    await asyncio.sleep(0.05)
+                if not self.player.bank_load_finished:
+                    print(Fore.YELLOW + "[bank] not loaded yet; checks that "
+                          "consult the bank may farm what is already "
+                          "banked." + Fore.RESET)
 
-                    # The script runs in its own task so a dropped connection can
-                    # end it.  Waiting on it directly was the reason a peer reset
-                    # mid-farm stopped nothing: the script sits in a loop that
-                    # never checks the connection, so ``botMain`` never returned
-                    # and the relogin below was never reached.
-                    script = asyncio.create_task(
-                        botMain(self._resolve_script_arg(botMain)))
-                    while self.is_client_connected and not script.done():
-                        await asyncio.sleep(0.2)
-                    if not script.done():
-                        print("Connection lost while the script was running; "
-                              "stopping it and relogging.")
-                        script.cancel()
-                        try:
-                            await script
-                        except asyncio.CancelledError:
-                            pass
-                    elif not script.cancelled() and script.exception() is not None:
-                        # let the traceback out through the task machinery
-                        script.result()
+                if not self.is_register_quest_task_running:
+                    self.run_register_quest_task()
+                    self.is_register_quest_task_running = True
 
-                    self.stop_bot()
-                if self.auto_relogin:
-                    print("Relogin from start bot")
-                    await self.relogin_and_restart(async_bot=self.bot_main)
-            else:
-                await self.run_commands()
-        return
+                # The script runs in its own task so a dropped connection can
+                # end it.  Waiting on it directly was the reason a peer reset
+                # mid-farm stopped nothing: the script sits in a loop that
+                # never checks the connection, so ``botMain`` never returned
+                # and the relogin below was never reached.
+                script = asyncio.create_task(
+                    self.bot_main(self._resolve_script_arg(self.bot_main)))
+                while self.is_client_connected and not script.done():
+                    await asyncio.sleep(0.2)
+                if not script.done():
+                    print("Connection lost while the script was running; "
+                          "stopping it and relogging.")
+                    script.cancel()
+                    try:
+                        await script
+                    except asyncio.CancelledError:
+                        pass
+                elif not script.cancelled() and script.exception() is not None:
+                    # let the traceback out through the task machinery
+                    script.result()
+
+                self.stop_bot()
+            return True
+
+        await self.run_commands()
+        return True
+
+    def _start_reader(self) -> None:
+        """Start this session's reader, ending the previous one first."""
+        self._cancel_reader()
+        self.reader_task = asyncio.create_task(self.read_server_in_background())
+
+    def _cancel_reader(self) -> None:
+        """Drop the reader task of the session that is ending."""
+        task = self.reader_task
+        self.reader_task = None
+        if task is None or task.done():
+            return
+        try:
+            if task is asyncio.current_task():
+                return          # asked from the reader itself; it ends on its own
+        except RuntimeError:
+            pass
+        task.cancel()
+
+    def request_relogin(self, reason: str = "") -> None:
+        """End this session and ask ``start_bot`` to bring the bot back.
+
+        The packet handlers ("invalid session", AFK) call this.  They used to
+        call ``relogin_and_restart`` inline, which started the next session from
+        inside the one it was killing -- the recursion this replaces.
+        """
+        self.relogin_reason = reason
+        self.stop_bot()
+
+    def _reset_session_state(self) -> None:
+        """Clear what belongs to one session, so the next one starts clean."""
+        self.index = 0
+        self.is_char_load_complete = False
+        self.is_joining_map = False
+        self.is_register_quest_task_running = False
+        self.loaded_quest_datas = []
+        self.loaded_shop_datas: List[Shop] = []
+        self.registered_auto_quest_ids = []
+        self.check_spam_time = None
+        self.spam_backoff_ms = 0
 
     def _resolve_script_arg(self, botMain):
         """Pass the object the script's ``main`` expects.
@@ -260,6 +374,7 @@ class Bot:
         print(f"[{datetime.now().strftime('%H:%M:%S')}] Stopping bot...")
         if user_triggered:
             self.auto_relogin = False
+        self._cancel_reader()
         if self.client_socket:
             try:
                 self.client_socket.close()
@@ -295,28 +410,17 @@ class Bot:
             self.server_info = self.player.getServerInfo(server)
             
     async def relogin_and_restart(self, async_bot= None):
-        self.stop_bot()
-        self.index = 0
-        self.is_char_load_complete = False
-        self.is_joining_map = False
-        self.is_register_quest_task_running = False
-        self.loaded_quest_datas = []
-        self.loaded_shop_datas: List[Shop] = []
-        self.registered_auto_quest_ids = []
-        self.check_spam_time = None
-        self.spam_backoff_ms = 0
-        try:
-            print(f"Restarting bot in {self.RELOGIN_DELAY_S} secs...")
-            await asyncio.sleep(self.RELOGIN_DELAY_S)
-            if not self.auto_relogin:
-                print("Relogin cancelled (bot stopped).")
-                return
-            if self.isScriptable and async_bot:
-                await self.start_bot(async_bot)
-            else:
-                await self.start_bot()
-        except Exception as e:
-            print(f"Error during restarting bot: {e}")
+        """End this session; ``start_bot``'s own loop brings the bot back.
+
+        Kept as the name the rest of the engine knows.  It deliberately does not
+        call ``start_bot`` any more: doing so nested the next session inside the
+        one it was killing, and a long run then held an await stack -- plus a
+        reader task and a register-quest task -- per relogin.
+        """
+        if async_bot is not None:
+            self.bot_main = async_bot
+        self.request_relogin("relogin requested")
+        await asyncio.sleep(0)
         
     async def connect_client(self):
         hostname, port = self.server_info
@@ -397,9 +501,10 @@ class Bot:
                 print(f"Loop Error: {e}")
                 
         print('BOT STOPPED\n')
-        if self.auto_relogin:
-            await self.relogin_and_restart()
-        
+        # The relogin is ``start_bot``'s loop to decide; asking for one from here
+        # would nest the next session inside this one.
+        return
+
     def print_commands(self):
         print("Index\tCommand")
         print("------------------------------")
@@ -990,7 +1095,7 @@ class Bot:
             elif f"Your status is now Away From Keyboard" in msg:
                 if self.isScriptable and self.auto_relogin:
                     print("Relogin and restart bot on AFK...")
-                    await self.relogin_and_restart(async_bot=self.bot_main)
+                    self.request_relogin("AFK")
                 elif not self.isScriptable and self.restart_on_afk:
                     print("Restart cmds on AFK...")
                     self.index = 0
@@ -998,7 +1103,7 @@ class Bot:
             elif "invalid session" in msg:
                 if self.isScriptable and self.auto_relogin:
                     print("Relogin and restart bot on invalid session...")
-                    await self.relogin_and_restart(async_bot=self.bot_main)
+                    self.request_relogin("invalid session")
 
     async def check_registered_quest_completion(self, item_id, is_temp: bool = False):
         for registered_quest_id in self.registered_auto_quest_ids:
@@ -1006,27 +1111,52 @@ class Bot:
                 self.turn_in_quest(registered_quest_id)
 
     async def read_server_in_background(self):
-        """Background task to read and handle messages."""
+        """Background task to read and handle messages.
+
+        A read that comes back *instantly* with nothing in it is a broken socket,
+        not the reader's own one-second idle timeout -- and looping straight back
+        onto one is a busy loop: an orphaned reader whose session had already
+        ended kept calling ``recv`` on its closed socket and ate a whole core,
+        for as long as the process lived.  A few of those, one per relogin, is
+        what made the CPU climb over a long run.  So: a fast empty read is
+        counted, spaced out, and after three in a row the session is dropped --
+        which is what lets the relogin (or the app) take over cleanly.
+        """
+        failures = 0
         while self.is_client_connected:
             try:
+                started = time.monotonic()
                 messages = await self.read_batch_async(self.client_socket)
+                elapsed = time.monotonic() - started
                 if messages:
+                    failures = 0
                     for msg in messages:
                         if msg.startswith("Z"):
                             msg = self.decompress_message(msg)
                         await self.handle_server_response(msg)
-                # read_batch_async() returns a list ([] on timeout), never None,
-                # so the old `if messages is None: stop_bot()` branch was dead.
-                # Removed; autoRelogin is now honoured as passed.
+                    continue
+                if elapsed < READ_FAIL_FAST_S:
+                    failures += 1
+                    if failures >= READ_FAILURES_BEFORE_DROP:
+                        print("[ws] the socket stopped answering; dropping the "
+                              "session so it can be re-established.")
+                        self.is_client_connected = False
+                        break
+                    await asyncio.sleep(READ_FAIL_FAST_S)
+                    continue
+                failures = 0
             except CustomError as e:
                 print(f"Critical error encountered: {e}")
                 self.run = False  # Stop the bot
+            except asyncio.CancelledError:
+                raise
             except Exception as e:
                 print(f"Unexpected error in testasync: {e}")
                 tb_str = ''.join(traceback.format_exception(type(e), e, e.__traceback__))
                 print(tb_str)
                 if self.is_client_connected == False and self.auto_relogin == False:
                     raise Exception("Connection closed by the server.")
+                await asyncio.sleep(READ_FAIL_FAST_S)
         if self.client_socket:
             self.client_socket.close()
     

@@ -290,6 +290,62 @@ class _LogFlusher:
 _log_flusher = _LogFlusher()
 
 
+def _stop_pane(instance, timeout_s: float = 20.0) -> None:
+    """Stop a pane for good, and wait for its thread to end.
+
+    The engine's own relogin is switched **off** first.  With it left on, a pane
+    the app is stopping logs itself back in, so the app's own relogin then runs a
+    second session for the same account: two logins fighting over one character,
+    two threads, two readers -- and after a few of those a CPU graph that only
+    ever climbs.  ``timeout_s`` bounds the wait for the thread to end; a thread
+    that will not end is reported by the caller, never spawned over.
+    """
+    if instance is None:
+        return
+    try:
+        instance.auto_relogin = False
+    except Exception:
+        pass
+    try:
+        instance.stop_bot()
+    except Exception:
+        pass
+
+
+def _join_threads(threads, timeout_s: float = 20.0) -> list:
+    """Wait (bounded) for ``threads`` to end; return the ones still alive."""
+    deadline = time.time() + timeout_s
+    alive = []
+    for thread in threads:
+        try:
+            thread.join(timeout=max(0.0, deadline - time.time()))
+        except Exception:
+            pass
+        if thread.is_alive():
+            alive.append(thread)
+    return alive
+
+
+def _stop_panes(active_threads: dict, timeout_s: float = 20.0,
+                tag: str = "") -> dict:
+    """Stop every pane in ``active_threads``; return the ones that would not end.
+
+    A thread that is still ending is **kept** in the mapping, so the menu's own
+    start guard refuses to spawn a second party on the same accounts while the
+    first one is still unwinding.
+    """
+    threads = list(active_threads.values())
+    for thread in threads:
+        _stop_pane(getattr(thread, "bot_instance", None))
+    alive = _join_threads(threads, timeout_s=timeout_s)
+    if alive:
+        print(f"[{tag or 'app'}] {len(alive)} pane thread(s) did not end within "
+              f"{timeout_s:.0f}s; keeping them so they cannot be started twice.")
+    alive_ids = {id(thread) for thread in alive}
+    return {key: thread for key, thread in active_threads.items()
+            if id(thread) in alive_ids}
+
+
 class _WebLogs:
     """Ring buffer of log lines for browser (HTTP) clients.
 
@@ -1030,7 +1086,7 @@ class AqwSoloApi:
                     unified_redirector_err.unregister_thread(tid)
                 instance = entry.get("instance")
                 if instance:
-                    instance.stop_bot(user_triggered=True)
+                    _stop_pane(instance)
                 return {"success": True}
             except Exception as e:
                 return {"success": False, "error": str(e)}
@@ -1047,7 +1103,7 @@ class AqwSoloApi:
                     unified_redirector_err.unregister_thread(tid)
                 instance = entry.get("instance")
                 if instance:
-                    instance.stop_bot(user_triggered=True)
+                    _stop_pane(instance)
             except Exception as e:
                 print(f"Failed to stop {key}: {e}")
         return {"success": True}
@@ -1272,15 +1328,8 @@ class SlaveryApi:
             return {"success": True}
         
         print("Stopping all slave bot instances...")
-        for username, thread in self.active_threads.items():
-            if thread.bot_instance:
-                try:
-                    thread.bot_instance.stop_bot(user_triggered=True)
-                except Exception:
-                    pass
-        for username, thread in list(self.active_threads.items()):
-            thread.join(timeout=1.0)
-        self.active_threads.clear()
+        self.active_threads = _stop_panes(self.active_threads, timeout_s=5.0,
+                                          tag="slavery")
         return {"success": True}
 
     def toggle_pause_slaves(self, pause_state):
@@ -1662,15 +1711,9 @@ class TempleApi:
     def stop_party(self):
         if not self.active_threads:
             return {"success": True}
-            
+
         self.start_time = None
-        for s_id, thread in self.active_threads.items():
-            if thread.bot_instance:
-                try:
-                    thread.bot_instance.stop_bot()
-                except Exception:
-                    pass
-        self.active_threads = {}
+        self.active_threads = _stop_panes(self.active_threads, tag="temple")
         return {"success": True}
 
     def get_status(self):
@@ -1990,17 +2033,7 @@ class EclipseApi:
             return {"success": True}
         
         self.start_time = None
-        for slot_id, thread in self.active_threads.items():
-            if thread.bot_instance:
-                try:
-                    thread.bot_instance.stop_bot()
-                except Exception:
-                    pass
-                    
-        for slot_id, thread in list(self.active_threads.items()):
-            thread.join(timeout=1.0)
-            
-        self.active_threads.clear()
+        self.active_threads = _stop_panes(self.active_threads, tag="eclipse")
         return {"success": True}
 
     def toggle_pause(self, pause_state):
@@ -2239,9 +2272,35 @@ class UltraApi:
                     return
                 if self._party_config:
                     print(f"[{self.tab_id()}] relogin")
-                    self.start_party(self._party_config)   # bumps gen, new watchdog
+                    self._relogin_party(gen)
                 return
             time.sleep(1.0)
+
+    def _relogin_party(self, gen: int, wait_s: float = 10.0) -> None:
+        """Bring the party back, and keep trying until it is really up.
+
+        This is the retry that never gives up, and it belongs here: the server
+        refuses a relogin while it still holds the old session, and a start that
+        finds a pane thread still ending is refused outright.  One attempt used
+        to end the watchdog for good -- the menu then sat dead until the user
+        pressed START again.  Each attempt that succeeds hands over to the new
+        watchdog (a new ``gen``), which takes the next round if the panes drop
+        again; a refused attempt is retried here after ``wait_s``.
+        """
+        attempts = 0
+        while gen == self._party_gen and not self._manual_stop:
+            attempts += 1
+            if attempts > 1:
+                print(f"[{self.tab_id()}] relogin attempt {attempts}: waiting "
+                      f"{wait_s:.0f}s")
+                time.sleep(wait_s)
+                if gen != self._party_gen or self._manual_stop:
+                    return
+            result = self.start_party(self._party_config)
+            if result.get("success"):
+                return                      # the new watchdog watches it now
+            print(f"[{self.tab_id()}] relogin attempt {attempts} did not start: "
+                  f"{result.get('error')}")
 
     def handle_log(self, username, message):
         _push_log(self.tab_id(), username, ansi_to_html(message))
@@ -2365,15 +2424,9 @@ class UltraApi:
     def stop_party(self, user_triggered=False):
         if user_triggered:
             self._manual_stop = True
-        threads = list(self.active_threads.values())
-        self.active_threads = {}
         self.start_time = None
-        for thread in threads:
-            try:
-                if thread.bot_instance:
-                    thread.bot_instance.stop_bot()
-            except Exception as e:
-                print(f"Failed to stop ultra pane: {e}")
+        self.active_threads = _stop_panes(self.active_threads,
+                                          tag=self.tab_id())
         return {"success": True}
 
     def get_status(self):
@@ -2541,14 +2594,8 @@ class WeeklyDoomApi:
         return {"success": True, "started": started, "errors": errors}
 
     def stop_bots(self):
-        threads = list(self.active_threads.values())
-        self.active_threads = {}
-        for thread in threads:
-            try:
-                if thread.bot_instance:
-                    thread.bot_instance.stop_bot()
-            except Exception as e:
-                print(f"Failed to stop weekly doom: {e}")
+        self.active_threads = _stop_panes(self.active_threads,
+                                          tag="weekly_doom")
         return {"success": True}
 
     def get_statuses(self):
