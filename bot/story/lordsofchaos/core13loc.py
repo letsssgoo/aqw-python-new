@@ -9,10 +9,10 @@ different class, different job: this one is the whole /mobius story.
 """
 from typing import Sequence, Tuple, Union
 
-from bot.core_story import kill_quest, map_item_quest
+from bot.core_story import item_id_by_name, kill_quest, map_item_quest
 from core.command import Command
 from bot.nation.core_nation import kill_escherion
-from templates.hunt import hunt_item
+from templates.hunt import hunt_item, hunt_item_by_id
 
 ESCHERION_LAST = 272
 
@@ -72,3 +72,120 @@ async def escherion(cmd: Command) -> None:
         await cmd.ensure_accept_quest(ESCHERION_LAST)
         await kill_escherion(cmd, "Defeated Escherion", is_temp=True)
         await cmd.ensure_turn_in_quest(ESCHERION_LAST)
+
+
+KITSUNE_LAST = 488
+
+#: Quest 470's five monsters, by the map id the source names: ``(map id, item,
+#: how many)``.  The item is named there, and this engine farms by id, so the id
+#: comes from the quest's own payload -- see ``core_story.item_id_by_name``.
+JUNKYARD_BY_ID = ((1, "Wild Kara-Kasa", 5),
+                  (4, "Wild Bura-Bura", 4),
+                  (3, "Wild Biwa-Bokuboku", 3),
+                  (6, "Wild Koto-Furunushi", 2),
+                  (2, "Wild Bakezouri", 1))
+
+#: Quest 474's three Kappa Ninja drops plus the map item, in the source's order.
+KAPPA_ITEMS = (("Dried Nori Leaf", 6),
+               ("Sumeshi Bundle", 3),
+               ("Fresh Cucumber", 1))
+KAPPA_MAP_ITEM = 92
+
+
+async def kitsune(cmd: Command) -> None:
+    """``Core13LoC.Kitsune``: quests 380-488 across seven maps.
+
+    The seven quests the source writes out by hand (380, 381, 402, 403, 405, 470,
+    474) keep their own blocks, in place; the rest go through the same two
+    helpers ``escherion`` uses.
+    """
+    if await cmd.is_completed_before(KITSUNE_LAST):
+        return
+
+    # Turtle Power 380
+    if not await cmd.is_completed_before(380):
+        await map_item_quest(cmd, 380, "yokaiboat", 64, 1)
+        await cmd.ensure_accept_quest(380)
+        await hunt_item(cmd, "Kappa Ninja Slain", 7, "yokaiboat",
+                        monster_name="Kappa Ninja")
+        await cmd.ensure_turn_in_quest(380)
+
+    # Setting Sail to Yokai 381
+    if not await cmd.is_completed_before(381):
+        await cmd.ensure_accept_quest(381)
+        await hunt_item(cmd, "Sail Permit", 1, "yokaiboat", cell="r4",
+                        pad="Spawn", monster_name="*")
+        await cmd.ensure_turn_in_quest(381)
+
+    await kill_quest(cmd, 382, "dragonkoi", "Ryoku")
+
+    # Dog Days 402
+    if not await cmd.is_completed_before(402):
+        await cmd.ensure_accept_quest(402)
+        await hunt_item(cmd, "Samurai Questioned", 5, "hachiko",
+                        monster_name="Samurai Nopperabo")
+        await hunt_item(cmd, "Ninja Questioned", 5, "hachiko",
+                        monster_name="Ninja Nopperabo")
+        await cmd.ensure_turn_in_quest(402)
+
+    # Faceless Threat 403
+    if not await cmd.is_completed_before(403):
+        await cmd.ensure_accept_quest(403)
+        await hunt_item(cmd, "Note from DT", 1, "hachiko", cell="Ox",
+                        pad="Center", monster_name="Samurai Nopperabo")
+        await cmd.ensure_turn_in_quest(403)
+
+    # Zodiac Puzzle Key 405
+    if not await cmd.is_completed_before(405):
+        await cmd.ensure_accept_quest(405)
+        for cell, monster, piece in (
+                ("Tiger", "Samurai Nopperabo", "Rat-Ox-Tiger Piece"),
+                ("Snake", "Ninja Nopperabo", "Rabbit-Dragon-Snake piece"),
+                ("Horse", "Samurai Nopperabo", "Horse-Sheep-Monkey piece"),
+                ("Pig", "Ninja Nopperabo", "Rooster-Dog-Pig Piece")):
+            await hunt_item(cmd, piece, 1, "hachiko", cell=cell, pad="Center",
+                            monster_name=monster)
+        await cmd.ensure_turn_in_quest(405)
+
+    await kill_quest(cmd, 406, "hachiko", "Dai Tengu")
+    await map_item_quest(cmd, 466, "bamboo", 90, 1)
+    await kill_quest(cmd, 467, "bamboo", ["Tanuki", "Tanuki"])
+    await kill_quest(cmd, 468, "bamboo", "SoulTaker")
+    await map_item_quest(cmd, 469, "junkyard", 91, 1)
+
+    # Reduce, Respawn, Recycle 470 -- five monsters, each by its own map id
+    if not await cmd.is_completed_before(470):
+        await cmd.ensure_accept_quest(470)
+        for monster_map_id, item, qty in JUNKYARD_BY_ID:
+            item_id = item_id_by_name(cmd, 470, item)
+            if item_id is None:
+                cmd.bot.log(f"[story] quest 470 does not name {item!r}; the "
+                            f"/junkyard pass stops here.")
+                return
+            await hunt_item_by_id(cmd, item_id, qty, "junkyard",
+                                  monster_map_id=monster_map_id)
+        await cmd.ensure_turn_in_quest(470)
+
+    await kill_quest(cmd, 471, "junkyard", "Onibaba")
+    await kill_quest(cmd, 473, "yokairiver",
+                     ["Funa-Yurei", "Funa-Yurei", "Funa-Yurei"])
+
+    # Kappa Cuisine 474
+    if not await cmd.is_completed_before(474):
+        await cmd.ensure_accept_quest(474)
+        for item, qty in KAPPA_ITEMS:
+            await hunt_item(cmd, item, qty, "yokairiver", cell="r4", pad="Left",
+                            monster_name="Kappa Ninja")
+        if cmd.is_not_in_map("yokairiver"):
+            await cmd.join_map("yokairiver")
+        await cmd.get_map_item(KAPPA_MAP_ITEM)
+        await cmd.ensure_turn_in_quest(474)
+
+    await kill_quest(cmd, 476, "yokairiver", "Nure Onna")
+    await kill_quest(cmd, 477, "yokaigrave", "Skello Kitty")
+    await kill_quest(cmd, 478, "yokaigrave",
+                     ["Ninja Nopperabo", "Samurai Nopperabo"])
+    await kill_quest(cmd, 479, "yokaigrave", "Neko Mata")
+    await kill_quest(cmd, 481, "odokuro", "O-dokuro")
+    await kill_quest(cmd, 484, "yokaiwar", "O-Dokuro's Head")
+    await kill_quest(cmd, 488, "kitsune", "kitsune")

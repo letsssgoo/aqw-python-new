@@ -249,6 +249,18 @@ def main() -> None:
     assert ss.SHADOWFALL_RISE_LAST == 6592 and ss.CORRUPTED_LUMA_QUEST == 6591
     print("shadowfall : 35 steps of quests 6539-6592, 6591 by hand")
 
+    # --- Core13LoC.Kitsune: the by-hand halves, and the last quest -------
+    from bot.story.lordsofchaos import core13loc as loc
+
+    assert loc.KITSUNE_LAST == 488
+    assert [row[0] for row in loc.JUNKYARD_BY_ID] == [1, 4, 3, 6, 2], \
+        loc.JUNKYARD_BY_ID
+    assert loc.KAPPA_ITEMS == (("Dried Nori Leaf", 6),
+                               ("Sumeshi Bundle", 3),
+                               ("Fresh Cucumber", 1)), loc.KAPPA_ITEMS
+    assert loc.KAPPA_MAP_ITEM == 92
+    print("kitsune    : by-id order 1/4/3/6/2, three kappa drops, map item 92")
+
     print("\nquest tests OK")
 
 
