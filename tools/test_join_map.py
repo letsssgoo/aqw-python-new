@@ -58,8 +58,12 @@ class StubBot:
         self.aggro_mons_id = []
         self.accept_quest = None            # only touched by is_still_connected
         self.sent: list[str] = []
+        self.logs: list[str] = []
         self.answers = answers
         self.pending: str | None = None
+
+    def log(self, *args) -> None:
+        self.logs.append(" ".join(str(arg) for arg in args))
 
     # --- what the socket layer would do --------------------------------
     def write_message(self, msg: str) -> None:
@@ -72,6 +76,7 @@ class StubBot:
         if self.pending is not None and self.answers:
             self.strMapName = self.pending
             self.pending = None
+            self.is_joining_map = False      # "You joined" has arrived
 
     def transfers(self) -> list[str]:
         return [m for m in self.sent if "tfer" in m]
@@ -155,7 +160,34 @@ def main() -> int:
     check("map unchanged", bot.strMapName, "battleon")
     check("the caller can retry", cmd.is_not_in_map("evilwarnul"), True)
 
-    # --- 5. wait_for_map answers for itself ---------------------------
+    # --- 5. a slow load must not make the caller re-send ---------------
+    # /trunk and other big maps take longer than the soft bound.  The transfer
+    # is still unanswered (is_joining_map is set), so wait_for_map must keep
+    # waiting instead of letting the caller's loop fire the packet again -- the
+    # second one is what earns "Cannot join a room you are already in".
+    print("\n-- the load lands after the soft bound --")
+    bot = StubBot("battleon")
+    cmd = Command(bot)
+    cmd.MAP_JOIN_TIMEOUT_MS = 400           # soft bound; the hard cap is 1200 ms
+
+    async def slow_load():
+        async def server():
+            await asyncio.sleep(0.9)        # slower than the soft bound
+            bot.release()
+
+        task = asyncio.ensure_future(server())
+        while cmd.is_not_in_map("evilwarnul") and len(bot.transfers()) < 5:
+            await cmd.join_map("evilwarnul", safeLeave=False)
+            await asyncio.sleep(0.2)
+        await task
+
+    asyncio.run(slow_load())
+    check("one transfer despite the slow load", len(bot.transfers()), 1,
+          str(bot.transfers()))
+    check("the map did land", bot.strMapName, "evilwarnul")
+    check("nothing was given up", bot.logs, [])
+
+    # --- 6. wait_for_map answers for itself ---------------------------
     print("\n-- wait_for_map's own contract --")
     bot = StubBot("battleon")
     cmd = Command(bot)

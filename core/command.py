@@ -1268,7 +1268,17 @@ class Command:
         else:
             msg = f"%xt%zm%cmd%1%tfer%{self.bot.player.USER}%{mapName}%"
         self.bot.write_message(msg)
-        await self.wait_for_map(mapName)
+        if await self.wait_for_map(mapName):
+            return
+
+        # The area never arrived.  Sending the transfer again is what earns
+        # "Cannot join a room you are already in" -- and, if the first one lands
+        # afterwards, a stale map name that no retry can repair.  So the retry
+        # belongs to the caller's own loop; all that is left here is to stop
+        # leaving the in-flight flag set, and to say what happened.
+        self.bot.is_joining_map = False
+        self.bot.log(f"[join] {mapName} did not confirm; still in "
+                     f"{self.bot.strMapName}, retrying.")
 
     async def wait_for_map(self, mapName: str,
                            timeout_ms: Optional[int] = None) -> bool:
@@ -1281,9 +1291,18 @@ class Command:
         transfer a second time and collect "Cannot join a room you are already
         in" for its trouble.  Waiting here means one transfer per map change.
 
+        ``timeout_ms`` is a *soft* bound.  While the server has not answered the
+        transfer at all -- ``is_joining_map`` is set until "You joined" arrives
+        -- the join is in flight, not lost, and giving up there is exactly what
+        made the callers re-send: a big map (``/trunk`` is one) can take well
+        over ten seconds, and the second packet is then refused while the first
+        one lands, leaving a map name the client never corrects.  So the wait
+        continues while the transfer is unanswered and stops at three times the
+        bound whatever happens.
+
         Args:
             mapName (str): Map the caller expects to end up in.
-            timeout_ms (int | None): Give up after this long; defaults to
+            timeout_ms (int | None): Soft bound in ms; defaults to
                 :data:`MAP_JOIN_TIMEOUT_MS`.
 
         Returns:
@@ -1292,9 +1311,14 @@ class Command:
         """
         if timeout_ms is None:
             timeout_ms = self.MAP_JOIN_TIMEOUT_MS
-        deadline = time.monotonic() + timeout_ms / 1000
+        start = time.monotonic()
+        soft = start + timeout_ms / 1000
+        hard = start + 3 * timeout_ms / 1000
         while (self.is_still_connected() and self.is_not_in_map(mapName)
-               and time.monotonic() < deadline):
+               and time.monotonic() < hard):
+            if (time.monotonic() >= soft
+                    and not getattr(self.bot, "is_joining_map", False)):
+                break
             await asyncio.sleep(0.05)
         return self.is_in_map(mapName)
 

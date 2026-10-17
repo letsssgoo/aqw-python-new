@@ -908,7 +908,10 @@ async def black_knight_orb(cmd: Command) -> None:
         cmd.bot.log(f"[farm] quest {BLACK_KNIGHT_ORB_QUEST} ({BLACK_KNIGHT_ORB}) "
               f"cannot be accepted; nothing farmed.")
         return
-    for map_name, monster, piece in BLACK_KNIGHT_ORB_PIECES:
+    total = len(BLACK_KNIGHT_ORB_PIECES)
+    for index, (map_name, monster, piece) in enumerate(BLACK_KNIGHT_ORB_PIECES, 1):
+        cmd.bot.log(f"[farm] {BLACK_KNIGHT_ORB} piece {index}/{total}: {piece} "
+                    f"from {monster} in /{map_name}")
         await hunt_item(cmd, piece, 1, map_name, monster_name=monster,
                         is_temp=True)
     await cmd.ensure_turn_in_quest(BLACK_KNIGHT_ORB_QUEST)

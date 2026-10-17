@@ -51,21 +51,36 @@ DROPS = list(BAG_DROPS) + [ITEM, "Undead Essence", "Chaorruption Essence",
 async def afdl(cmd: Command) -> None:
     """The whole set, in the reference's own order."""
     if await cmd.has_item(ITEM):
+        cmd.bot.log(f'[afdl] "{ITEM}" is already owned; nothing to do.')
         return
 
     cmd.add_drop(DROPS)
+    cmd.bot.log(f"[afdl] 1/10 levelling to {LEVEL}")
     await farm_experience(cmd, LEVEL)
 
+    cmd.bot.log("[afdl] 2/10 farming an Unidentified 13")
     await farm_uni13_quest(cmd, 1)
+    cmd.bot.log("[afdl] 3/10 Approval and Favor")
     await approval_and_favor(cmd, 0, 1)
+
+    cmd.bot.log("[afdl] 4/10 " + ", ".join(NDW_REQUIRED))
     await ndw_quest(cmd, NDW_REQUIRED)
 
+    cmd.bot.log(f"[afdl] 5/10 {UNI_35}")
     await ndw_quest(cmd, (UNI_35,))
+    cmd.bot.log("[afdl] 6/10 Blood Gems x10")
     await farm_blood_gem(cmd, 10)
+    cmd.bot.log("[afdl] 7/10 vouchers")
     await farm_voucher(cmd, False)
+    cmd.bot.log("[afdl] 8/10 Essence of Nulgath x100")
     await essence_of_nulgath(cmd, 100)
+    cmd.bot.log(f"[afdl] 9/10 {UNDEAD_ESSENCE[0]} x{UNDEAD_ESSENCE[1]}")
     await battle_under_b(cmd, UNDEAD_ESSENCE[0], UNDEAD_ESSENCE[1])
 
+    cmd.bot.log(f"[afdl] 10/10 quest {QUEST_ID}: {CHAORRUPTION[0]} "
+                f"x{CHAORRUPTION[1]} (/orecavern), {LIVING_STAR[0]} "
+                f"x{LIVING_STAR[1]} (/starsinc), {EMERALD[0]}, "
+                f"{ESSENCE_POTION[0]} x{ESSENCE_POTION[3]}, then {KLUNK[0]}")
     await cmd.ensure_accept_quest(QUEST_ID)
     await equip_class(cmd)
     await hunt_item(cmd, CHAORRUPTION[0], CHAORRUPTION[1], CHAORRUPTION[2],
@@ -83,6 +98,8 @@ async def afdl(cmd: Command) -> None:
     await hunt_item(cmd, KLUNK[0], KLUNK[1], KLUNK[2], monster_name=KLUNK[3],
                     is_temp=False)
     await cmd.ensure_turn_in_quest(QUEST_ID)
+    cmd.bot.log(f'[afdl] quest {QUEST_ID} turned in; "{ITEM}" is '
+                f'{"in the inventory" if await cmd.has_item(ITEM) else "not in the inventory yet"}.')
 
 
 async def main(cmd: Command):
