@@ -85,18 +85,30 @@ UNIDENTIFIED_19_SHOP = 1951
 async def get_vhl(cmd: Command, rank_up_class: bool = True) -> None:
     """``CoreVHL.GetVHL``: the class, challenge tokens and crystals included."""
     if await cmd.has_item(VOID_HIGHLORD):
+        cmd.bot.log(f'[vhl] "{VOID_HIGHLORD}" is already owned.')
         _rank_up(cmd, rank_up_class)
         return
 
+    cmd.bot.log(f"[vhl] 1/3 {ROENTGENIUM} x15, one per turn-in of quest "
+                f"{CHALLENGE_QUEST}")
     await vhl_challenge(cmd, 15)
+    cmd.bot.log(f"[vhl] 2/3 {VOID_CRYSTAL_A} and {VOID_CRYSTAL_B}")
     await vhl_crystals(cmd)
 
     if (await cmd.has_item(ROENTGENIUM, 15)
             and await all_owned(cmd, [(VOID_CRYSTAL_A, 1),
                                       (VOID_CRYSTAL_B, 1)])):
+        cmd.bot.log(f'[vhl] 3/3 buying "{VOID_HIGHLORD}"')
         await buy_item(cmd, VOID_HIGHLORD_SHOP, VOID_HIGHLORD,
                        map_name=VOID_HIGHLORD_MAP)
         _rank_up(cmd, rank_up_class)
+    else:
+        cmd.bot.log(f'[vhl] "{VOID_HIGHLORD}" not bought yet: {ROENTGENIUM} '
+                    f"{cmd.get_quant_item(ROENTGENIUM)}/15, {VOID_CRYSTAL_A} "
+                    f"{'owned' if await cmd.has_item(VOID_CRYSTAL_A) else 'missing'}"
+                    f", {VOID_CRYSTAL_B} "
+                    f"{'owned' if await cmd.has_item(VOID_CRYSTAL_B) else 'missing'}"
+                    f".")
 
 
 def _rank_up(cmd: Command, rank_up_class: bool) -> None:
@@ -128,6 +140,9 @@ async def vhl_challenge(cmd: Command, quant: int, farmextra: bool = False) -> No
 
     cmd.farming_logger(ROENTGENIUM, quant)
     while cmd.is_still_connected() and not await cmd.has_item(ROENTGENIUM, quant):
+        cmd.bot.log(f"[vhl] {ROENTGENIUM}: "
+                    f"{cmd.get_quant_item(ROENTGENIUM)}/{quant} | "
+                    f"{ELDERS_BLOOD}: {cmd.get_quant_item(ELDERS_BLOOD)}")
         if not await cmd.ensure_accept_quest(CHALLENGE_QUEST):
             cmd.bot.log(f"[vhl] quest {CHALLENGE_QUEST} cannot be accepted, so no "
                   f"{ROENTGENIUM} can be made. Stopping.")
@@ -182,7 +197,14 @@ async def vhl_crystals(cmd: Command) -> None:
     """
     if (await cmd.has_item(VOID_CRYSTAL_A)
             and await cmd.has_item(VOID_CRYSTAL_B)):
+        cmd.bot.log("[vhl] both void crystals are already owned.")
         return
+
+    cmd.bot.log(f"[vhl] {VOID_CRYSTAL_A}: "
+                f"{'owned' if await cmd.has_item(VOID_CRYSTAL_A) else 'missing'}"
+                f" | {VOID_CRYSTAL_B}: "
+                f"{'owned' if await cmd.has_item(VOID_CRYSTAL_B) else 'missing'}"
+                f" | {ELDERS_BLOOD}: {cmd.get_quant_item(ELDERS_BLOOD)}")
 
     cmd.add_drop(BAG_DROPS)
     await farm_uni13_quest(cmd, 1)

@@ -3,8 +3,9 @@
 Port of ``Nation/Various/JuggernautItems.cs``.
 
 Set ``REWARD`` to one of the twenty names below, or ``None`` to work through all
-of them.  The reference's own option defaults to ``Oblivion of Nulgath``, which
-is the default kept here.
+of them.  The reference's own option defaults to ``Oblivion of Nulgath``; the
+default kept here is ``None``, i.e. every reward, which is what a run of this
+script is for.
 
 The reference guards on ``CheckInventory(..., toInv: false)`` -- its inventory
 only; the bank-aware check is used here instead, as everywhere else in this port.
@@ -31,7 +32,7 @@ QUEST_ID = 837
 #: ``"Void Cowboy Hat"``, ``"Void Cowboy Morph"``,
 #: ``"Void Cowboy's Mask + Locks"``, ``"Void Cowboy's Pistol"``,
 #: ``"Dual Void Cowboy Pistols"``.
-REWARD = "Oblivion of Nulgath"
+REWARD = None
 
 #: The rune one turn-in needs.
 RUNE = "Undead Bruiser Rune"

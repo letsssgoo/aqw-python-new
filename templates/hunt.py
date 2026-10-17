@@ -7,6 +7,43 @@ from core.command import Command
 # Command.use_next_skill collapses the duplicate slot on entry.
 DEFAULT_SKILL_LIST: list[int] = [0, 1, 2, 0, 3, 4]
 
+#: How many times a hunt will ask for its map before giving up.  ``join_map``
+#: already waits out a transfer that is still in flight, so more than a couple
+#: of passes means the map itself cannot be reached -- and reporting that beats
+#: retrying for the rest of the run.
+JOIN_ATTEMPTS: int = 5
+
+
+async def _join_for_hunt(cmd: Command, map_name: str, room_number: int = None,
+                         item_name: str = "") -> bool:
+    """Join ``map_name`` for a hunt, bounded and reported.
+
+    Args:
+        cmd (Command): Facade to act through.
+        map_name (str): Map the hunt needs.
+        room_number (int | None): Room to ask for, or None for any.
+        item_name (str): What would have been farmed, for the message.
+
+    Returns:
+        bool: True once the map is reached; False when it cannot be, after
+        saying so -- the caller then skips the hunt instead of looping.
+    """
+    attempts = 0
+    while cmd.is_not_in_map(map_name):
+        attempts += 1
+        if attempts > JOIN_ATTEMPTS:
+            cmd.bot.log(f"[hunt] {map_name} could not be reached after "
+                        f"{JOIN_ATTEMPTS} tries (still in "
+                        f"{cmd.bot.strMapName}); {item_name or 'the item'} was "
+                        f"not farmed.")
+            return False
+        if attempts > 1:
+            cmd.bot.log(f"[hunt] {map_name}: join did not land, retrying "
+                        f"({attempts}/{JOIN_ATTEMPTS})")
+        await cmd.join_map(map_name, room_number)
+        await cmd.sleep(1000)
+    return True
+
 async def hunt_item(
         cmd: Command,
         item_name: str, 
@@ -30,9 +67,8 @@ async def hunt_item(
 
     cmd.add_drop(item_name)
     
-    while cmd.is_not_in_map(map_name):
-        await cmd.join_map(map_name, room_number)
-        await cmd.sleep(1000)
+    if not await _join_for_hunt(cmd, map_name, room_number, item_name):
+        return
 
     if cell:
         hunt = False
@@ -95,9 +131,8 @@ async def hunt_item_by_id(
     if held():
         return
 
-    while cmd.is_not_in_map(map_name):
-        await cmd.join_map(map_name, None)
-        await cmd.sleep(1000)
+    if not await _join_for_hunt(cmd, map_name, None, f"item {item_id}"):
+        return
 
     if cell:
         while cmd.is_not_in_cell(cell):

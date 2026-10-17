@@ -46,6 +46,33 @@ def _item_names(quest) -> Dict[str, str]:
     return names
 
 
+def item_id_by_name(cmd: Command, quest_id: int, item_name: str) -> Optional[int]:
+    """The ItemID a loaded quest gives ``item_name``, or None.
+
+    ``HuntMonsterMapID`` names its item but this engine farms by id, and the
+    quest's own payload is what carries both -- ``turnin`` has the ids and
+    ``oItems`` the names.  The quest has to be accepted first (that is what puts
+    it in ``loaded_quest_datas``), which is the order the reference's own
+    ``EnsureAccept`` + ``HuntMonsterMapID`` pair already has.
+
+    Args:
+        cmd (Command): Facade to act through.
+        quest_id (int): Quest whose payload names the item.
+        item_name (str): Item to resolve.
+
+    Returns:
+        int | None: The item's id, or None when the quest is not loaded or does
+        not name the item.
+    """
+    quest = cmd.get_loaded_quest(quest_id)
+    if quest is None:
+        return None
+    for item_id, name in _item_names(quest).items():
+        if name == item_name:
+            return int(item_id)
+    return None
+
+
 def pending_requirements(cmd: Command, quest) -> List[Tuple[str, int, bool]]:
     """``(name, qty, is_temp)`` for each requirement not held yet, in payload order.
 
