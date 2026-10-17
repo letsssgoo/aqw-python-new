@@ -87,6 +87,8 @@
         el('f-farm').value = a.farm_class || '';
         el('f-solo').value = a.solo_class || '';
         el('f-whitelist').value = Array.isArray(a.whitelist) ? a.whitelist.join(', ') : (a.whitelist || '');
+        el('f-save-state').value = a.save_state_hours || 1;
+        el('chk-save-state').checked = (a.save_state_hours || 0) > 0;
         el('f-player').value = '';
         el('editor-title').textContent = tabLabel(active);
         renderEditorStatus();
@@ -108,6 +110,13 @@
         a.farm_class = el('f-farm').value;
         a.solo_class = el('f-solo').value;
         a.whitelist = el('f-whitelist').value.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+        // The scheduled save-state relogin: the checkbox arms it, the number is
+        // the interval in hours (the input's own steppers keep it a number).
+        var saveHours = parseInt(el('f-save-state').value, 10);
+        if (!(saveHours > 0)) { saveHours = 1; }
+        if (saveHours > 24) { saveHours = 24; }
+        el('f-save-state').value = saveHours;
+        a.save_state_hours = el('chk-save-state').checked ? saveHours : 0;
     }
 
     // ---- items explorer (inventory / bank / temp) -------------------
@@ -228,6 +237,7 @@
             solo_class: (acc.solo_class || '').trim(),
             whitelist: acc.whitelist || [],
             auto_relogin: true, show_chat: true, mute_spam: true, anti_mod: true,
+            save_state_hours: acc.save_state_hours || 0,
             bot_external: !!acc.bot_external,
             bot_parent_dir: acc.bot_parent_dir || ''
         };
@@ -236,7 +246,8 @@
     // ---- status -----------------------------------------------------
     function setEditorDisabled(disabled) {
         ['f-player', 'f-user', 'f-pass', 'f-server', 'f-room',
-         'f-script', 'f-farm', 'f-solo', 'f-whitelist', 'btn-browse'].forEach(function (id) {
+         'f-script', 'f-farm', 'f-solo', 'f-whitelist', 'btn-browse',
+         'f-save-state', 'chk-save-state'].forEach(function (id) {
             var node = el(id);
             if (node) { node.disabled = disabled; }
         });

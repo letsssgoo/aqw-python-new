@@ -178,6 +178,33 @@ def main() -> None:
           str(tries["n"]))
     print("  -> capped, so the app layer can restart the pane")
 
+    # --- 7. aggro keeps ONE handler task --------------------------------
+    # can_we_aggro is asked once per farm-loop pass, and every call used to
+    # create another handler: dozens of tasks each sending aggroMon twice a
+    # second, which the server answers with a disconnect.
+    print("\n-- start_aggro called from a farm loop --")
+    bot7 = Bot(isScriptable=True, autoRelogin=False)
+    cmd7 = bot7.command
+
+    async def aggro_tasks():
+        bot7.is_client_connected = True
+        for _ in range(25):                      # a farm loop, asking every pass
+            cmd7.start_aggro(["id.1", "id.2"])
+        first = [t for t in asyncio.all_tasks()
+                 if t.get_coro().__name__ == "aggro_handler_task"]
+        cmd7.start_aggro(["id.9"])               # a different cell's monsters
+        await asyncio.sleep(0.05)                # let the cancelled one end
+        after = [t for t in asyncio.all_tasks()
+                 if t.get_coro().__name__ == "aggro_handler_task"]
+        cmd7.stop_aggro()
+        return first, after
+
+    first, after = asyncio.run(aggro_tasks())
+    check("twenty-five calls, one handler", len(first), 1, str(len(first)))
+    check("new ids replace it, not add", len(after), 1, str(len(after)))
+    check("stop_aggro clears the ids", bot7.aggro_mons_id, [])
+    print("  -> one task, replaced on change, quiet stop")
+
     print()
     print("=" * 74)
     print(f"passed {PASS}   failed {FAIL}")

@@ -13,6 +13,43 @@ DEFAULT_SKILL_LIST: list[int] = [0, 1, 2, 0, 3, 4]
 #: retrying for the rest of the run.
 JOIN_ATTEMPTS: int = 5
 
+#: How many times a hunt will ask for its cell before giving up.  ``jump_cell``
+#: lands in a second when the cell exists; a cell that is not there (or a
+#: character stuck in the wrong instance) never will, and looping on it forever
+#: is the "bot is stuck and never comes back" case.
+CELL_ATTEMPTS: int = 5
+
+
+async def move_to_cell(cmd: Command, cell: str, pad: str,
+                        item_name: str = "") -> bool:
+    """Stand in ``cell``/``pad``, bounded and reported.
+
+    Args:
+        cmd (Command): Facade to act through.
+        cell (str): Cell the hunt needs.
+        pad (str): Pad within that cell.
+        item_name (str): What would have been farmed, for the message.
+
+    Returns:
+        bool: True once the cell is reached; False when it cannot be, after
+        saying so -- the caller then skips the hunt instead of looping.
+    """
+    attempts = 0
+    while cmd.is_not_in_cell(cell):
+        attempts += 1
+        if attempts > CELL_ATTEMPTS:
+            cmd.bot.log(f"[hunt] cell {cell} was not reached after "
+                        f"{CELL_ATTEMPTS} tries (in {cmd.bot.strMapName} at "
+                        f"{cmd.bot.player.CELL}); {item_name or 'the item'} was "
+                        f"not farmed.")
+            return False
+        if attempts > 1:
+            cmd.bot.log(f"[hunt] {cmd.bot.strMapName}/{cell}: still not there, "
+                        f"trying again ({attempts}/{CELL_ATTEMPTS})")
+        await cmd.jump_cell(cell, pad)
+        await cmd.sleep(1000)
+    return not cmd.is_not_in_cell(cell)
+
 
 async def _join_for_hunt(cmd: Command, map_name: str, room_number: int = None,
                          item_name: str = "") -> bool:
@@ -72,9 +109,8 @@ async def hunt_item(
 
     if cell:
         hunt = False
-        while cmd.is_not_in_cell(cell):
-            await cmd.jump_cell(cell, pad)
-            await cmd.sleep(1000)
+        if not await move_to_cell(cmd, cell, pad, item_name):
+            return
     else:
         await cmd.jump_to_monster(monster_name, most_monster)
 
@@ -135,9 +171,8 @@ async def hunt_item_by_id(
         return
 
     if cell:
-        while cmd.is_not_in_cell(cell):
-            await cmd.jump_cell(cell, pad)
-            await cmd.sleep(1000)
+        if not await move_to_cell(cmd, cell, pad, f"item {item_id}"):
+            return
 
     target = f"id.{monster_map_id}" if monster_map_id else "*"
     while cmd.is_still_connected():

@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 from core.command import Command
 from templates.hunt import (DEFAULT_SKILL_LIST, hunt_item,
-                            kill_quest as _kill_quest)
+                            kill_quest as _kill_quest, move_to_cell)
 
 
 def _as_names(value: Union[str, Sequence[str]]) -> List[str]:

@@ -53,6 +53,10 @@ class Bot:
     RELOGIN_DELAY_S: float = RELOGIN_DELAY_S
     #: See RELOGIN_MAX_ATTEMPTS: likewise an attribute, for the same reason.
     RELOGIN_MAX_ATTEMPTS: int = RELOGIN_MAX_ATTEMPTS
+    #: Desktop/dashboard default for the scheduled save-state relogin, in hours
+    #: (0 = off).  The hub sets this once, so every pane it starts gets it without
+    #: threading a new argument through every menu; a CLI run never sets it.
+    DEFAULT_SAVE_STATE_HOURS: float = 0.0
 
 
     def __init__(
@@ -73,13 +77,20 @@ class Bot:
             autoAdjustSkillDelay: bool = False,
             respawnCellPad: List[str] = [],
             muteSpamWarning: bool = False,
-            antiMod: bool = True
+            antiMod: bool = True,
+            saveStateEveryHours: float = 0.0
             ):
         self.roomNumber = roomNumber
         self.showLog = showLog
         self.cmdDelay = cmdDelay
         self.showDebug = showDebug
         self.showChat = showChat
+        #: Scheduled save-state relogin, in hours (0 = off).  The desktop app sets
+        #: the class default once; a caller can still ask for its own value.
+        self.save_state_every_hours = float(saveStateEveryHours or 0.0) or \
+            float(Bot.DEFAULT_SAVE_STATE_HOURS or 0.0)
+        #: The scheduled save-state task of the current session.
+        self.save_state_task = None
         self.items_drop_whitelist: list[str] = itemsDropWhiteList
         self.dropped_items: list[dict] = []
         self.auto_relogin = autoRelogin
@@ -131,6 +142,9 @@ class Bot:
         self.failed_get_quest_datas = []
         self.aggro_mons_id = []
         self.aggro_delay_ms = 500
+        #: The one aggro handler task.  ``Command.start_aggro`` is called from
+        #: inside farm loops, so it must replace this task rather than add one.
+        self.aggro_task = None
         self.loaded_shop_datas: List[Shop] = []
         self.registered_auto_quest_ids = []
         self.is_register_quest_task_running = False
@@ -205,7 +219,13 @@ class Bot:
 
         attempts = 0
         while True:
-            await self._run_session()
+            ran = await self._run_session()
+            if ran:
+                # The bot really ran this time, so the count is about consecutive
+                # failures to get it running again -- not about how long it has
+                # been alive.  Without this a scheduled save-state relogin every
+                # hour would hit the cap after three hours and stop for good.
+                attempts = 0
             if not self.auto_relogin:
                 return
             attempts += 1
@@ -271,6 +291,11 @@ class Bot:
                     self.run_register_quest_task()
                     self.is_register_quest_task_running = True
 
+                if self.save_state_every_hours > 0:
+                    self._cancel_task("save_state_task")
+                    self.save_state_task = asyncio.create_task(
+                        self._save_state_loop())
+
                 # The script runs in its own task so a dropped connection can
                 # end it.  Waiting on it directly was the reason a peer reset
                 # mid-farm stopped nothing: the script sits in a loop that
@@ -305,16 +330,7 @@ class Bot:
 
     def _cancel_reader(self) -> None:
         """Drop the reader task of the session that is ending."""
-        task = self.reader_task
-        self.reader_task = None
-        if task is None or task.done():
-            return
-        try:
-            if task is asyncio.current_task():
-                return          # asked from the reader itself; it ends on its own
-        except RuntimeError:
-            pass
-        task.cancel()
+        self._cancel_task("reader_task")
 
     def request_relogin(self, reason: str = "") -> None:
         """End this session and ask ``start_bot`` to bring the bot back.
@@ -337,6 +353,36 @@ class Bot:
         self.registered_auto_quest_ids = []
         self.check_spam_time = None
         self.spam_backoff_ms = 0
+
+    async def _save_state_loop(self) -> None:
+        """Join /yulgar and log back in every ``save_state_every_hours`` hours.
+
+        The anti-stuck routine the desktop app offers.  A script can wedge in a
+        loop that never checks anything -- a cell that is not there, a map that
+        never loads -- while the socket stays up, so nothing inside the script
+        ever notices.  A forced trip through /yulgar (which saves the character)
+        followed by a fresh session clears it.  It costs one sleep, so it is as
+        cheap as it gets: no polling, nothing per tick.
+        """
+        hours = float(self.save_state_every_hours)
+        if hours <= 0:
+            return
+        while self.is_client_connected:
+            await asyncio.sleep(hours * 3600)
+            if not self.is_client_connected:
+                return
+            print(f"[save-state] {hours:g}h up: joining /yulgar to save the "
+                  f"character, then logging back in")
+            try:
+                await self.command.join_map("yulgar")
+                await asyncio.sleep(2)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                print(f"[save-state] the /yulgar trip failed ({e}); logging "
+                      f"back in anyway")
+            self.request_relogin("scheduled save state")
+            return
 
     def _resolve_script_arg(self, botMain):
         """Pass the object the script's ``main`` expects.
@@ -368,13 +414,39 @@ class Bot:
         asyncio.create_task(death_handler_task(self))  
 
     def run_aggro_hadler_task(self):
-        asyncio.create_task(aggro_handler_task(self))
+        """Start the aggro handler, ending any previous one.
+
+        Exactly one: two of these double every ``aggroMon`` packet, and a farm
+        loop calls ``start_aggro`` often enough to end up with dozens.
+        """
+        self._cancel_task("aggro_task")
+        self.aggro_task = asyncio.create_task(aggro_handler_task(self))
+
+    def _cancel_task(self, name: str) -> None:
+        """Cancel the task held on ``self.<name>``, if any, without blocking."""
+        task = getattr(self, name, None)
+        setattr(self, name, None)
+        if task is None or task.done():
+            return
+        try:
+            if task is asyncio.current_task():
+                return          # asked from inside it; it is ending anyway
+        except RuntimeError:
+            pass
+        task.cancel()
     
     def stop_bot(self, user_triggered=False):
         print(f"[{datetime.now().strftime('%H:%M:%S')}] Stopping bot...")
         if user_triggered:
             self.auto_relogin = False
         self._cancel_reader()
+        # The aggro handler is per bot, not per session: without this a stopped
+        # pane kept sending aggroMon for as long as the process lived.
+        self._cancel_task("aggro_task")
+        self.is_aggro_handler_task_running = False
+        self.aggro_mons_id = []
+        # The scheduled save-state trip belongs to the session that is ending.
+        self._cancel_task("save_state_task")
         if self.client_socket:
             try:
                 self.client_socket.close()

@@ -901,6 +901,9 @@ class AqwSoloApi:
             "show_chat": True,
             "mute_spam": True,
             "anti_mod": True,
+            #: Scheduled save-state relogin, in hours (0 = off): join /yulgar,
+            #: then log back in.  Set from the solo menu's own control.
+            "save_state_hours": 0,
             "bot_external": False,
             "bot_parent_dir": ""
         }
@@ -998,7 +1001,8 @@ class AqwSoloApi:
             soloClass=acc.get("solo_class") or None,
             autoRelogin=acc.get("auto_relogin", True),
             muteSpamWarning=acc.get("mute_spam", True),
-            antiMod=acc.get("anti_mod", True)
+            antiMod=acc.get("anti_mod", True),
+            saveStateEveryHours=float(acc.get("save_state_hours") or 0)
         )
         bot.set_login_info(acc.get("username"), acc.get("password"), acc.get("server", "Artix"))
         return bot, BotThread(bot, acc.get("bot_path"))

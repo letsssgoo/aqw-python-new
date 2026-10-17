@@ -28,7 +28,7 @@ from bot.core_bots import (Alignment, REP_THRESHOLDS, buy_item, can_we_aggro,
                            change_alignment,
                            equip_class, wait_for_item)
 from core.command import Command
-from templates.hunt import DEFAULT_SKILL_LIST, hunt_item
+from templates.hunt import DEFAULT_SKILL_LIST, hunt_item, move_to_cell
 
 #: Gold the reference asks for when a caller does not say.
 DEFAULT_GOLD = 100_000_000
@@ -163,9 +163,8 @@ async def farm_until(
         return False
 
     if cell:
-        while cmd.is_still_connected() and cmd.is_not_in_cell(cell):
-            await cmd.jump_cell(cell, pad)
-            await cmd.sleep(500)
+        if not await move_to_cell(cmd, cell, pad, monster):
+            return False
     else:
         await cmd.jump_to_monster(monster)
     if not cmd.is_still_connected():
