@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -118,6 +119,64 @@ def main() -> None:
         check("the error propagates", False, True)
     except RuntimeError as error:
         check("the error propagates", str(error), "script blew up")
+
+    # --- 4. a dead socket must not spin the reader ---------------------
+    print("\n-- the socket answers nothing, instantly --")
+    bot4 = Bot(isScriptable=True, autoRelogin=False)
+    bot4.is_client_connected = True
+    bot4.client_socket = None
+    calls = []
+
+    async def read_batch_async(conn):
+        calls.append(time.monotonic())
+        return []
+
+    bot4.read_batch_async = read_batch_async
+    asyncio.run(asyncio.wait_for(bot4.read_server_in_background(), timeout=10))
+    check("the reader dropped the dead session", bot4.is_client_connected, False)
+    check("it tried a few times, not thousands", len(calls), 3, str(len(calls)))
+    print("  -> instant empty read x3 -> session dropped (no busy loop)")
+
+    # --- 5. a failed connect is retried until the bot runs -------------
+    print("\n-- the first connect fails --")
+    bot5 = _stub_bot()
+    attempts = {"n": 0}
+
+    async def flaky_connect():
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            bot5.is_client_connected = False        # the server refused
+            return
+        bot5.is_client_connected = True
+        bot5.is_char_load_complete = True
+        bot5.player.bank_load_finished = True
+
+    bot5.connect_client = flaky_connect
+    ran = []
+
+    async def script(cmd):
+        ran.append(True)
+        bot5.auto_relogin = False
+
+    asyncio.run(asyncio.wait_for(bot5.start_bot(script), timeout=10))
+    check("the refused connect was retried", attempts["n"], 2, str(attempts["n"]))
+    check("and the script then ran", ran, [True])
+    print("  -> refused -> retry -> running")
+
+    # --- 6. a server that never answers gives up, and says so ----------
+    print("\n-- every connect fails --")
+    bot6 = _stub_bot()
+    tries = {"n": 0}
+
+    async def never_connects():
+        tries["n"] += 1
+        bot6.is_client_connected = False
+
+    bot6.connect_client = never_connects
+    asyncio.run(asyncio.wait_for(bot6.start_bot(lambda cmd: None), timeout=10))
+    check("attempts are capped", tries["n"], Bot.RELOGIN_MAX_ATTEMPTS + 1,
+          str(tries["n"]))
+    print("  -> capped, so the app layer can restart the pane")
 
     print()
     print("=" * 74)

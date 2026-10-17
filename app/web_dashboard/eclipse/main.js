@@ -566,20 +566,22 @@ function checkActiveBotStatuses() {
                 durationInterval = null;
             }
 
-            // Auto-restart only if stopped unexpectedly (not manually)
+            // Auto-restart only if stopped unexpectedly (not manually).  The
+            // retry does not stop at the configured count: a relogin the server
+            // refuses (it still holds the old session) has to be tried again
+            // until the bots are really running, so the count is reported.
             if (!isManualStop && config.auto_restart_enabled) {
                 const maxAttempts = parseInt(config.auto_restart_max_attempts) || 3;
-                if (restartAttempts < maxAttempts) {
-                    const delaySecs = parseInt(config.auto_restart_delay) || 30;
-                    restartTimerActive = true;
-                    restartTimerTarget = Date.now() + (delaySecs * 1000);
-                    addSlaveLog("System", `<span class="log-yellow log-bold">[System] Bots stopped unexpectedly. Auto-restarting in ${delaySecs}s...</span>`);
-                    updateRestartStatusText(`Auto-Restarting in ${delaySecs}s...`);
-                    return;
+                const delaySecs = parseInt(config.auto_restart_delay) || 30;
+                restartTimerActive = true;
+                restartTimerTarget = Date.now() + (delaySecs * 1000);
+                if (restartAttempts >= maxAttempts) {
+                    addSlaveLog("System", `<span class="log-yellow log-bold">[System] Still not running after ${restartAttempts} attempts; auto-restarting again in ${delaySecs}s...</span>`);
                 } else {
-                    updateRestartStatusText("Auto-restart limit reached!");
-                    addSlaveLog("System", `<span class="log-red log-bold">[System] Error: Auto-restart limit reached. Bots stopped completely.</span>`);
+                    addSlaveLog("System", `<span class="log-yellow log-bold">[System] Bots stopped unexpectedly. Auto-restarting in ${delaySecs}s...</span>`);
                 }
+                updateRestartStatusText(`Auto-Restarting in ${delaySecs}s...`);
+                return;
             }
 
             stopTelemetryPolling();
@@ -973,31 +975,12 @@ function handleDisconnectMonitoring(statuses) {
     });
     
     if (hasDisconnect) {
+        const maxAttempts = parseInt(config.auto_restart_max_attempts) || 3;
         if (restartAttempts >= maxAttempts) {
-            updateRestartStatusText("Auto-restart limit reached!");
-            addSlaveLog("System", `<span class="log-red log-bold">[System] Error: Auto-restart failed after ${maxAttempts} attempts. Stopping bots completely.</span>`);
-            
-            isStoppingForRestart = true;
-            window.pywebview.api.stop_party().then(() => {
-                isPartyRunning = false;
-                isStoppingForRestart = false;
-                btnStopParty.classList.add("hidden");
-                btnStartParty.removeAttribute("disabled");
-                btnStartParty.classList.remove("hidden");
-                btnStopParty.disabled = false;
-                if (btnPauseParty) {
-                    btnPauseParty.classList.add("hidden");
-                    resetPauseBtnUI();
-                }
-                
-                const btnReset = document.getElementById("btn-reset-config");
-                if (btnReset) btnReset.classList.remove("hidden");
-                
-                toggleFormFieldsLock(false);
-                toggleCredentialsVisibility(false);
-                stopTelemetryPolling();
-            });
-            return;
+            // Reported, not enforced: a relogin the server refuses (it still
+            // holds the old session) has to be tried again until the bots are
+            // really running, so this no longer stops the party.
+            addSlaveLog("System", `<span class="log-yellow log-bold">[System] Still disconnected after ${restartAttempts} attempts; restarting again.</span>`);
         }
 
         // Trigger immediate stop and start restart timer
