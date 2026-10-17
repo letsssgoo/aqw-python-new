@@ -1405,21 +1405,39 @@ class Command:
     def start_aggro(self, mons_id: list[str], delay_ms: int = 500) -> None:
         """Enable the aggro handler for the supplied monster identifiers.
 
+        One handler task, ever.  ``can_we_aggro`` is asked once per farm-loop
+        pass, and this used to create a task on every call: the old tasks saw the
+        flag the new call had just set, so they kept running too, and after a few
+        minutes a farm had dozens of tasks each sending ``aggroMon`` twice a
+        second -- which is what the server answered with "Please slow down" and
+        then a disconnect.
+
         Args:
             mons_id (list[str]): Monster identifiers to keep aggroed.
             delay_ms (int): Delay between aggro ticks in milliseconds.
 
         Returns:
-            None: Updates the bot state and starts the aggro task.
+            None: Updates the bot state and starts the aggro task when needed.
         """
-        self.stop_aggro()
+        # A floor, so a caller passing 0 cannot turn the tick into a busy loop.
+        delay_ms = max(100, int(delay_ms))
+        same_work = (self.bot.is_aggro_handler_task_running
+                     and self.bot.aggro_mons_id == mons_id
+                     and self.bot.aggro_delay_ms == delay_ms)
+        if same_work and self.bot.aggro_task is not None \
+                and not self.bot.aggro_task.done():
+            return                      # already aggroing exactly this
         self.bot.is_aggro_handler_task_running = True
-        self.bot.aggro_mons_id = mons_id
+        self.bot.aggro_mons_id = list(mons_id)
         self.bot.aggro_delay_ms = delay_ms
         self.bot.run_aggro_hadler_task()
 
     def stop_aggro(self) -> None:
         """Stop the aggro handler and clear tracked monsters.
+
+        Idempotent and quiet: it is called on every map change (and by every
+        farm that shares a cell), so anything noisy here is a log flood, and
+        anything that restarts a task here is a second handler.
 
         Returns:
             None: Clears aggro state without returning a value.
