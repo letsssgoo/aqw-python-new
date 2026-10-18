@@ -163,9 +163,14 @@ def main() -> None:
     check("and the script then ran", ran, [True])
     print("  -> refused -> retry -> running")
 
-    # --- 6. a server that never answers gives up, and says so ----------
+    # --- 6. a server that never answers keeps being retried -------------
+    # The default is unlimited: a farm left alone for hours must not stop for
+    # good.  A cap is per instance, for a caller that wants one.
     print("\n-- every connect fails --")
+    check("unlimited by default", Bot.RELOGIN_MAX_ATTEMPTS, 0)
+
     bot6 = _stub_bot()
+    bot6.RELOGIN_MAX_ATTEMPTS = 3
     tries = {"n": 0}
 
     async def never_connects():
@@ -174,9 +179,8 @@ def main() -> None:
 
     bot6.connect_client = never_connects
     asyncio.run(asyncio.wait_for(bot6.start_bot(lambda cmd: None), timeout=10))
-    check("attempts are capped", tries["n"], Bot.RELOGIN_MAX_ATTEMPTS + 1,
-          str(tries["n"]))
-    print("  -> capped, so the app layer can restart the pane")
+    check("a caller's cap is honoured", tries["n"], 4, str(tries["n"]))
+    print("  -> unlimited unless a caller caps it")
 
     # --- 7. aggro keeps ONE handler task --------------------------------
     # can_we_aggro is asked once per farm-loop pass, and every call used to

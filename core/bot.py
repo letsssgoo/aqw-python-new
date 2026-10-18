@@ -34,10 +34,23 @@ BANK_WAIT_TIMEOUT_S = 10
 RELOGIN_DELAY_S = 35
 
 #: How many relogin attempts a single ``start_bot`` makes before it gives up and
-#: lets its thread end.  A pane that cannot come back must end, or the app layer
-#: (which owns the retry that keeps trying until the bot really runs) can never
-#: take over: it would keep seeing a live thread whose bot never connects.
-RELOGIN_MAX_ATTEMPTS = 3
+#: lets its thread end.  ``0`` means keep trying for as long as the bot is asked
+#: to run: a farm left alone for hours must not stop for good because three
+#: relogins in a row could not get through -- the delay grows instead (see
+#: ``RELOGIN_DELAY_S`` and the cap below), so retrying stays cheap.
+RELOGIN_MAX_ATTEMPTS = 0
+
+#: The largest relogin delay, in seconds, once the attempts start adding up.
+RELOGIN_MAX_DELAY_S = 300.0
+
+#: A session that receives nothing at all for this long is treated as stuck and
+#: re-established.  The socket is up, the script is looping, and no packet ever
+#: arrives again -- /shadowblast's "stuck at Enter" -- which nothing inside the
+#: script can notice.  ``0`` turns the check off.
+STALL_SECONDS = 15 * 60
+
+#: How often a running session says it is still alive, in seconds (0 = off).
+HEARTBEAT_SECONDS = 15 * 60
 
 #: A read that returns this fast, with nothing read, is a broken socket rather
 #: than the reader's own one-second idle timeout.
@@ -91,6 +104,12 @@ class Bot:
             float(Bot.DEFAULT_SAVE_STATE_HOURS or 0.0)
         #: The scheduled save-state task of the current session.
         self.save_state_task = None
+        #: The stall/heartbeat task of the current session.
+        self.watch_task = None
+        #: Time of the last packet the server sent, and how many arrived since
+        #: the last heartbeat.  The stall detector and the heartbeat read these.
+        self.last_packet_ts = time.time()
+        self.packets_seen = 0
         self.items_drop_whitelist: list[str] = itemsDropWhiteList
         self.dropped_items: list[dict] = []
         self.auto_relogin = autoRelogin
@@ -229,15 +248,19 @@ class Bot:
             if not self.auto_relogin:
                 return
             attempts += 1
-            if attempts > self.RELOGIN_MAX_ATTEMPTS:
+            if (self.RELOGIN_MAX_ATTEMPTS
+                    and attempts > self.RELOGIN_MAX_ATTEMPTS):
                 print(f"[relogin] {attempts - 1} attempts did not get the bot "
                       f"running; stopping here so the app can restart it.")
                 return
+            delay = min(self.RELOGIN_DELAY_S * attempts,
+                        max(self.RELOGIN_DELAY_S, RELOGIN_MAX_DELAY_S))
             reason = f" ({self.relogin_reason})" if self.relogin_reason else ""
             self.relogin_reason = ""
-            print(f"[relogin] attempt {attempts}/{self.RELOGIN_MAX_ATTEMPTS}"
-                  f"{reason} in {self.RELOGIN_DELAY_S} secs...")
-            await asyncio.sleep(self.RELOGIN_DELAY_S)
+            cap = f"/{self.RELOGIN_MAX_ATTEMPTS}" if self.RELOGIN_MAX_ATTEMPTS else ""
+            print(f"[relogin] attempt {attempts}{cap}{reason} in "
+                  f"{delay:g} secs...")
+            await asyncio.sleep(delay)
             if not self.auto_relogin:
                 print("[relogin] cancelled (the bot was stopped).")
                 return
@@ -295,6 +318,9 @@ class Bot:
                     self._cancel_task("save_state_task")
                     self.save_state_task = asyncio.create_task(
                         self._save_state_loop())
+
+                self._cancel_task("watch_task")
+                self.watch_task = asyncio.create_task(self._watch_loop())
 
                 # The script runs in its own task so a dropped connection can
                 # end it.  Waiting on it directly was the reason a peer reset
@@ -384,6 +410,47 @@ class Bot:
             self.request_relogin("scheduled save state")
             return
 
+    async def _watch_loop(self) -> None:
+        """Say the session is alive, and re-establish it when it is not.
+
+        Two things a farm left alone needs and cannot see for itself:
+
+        * **Visibility** -- one line every ``HEARTBEAT_SECONDS`` with the map,
+          cell, level and how many packets came in, so "is it still running?"
+          is answerable from the log instead of from a guess.
+        * **A stall detector** -- the shape /shadowblast shows: the socket is up,
+          the bot stands at Enter casting at nothing, and no packet arrives
+          again.  Nothing inside the script can notice that, so the session is
+          re-established here, which is what a fresh area packet fixes.
+
+        Both are one sleep and a subtraction per tick, so the cost is nothing.
+        """
+        stall = STALL_SECONDS
+        beat = HEARTBEAT_SECONDS
+        if not stall and not beat:
+            return
+        tick = max(30.0, min(x for x in (stall, beat) if x) / 3.0)
+        last_beat = time.time()
+        while self.is_client_connected:
+            await asyncio.sleep(tick)
+            if not self.is_client_connected:
+                return
+            now = time.time()
+            if beat and now - last_beat >= beat:
+                packets, self.packets_seen = self.packets_seen, 0
+                last_beat = now
+                print(f"[watch] still running: {self.strMapName}/"
+                      f"{self.player.CELL} level {self.player.LEVEL} "
+                      f"{self.player.CURRENT_HP}/{self.player.MAX_HP} hp, "
+                      f"{packets} packets in the last {beat / 60:.0f} min")
+            quiet = now - self.last_packet_ts
+            if stall and quiet >= stall:
+                print(f"[watch] no packet for {quiet / 60:.0f} min in "
+                      f"{self.strMapName}/{self.player.CELL}; the session looks "
+                      f"stuck, re-establishing it")
+                self.request_relogin(f"stalled {quiet / 60:.0f} min")
+                return
+
     def _resolve_script_arg(self, botMain):
         """Pass the object the script's ``main`` expects.
 
@@ -447,6 +514,8 @@ class Bot:
         self.aggro_mons_id = []
         # The scheduled save-state trip belongs to the session that is ending.
         self._cancel_task("save_state_task")
+        # So does the stall/heartbeat watcher.
+        self._cancel_task("watch_task")
         if self.client_socket:
             try:
                 self.client_socket.close()
@@ -606,6 +675,11 @@ class Bot:
             self.stop_bot()
 
     async def handle_server_response(self, msg):
+        # The stall detector and the heartbeat read these two: one timestamp and
+        # one counter per inbound packet, which is as cheap as a liveness signal
+        # gets.
+        self.last_packet_ts = time.time()
+        self.packets_seen += 1
         if msg.startswith("Z"):
             msg = self.decompress_message(msg)
 
