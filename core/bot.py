@@ -381,11 +381,16 @@ class Bot:
     def _progress_signature(self):
         """A cheap fingerprint of "the world moved", for the stall detector.
 
-        Map, cell, level, gold and how much is carried: a farm changes at least
-        one of those constantly.  A bot that keeps *sending* (retrying a jump at
-        a cell that is not there, the /shadowblast shape) never trips the
-        silence checks, but its fingerprint stops changing -- which is what this
-        catches.
+        Map, cell, level, gold, hp/mana and how much is carried: a farm changes
+        at least one of those constantly.  That covers what a working bot does
+        between kills -- buying (gold down, inventory up), a map change (the map
+        name changes), and a long fight (hp/mana move every hit).
+
+        What it deliberately does **not** count is *trying*: a join that never
+        lands, a purchase that never goes through or a jump at a cell that is not
+        there leave every one of these unchanged, which is exactly the shape of a
+        stuck bot -- /shadowblast's "stuck at Enter" -- and the point of the
+        detector.
         """
         player = self.player
         try:
@@ -396,7 +401,7 @@ class Bot:
         except Exception:
             inv = temp = 0
         return (self.strMapName, player.CELL, player.LEVEL, player.GOLD,
-                inv, temp)
+                player.CURRENT_HP, player.MANA, inv, temp)
 
     async def _watch_loop(self) -> None:
         """Say the session is alive, and re-establish it when it is not.
