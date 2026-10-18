@@ -39,6 +39,23 @@ def _held_count(cmd: Command, item_name: str, is_temp: bool) -> int:
     return total
 
 
+def _fighting(cmd: Command, monster_name: str) -> bool:
+    """Whether the hunt is actually hitting something right now.
+
+    Used by the stall timer: attacking a monster is progress even when nothing
+    drops, so a rare drop's dry spell must not look like a stuck bot.
+    """
+    try:
+        if cmd.bot.player.IS_IN_COMBAT:
+            return True
+    except Exception:
+        pass
+    try:
+        return cmd.is_monster_alive(monster_name)
+    except Exception:
+        return False
+
+
 def _has_target(cmd: Command, monster_name: str) -> bool:
     """Whether the map's own monster list carries something to attack.
 
@@ -150,7 +167,14 @@ async def hunt_item(
     if cell:
         hunt = False
         if not await move_to_cell(cmd, cell, pad, item_name):
-            return
+            # A cell that is not there is usually a stale area: re-join once, so
+            # the fresh moveToArea rebuilds the cell list, and try again before
+            # giving the hunt up.  /shadowblast's "stuck at Enter" is this.
+            cmd.bot.log(f"[hunt] {item_name}: {cell} was not reachable; "
+                        f"re-joining {map_name} and trying once more")
+            await cmd.join_map(map_name, room_number)
+            if not await move_to_cell(cmd, cell, pad, item_name):
+                return
     else:
         await cmd.jump_to_monster(monster_name, most_monster)
 
@@ -180,10 +204,18 @@ async def hunt_item(
         if held != last_count:
             last_count = held
             last_progress = now
+        elif _fighting(cmd, monster_name):
+            # Attacking something is progress even when nothing drops: the item
+            # may be a rare drop, and a long dry spell while the fight is running
+            # is exactly what the farm is supposed to look like.  Only standing
+            # still with nothing to hit counts as stalled.
+            last_progress = now
+            last_look = now
         elif now - last_progress >= STALL_GIVE_UP_S:
             cmd.bot.log(f"[hunt] {item_name}: no progress for "
                         f"{STALL_GIVE_UP_S / 60:.0f} min in {map_name} "
-                        f"(cell {cmd.bot.player.CELL}); stopping the hunt.")
+                        f"(cell {cmd.bot.player.CELL}) and nothing to attack; "
+                        f"stopping the hunt.")
             return
         elif now - last_look >= STALL_CHECK_S:
             # Look for the target again: re-join if the map carries no matching
@@ -191,8 +223,8 @@ async def hunt_item(
             # walk to whichever cell does have it.
             last_look = now
             cmd.bot.log(f"[hunt] {item_name}: still at "
-                        f"{cmd.bot.player.CELL} with {held}/{item_qty}; "
-                        f"looking for {monster_name} again")
+                        f"{cmd.bot.player.CELL} with {held}/{item_qty} and no "
+                        f"target; looking for {monster_name} again")
             if not _has_target(cmd, monster_name):
                 await cmd.join_map(map_name, room_number)
             await cmd.jump_to_monster(monster_name, most_monster)

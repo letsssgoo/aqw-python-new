@@ -209,6 +209,64 @@ def main() -> None:
     check("stop_aggro clears the ids", bot7.aggro_mons_id, [])
     print("  -> one task, replaced on change, quiet stop")
 
+    # --- 8. a stuck session is one that stops *sending* ----------------
+    # Other players keep the socket receiving, so "no packets came back" cannot
+    # see a bot that stands still casting at nothing: silence on our side is the
+    # signal.
+    print("\n-- the bot sends nothing while packets keep arriving --")
+    bot8 = _stub_bot(auto_relogin=False)
+    bot8.is_client_connected = True
+    bot8.STALL_SECONDS = 3.0
+    bot8.HEARTBEAT_SECONDS = 0
+    bot8.last_send_ts = time.time() - 999        # silent for ages
+    bot8.last_packet_ts = time.time()            # while others keep it busy
+    asyncio.run(asyncio.wait_for(bot8._watch_loop(), timeout=10))
+    check("silence on our side triggers it",
+          bot8.relogin_reason.startswith("silent"), True, bot8.relogin_reason)
+    check("and the session was ended", bot8.is_client_connected, False)
+
+    print("\n-- the server stops answering --")
+    bot9 = _stub_bot(auto_relogin=False)
+    bot9.is_client_connected = True
+    bot9.STALL_SECONDS = 3.0
+    bot9.HEARTBEAT_SECONDS = 0
+    bot9.last_packet_ts = time.time() - 999      # nothing back for ages
+    bot9.last_send_ts = time.time()              # while we keep sending
+    asyncio.run(asyncio.wait_for(bot9._watch_loop(), timeout=10))
+    check("no answer for long enough triggers it",
+          bot9.relogin_reason.startswith("no answer"), True, bot9.relogin_reason)
+    print("  -> sending nothing, or getting nothing back, re-establishes")
+
+    print("\n-- stuck while still sending (the /shadowblast shape) --")
+    bot10 = _stub_bot(auto_relogin=False)
+    bot10.is_client_connected = True
+    bot10.STALL_SECONDS = 3.0
+    bot10.HEARTBEAT_SECONDS = 0
+    bot10.strMapName = "shadowblast"
+    bot10.player.CELL = "Enter"
+
+    async def busy_scenario():
+        async def keep_busy():
+            # Still retrying the jump, and others in the map keep the socket
+            # receiving: both silence checks stay quiet, so only "nothing has
+            # changed" can see this one.
+            while bot10.is_client_connected:
+                bot10.last_send_ts = time.time()
+                bot10.last_packet_ts = time.time()
+                await asyncio.sleep(0.2)
+
+        busy = asyncio.ensure_future(keep_busy())
+        try:
+            await asyncio.wait_for(bot10._watch_loop(), timeout=10)
+        finally:
+            busy.cancel()
+
+    asyncio.run(busy_scenario())
+    check("no progress at all triggers it",
+          bot10.relogin_reason.startswith("no progress"), True,
+          bot10.relogin_reason)
+    print("  -> nothing changing is enough, packets or not")
+
     print()
     print("=" * 74)
     print(f"passed {PASS}   failed {FAIL}")
