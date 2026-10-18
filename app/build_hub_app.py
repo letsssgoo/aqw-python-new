@@ -3273,8 +3273,38 @@ def serve_injected_html(filepath, bot_type):
             </script>
             """
 
+        # A JS error in a menu used to be completely silent: the click did
+        # nothing, the log stayed empty, and there was nothing to look at.  One
+        # real case was a menu script whose field lookup threw inside every
+        # handler.  Every sub-app page gets this, so the next one says so.
+        report_js = """
+            <script>
+            (function () {
+                function report(what) {
+                    try {
+                        var box = document.getElementById('msg');
+                        if (box) {
+                            box.textContent = 'UI error: ' + what;
+                            box.className = 'cfg-msg err';
+                        }
+                        if (window.console && console.error) {
+                            console.error('UI error:', what);
+                        }
+                    } catch (e) { /* nothing left to report with */ }
+                }
+                window.addEventListener('error', function (e) {
+                    report((e && (e.message || e.error)) || 'script error');
+                });
+                window.addEventListener('unhandledrejection', function (e) {
+                    var r = e && e.reason;
+                    report((r && (r.message || r)) || 'promise rejected');
+                });
+            })();
+            </script>
+            """
+
         if bridge_js:
-            bridge_js = shim_js + bridge_js + flag_js
+            bridge_js = report_js + shim_js + bridge_js + flag_js
 
         if "<head>" in html_content:
             html_content = html_content.replace("<head>", f"<head>\n{bridge_js}")
@@ -3396,6 +3426,10 @@ def start_local_server(web_dashboard_dir, sub_apps, combined_api=None,
 
         app.route(f'/{name}', callback=index_view)
         app.route(f'/{name}/', callback=index_view)
+        # ``/aqw/index.html`` has to be injected too.  Served as a plain static
+        # file it has no bridge at all, so every button in the menu does nothing
+        # and says nothing -- the menu looks loaded and is dead.
+        app.route(f'/{name}/index.html', callback=index_view)
         app.route(f'/{name}/<path:path>', callback=files_view)
 
     for _name, _root in sub_apps.items():
