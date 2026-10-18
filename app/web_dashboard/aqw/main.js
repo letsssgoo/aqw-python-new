@@ -27,6 +27,25 @@
 
     function el(id) { return document.getElementById(id); }
 
+    // Reading and writing form fields through these: a page that does not have
+    // the field (an older page, a cached script) must not turn every click into
+    // a TypeError.  "Cannot set properties of null (setting 'value')" was
+    // exactly that, and it made the whole menu look dead.
+    function setValue(id, value) {
+        var node = el(id);
+        if (node) { node.value = value; }
+    }
+
+    function getValue(id, fallback) {
+        var node = el(id);
+        return node ? node.value : (fallback === undefined ? '' : fallback);
+    }
+
+    function setText(id, value) {
+        var node = el(id);
+        if (node) { node.textContent = value; }
+    }
+
     function guard(label, fn) {
         // A click handler that throws used to do nothing at all -- no request,
         // no log line, nothing to look at.  Anything that escapes now lands in
@@ -92,22 +111,22 @@
     // ---- editor <-> accounts ---------------------------------------
     function loadEditor() {
         var a = current() || accountTemplate();
-        el('f-user').value = a.username || '';
-        el('f-pass').value = a.password || '';
-        el('f-server').value = a.server || 'Artix';
-        el('f-room').value = a.room_number || '1';
-        el('f-script').value = a.bot_path || '';
+        setValue('f-user', a.username || '');
+        setValue('f-pass', a.password || '');
+        setValue('f-server', a.server || 'Artix');
+        setValue('f-room', a.room_number || '1');
+        setValue('f-script', a.bot_path || '');
         el('f-script').dataset.external = a.bot_external ? '1' : '';
         el('f-script').dataset.parent = a.bot_parent_dir || '';
-        el('f-farm').value = a.farm_class || '';
-        el('f-solo').value = a.solo_class || '';
-        el('f-whitelist').value = Array.isArray(a.whitelist) ? a.whitelist.join(', ') : (a.whitelist || '');
+        setValue('f-farm', a.farm_class || '');
+        setValue('f-solo', a.solo_class || '');
+        setValue('f-whitelist', Array.isArray(a.whitelist) ? a.whitelist.join(', ') : (a.whitelist || ''));
         var chkAuto = el('chk-auto-restart');
         if (chkAuto) { chkAuto.checked = a.auto_restart !== false; }
         var inpDelay = el('f-auto-restart-delay');
         if (inpDelay) { inpDelay.value = a.auto_restart_delay || 30; }
-        el('f-player').value = '';
-        el('editor-title').textContent = tabLabel(active);
+        setValue('f-player', '');
+        setText('editor-title', tabLabel(active));
         renderEditorStatus();
         renderLog();
         el('chk-items').checked = !!a._showItems;
@@ -117,16 +136,16 @@
     function syncFromEditor() {
         var a = current();
         if (!a) return;
-        a.username = el('f-user').value;
-        a.password = el('f-pass').value;
-        a.server = el('f-server').value || 'Artix';
-        a.room_number = el('f-room').value || '1';
-        a.bot_path = el('f-script').value;
+        a.username = getValue('f-user');
+        a.password = getValue('f-pass');
+        a.server = getValue('f-server') || 'Artix';
+        a.room_number = getValue('f-room') || '1';
+        a.bot_path = getValue('f-script');
         a.bot_external = el('f-script').dataset.external === '1';
         a.bot_parent_dir = el('f-script').dataset.parent || '';
-        a.farm_class = el('f-farm').value;
-        a.solo_class = el('f-solo').value;
-        a.whitelist = el('f-whitelist').value.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+        a.farm_class = getValue('f-farm');
+        a.solo_class = getValue('f-solo');
+        a.whitelist = getValue('f-whitelist').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
         // Null-guarded: these two fields only exist in the newer page, and a
         // cached page is enough to make the old code throw here -- inside every
         // click handler, which then did nothing at all and said nothing.
@@ -159,7 +178,7 @@
         var show = !!a._showItems;
         card.style.display = show ? '' : 'none';
         if (show) {
-            el('items-owner').textContent = itemsKey() || '(no username)';
+            setText('items-owner', itemsKey() || '(no username)');
             pollItems();
         }
     }
@@ -361,7 +380,7 @@
             if (s.running) { runningNames[s.key] = true; runningStatus[s.key] = s; }
         });
         renderTabs();
-        el('editor-title').textContent = tabLabel(active);
+        setText('editor-title', tabLabel(active));
         renderEditorStatus();
         autoRestartSweep();
     }
@@ -423,8 +442,8 @@
         el('f-server').addEventListener('input', syncFromEditor);
 
         attachPlayersDropdown(el('f-player'), function (u, p) {
-            el('f-user').value = u;
-            el('f-pass').value = p;
+            setValue('f-user', u);
+            setValue('f-pass', p);
             syncFromEditor();
             renderTabs();
         });
@@ -432,7 +451,7 @@
         el('btn-browse').onclick = guard('browse', function () {
             a.select_script().then(function (result) {
                 if (!result) return;
-                el('f-script').value = result.path || '';
+                setValue('f-script', result.path || '');
                 el('f-script').dataset.external = result.external ? '1' : '';
                 el('f-script').dataset.parent = result.parent_dir || '';
                 syncFromEditor();
@@ -521,7 +540,8 @@
         if (clearBtn) {
             clearBtn.onclick = guard('clear logs', function () {
                 buffers[activeKey()] = [];
-                el('log').innerHTML = '';
+                var logBox = el('log');
+                if (logBox) { logBox.innerHTML = ''; }
             });
         }
 

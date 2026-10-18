@@ -3276,28 +3276,36 @@ def serve_injected_html(filepath, bot_type):
         # A JS error in a menu used to be completely silent: the click did
         # nothing, the log stayed empty, and there was nothing to look at.  One
         # real case was a menu script whose field lookup threw inside every
-        # handler.  Every sub-app page gets this, so the next one says so.
+        # handler.  Every sub-app page gets this, so the next one says so -- with
+        # the file and line, since "something is null" is not enough to find it.
         report_js = """
             <script>
             (function () {
-                function report(what) {
+                function where(info) {
+                    var bits = [];
+                    if (info && info.filename) { bits.push(String(info.filename)); }
+                    if (info && info.lineno) { bits.push('line ' + info.lineno); }
+                    return bits.join(' ');
+                }
+                function report(what, info) {
                     try {
+                        var text = 'UI error: ' + what + (where(info) ? ' @ ' + where(info) : '');
                         var box = document.getElementById('msg');
                         if (box) {
-                            box.textContent = 'UI error: ' + what;
+                            box.textContent = text;
                             box.className = 'cfg-msg err';
                         }
                         if (window.console && console.error) {
-                            console.error('UI error:', what);
+                            console.error('UI error:', what, info || '');
                         }
                     } catch (e) { /* nothing left to report with */ }
                 }
                 window.addEventListener('error', function (e) {
-                    report((e && (e.message || e.error)) || 'script error');
+                    report((e && (e.message || e.error)) || 'script error', e);
                 });
                 window.addEventListener('unhandledrejection', function (e) {
                     var r = e && e.reason;
-                    report((r && (r.message || r)) || 'promise rejected');
+                    report((r && (r.message || r)) || 'promise rejected', r);
                 });
             })();
             </script>
@@ -3305,6 +3313,22 @@ def serve_injected_html(filepath, bot_type):
 
         if bridge_js:
             bridge_js = report_js + shim_js + bridge_js + flag_js
+
+        # Version the page's own assets by their mtime.  A browser that cached
+        # main.js from an older build keeps using it even after the page is
+        # fresh -- an old script against a new page is exactly how a field
+        # lookup ends up null.  The query string changes whenever the file does.
+        def _version_assets(text, root):
+            def repl(match):
+                attr, name = match.group(1), match.group(2)
+                try:
+                    stamp = int(os.path.getmtime(os.path.join(root, name)))
+                except OSError:
+                    return match.group(0)
+                return f'{attr}="{name}?v={stamp}"'
+            return re.sub(r'(src|href)="([A-Za-z0-9_.-]+\.(?:js|css))"', repl, text)
+
+        html_content = _version_assets(html_content, os.path.dirname(filepath))
 
         if "<head>" in html_content:
             html_content = html_content.replace("<head>", f"<head>\n{bridge_js}")
