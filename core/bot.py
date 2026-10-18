@@ -66,10 +66,6 @@ class Bot:
     RELOGIN_DELAY_S: float = RELOGIN_DELAY_S
     #: See RELOGIN_MAX_ATTEMPTS: likewise an attribute, for the same reason.
     RELOGIN_MAX_ATTEMPTS: int = RELOGIN_MAX_ATTEMPTS
-    #: Desktop/dashboard default for the scheduled save-state relogin, in hours
-    #: (0 = off).  The hub sets this once, so every pane it starts gets it without
-    #: threading a new argument through every menu; a CLI run never sets it.
-    DEFAULT_SAVE_STATE_HOURS: float = 0.0
 
 
     def __init__(
@@ -90,20 +86,13 @@ class Bot:
             autoAdjustSkillDelay: bool = False,
             respawnCellPad: List[str] = [],
             muteSpamWarning: bool = False,
-            antiMod: bool = True,
-            saveStateEveryHours: float = 0.0
+            antiMod: bool = True
             ):
         self.roomNumber = roomNumber
         self.showLog = showLog
         self.cmdDelay = cmdDelay
         self.showDebug = showDebug
         self.showChat = showChat
-        #: Scheduled save-state relogin, in hours (0 = off).  The desktop app sets
-        #: the class default once; a caller can still ask for its own value.
-        self.save_state_every_hours = float(saveStateEveryHours or 0.0) or \
-            float(Bot.DEFAULT_SAVE_STATE_HOURS or 0.0)
-        #: The scheduled save-state task of the current session.
-        self.save_state_task = None
         #: The stall/heartbeat task of the current session.
         self.watch_task = None
         #: Time of the last packet the server sent, and how many arrived since
@@ -314,11 +303,6 @@ class Bot:
                     self.run_register_quest_task()
                     self.is_register_quest_task_running = True
 
-                if self.save_state_every_hours > 0:
-                    self._cancel_task("save_state_task")
-                    self.save_state_task = asyncio.create_task(
-                        self._save_state_loop())
-
                 self._cancel_task("watch_task")
                 self.watch_task = asyncio.create_task(self._watch_loop())
 
@@ -379,36 +363,6 @@ class Bot:
         self.registered_auto_quest_ids = []
         self.check_spam_time = None
         self.spam_backoff_ms = 0
-
-    async def _save_state_loop(self) -> None:
-        """Join /yulgar and log back in every ``save_state_every_hours`` hours.
-
-        The anti-stuck routine the desktop app offers.  A script can wedge in a
-        loop that never checks anything -- a cell that is not there, a map that
-        never loads -- while the socket stays up, so nothing inside the script
-        ever notices.  A forced trip through /yulgar (which saves the character)
-        followed by a fresh session clears it.  It costs one sleep, so it is as
-        cheap as it gets: no polling, nothing per tick.
-        """
-        hours = float(self.save_state_every_hours)
-        if hours <= 0:
-            return
-        while self.is_client_connected:
-            await asyncio.sleep(hours * 3600)
-            if not self.is_client_connected:
-                return
-            print(f"[save-state] {hours:g}h up: joining /yulgar to save the "
-                  f"character, then logging back in")
-            try:
-                await self.command.join_map("yulgar")
-                await asyncio.sleep(2)
-            except asyncio.CancelledError:
-                raise
-            except Exception as e:
-                print(f"[save-state] the /yulgar trip failed ({e}); logging "
-                      f"back in anyway")
-            self.request_relogin("scheduled save state")
-            return
 
     async def _watch_loop(self) -> None:
         """Say the session is alive, and re-establish it when it is not.
@@ -512,9 +466,7 @@ class Bot:
         self._cancel_task("aggro_task")
         self.is_aggro_handler_task_running = False
         self.aggro_mons_id = []
-        # The scheduled save-state trip belongs to the session that is ending.
-        self._cancel_task("save_state_task")
-        # So does the stall/heartbeat watcher.
+        # The stall/heartbeat watcher belongs to the session that is ending.
         self._cancel_task("watch_task")
         if self.client_socket:
             try:
