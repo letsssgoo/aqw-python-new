@@ -1,3 +1,5 @@
+import time
+
 from core.bot import Bot
 import commands as cmd
 from core.command import Command
@@ -18,6 +20,44 @@ JOIN_ATTEMPTS: int = 5
 #: character stuck in the wrong instance) never will, and looping on it forever
 #: is the "bot is stuck and never comes back" case.
 CELL_ATTEMPTS: int = 5
+
+#: How often a hunt re-looks for its monster while nothing is dropping, in
+#: seconds, and how long it keeps that up before reporting and stopping.
+STALL_CHECK_S: float = 60.0
+STALL_GIVE_UP_S: float = 15 * 60.0
+
+
+def _held_count(cmd: Command, item_name: str, is_temp: bool) -> int:
+    """How many of ``item_name`` the account holds, temp bag included."""
+    total = cmd.get_quant_item(item_name)
+    player = getattr(cmd.bot, "player", None)
+    get_temp = getattr(player, "get_item_temp_inventory", None)
+    if get_temp is not None:
+        found = get_temp(item_name)
+        if found is not None:
+            total = max(total, int(getattr(found, "qty", 0) or 0))
+    return total
+
+
+def _has_target(cmd: Command, monster_name: str) -> bool:
+    """Whether the map's own monster list carries something to attack.
+
+    ``jump_to_monster`` returns silently when it finds nothing, which is what
+    leaves a hunt standing still; this is the same match, asked separately.
+    """
+    names = [t.strip().lower() for t in str(monster_name or "*").split(',')
+             if t.strip()] or ["*"]
+    for mon in cmd.bot.monsters:
+        if "*" in names:
+            return True
+        mon_name = (mon.mon_name or "").lower()
+        mon_id = str(mon.mon_map_id)
+        for target in names:
+            if target.startswith("id.") and target.split(".")[1] == mon_id:
+                return True
+            if target in (mon_id, mon_name):
+                return True
+    return False
 
 
 async def move_to_cell(cmd: Command, cell: str, pad: str,
@@ -120,10 +160,43 @@ async def hunt_item(
     skill_list = skill_list
     skill_index = 0
 
+    #: The loop below only stops on the item.  A bot that never reaches the
+    #: monster -- standing at Enter because the map's monster list has no match,
+    #: the case /shadowblast shows -- keeps casting at nothing and never says so.
+    #: So: every STALL_CHECK_S without a single item gained, look for the target
+    #: again (a fresh moveToArea is what refreshes the monster list), and after
+    #: STALL_GIVE_UP_S of that, report and let the caller (or the session's stall
+    #: watchdog) take over.
+    last_progress = time.monotonic()
+    last_count = _held_count(cmd, item_name, is_temp)
+    last_look = last_progress
+
     while cmd.is_still_connected():
         if cmd.is_in_inventory(item_name, item_qty, operator=">=") or cmd.is_in_inventory(item_name, item_qty, operator=">=", isTemp=True):
             await cmd.leave_combat()
             break
+        now = time.monotonic()
+        held = _held_count(cmd, item_name, is_temp)
+        if held != last_count:
+            last_count = held
+            last_progress = now
+        elif now - last_progress >= STALL_GIVE_UP_S:
+            cmd.bot.log(f"[hunt] {item_name}: no progress for "
+                        f"{STALL_GIVE_UP_S / 60:.0f} min in {map_name} "
+                        f"(cell {cmd.bot.player.CELL}); stopping the hunt.")
+            return
+        elif now - last_look >= STALL_CHECK_S:
+            # Look for the target again: re-join if the map carries no matching
+            # monster at all (its cell list is built from the area packet), then
+            # walk to whichever cell does have it.
+            last_look = now
+            cmd.bot.log(f"[hunt] {item_name}: still at "
+                        f"{cmd.bot.player.CELL} with {held}/{item_qty}; "
+                        f"looking for {monster_name} again")
+            if not _has_target(cmd, monster_name):
+                await cmd.join_map(map_name, room_number)
+            await cmd.jump_to_monster(monster_name, most_monster)
+            continue
         playerclass = cmd.get_equipped_class()
         playerclass = playerclass.item_name if playerclass else ""
         if "chrono shadow" in playerclass.lower():
