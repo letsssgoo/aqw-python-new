@@ -27,6 +27,19 @@
 
     function el(id) { return document.getElementById(id); }
 
+    function guard(label, fn) {
+        // A click handler that throws used to do nothing at all -- no request,
+        // no log line, nothing to look at.  Anything that escapes now lands in
+        // the message line and the console.
+        return function () {
+            try { fn(); }
+            catch (e) {
+                msg('UI error in ' + label + ': ' + ((e && e.message) || e), false);
+                if (window.console && console.error) { console.error(label, e); }
+            }
+        };
+    }
+
     function accountTemplate() {
         return {
             username: "", password: "", server: "Artix", room_number: "1",
@@ -89,8 +102,10 @@
         el('f-farm').value = a.farm_class || '';
         el('f-solo').value = a.solo_class || '';
         el('f-whitelist').value = Array.isArray(a.whitelist) ? a.whitelist.join(', ') : (a.whitelist || '');
-        el('chk-auto-restart').checked = a.auto_restart !== false;
-        el('f-auto-restart-delay').value = a.auto_restart_delay || 30;
+        var chkAuto = el('chk-auto-restart');
+        if (chkAuto) { chkAuto.checked = a.auto_restart !== false; }
+        var inpDelay = el('f-auto-restart-delay');
+        if (inpDelay) { inpDelay.value = a.auto_restart_delay || 30; }
         el('f-player').value = '';
         el('editor-title').textContent = tabLabel(active);
         renderEditorStatus();
@@ -112,12 +127,19 @@
         a.farm_class = el('f-farm').value;
         a.solo_class = el('f-solo').value;
         a.whitelist = el('f-whitelist').value.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
-        a.auto_restart = !!el('chk-auto-restart').checked;
-        var delay = parseInt(el('f-auto-restart-delay').value, 10);
-        if (!(delay > 0)) { delay = 30; }
-        if (delay > 3600) { delay = 3600; }
-        el('f-auto-restart-delay').value = delay;
-        a.auto_restart_delay = delay;
+        // Null-guarded: these two fields only exist in the newer page, and a
+        // cached page is enough to make the old code throw here -- inside every
+        // click handler, which then did nothing at all and said nothing.
+        var chkAuto = el('chk-auto-restart');
+        if (chkAuto) { a.auto_restart = !!chkAuto.checked; }
+        var inpDelay = el('f-auto-restart-delay');
+        if (inpDelay) {
+            var delay = parseInt(inpDelay.value, 10);
+            if (!(delay > 0)) { delay = 30; }
+            if (delay > 3600) { delay = 3600; }
+            inpDelay.value = delay;
+            a.auto_restart_delay = delay;
+        }
     }
 
     // ---- items explorer (inventory / bank / temp) -------------------
@@ -433,7 +455,7 @@
 
         el('btn-add').onclick = function () { addAccount(); };
 
-        el('btn-account-toggle').onclick = function () {
+        el('btn-account-toggle').onclick = guard('account', function () {
             syncFromEditor();
             var acc = current() || {};
             var user = (acc.username || '').trim();
@@ -466,8 +488,8 @@
                     msg('Failed to start.', false);
                 }).then(function () { btn.disabled = false; });
             }
-        };
-        el('btn-start').onclick = function () {
+        });
+        el('btn-start').onclick = guard('start', function () {
             syncFromEditor();
             var payload = accounts.map(function (acc) { return accountPayload(acc); });
             accounts.forEach(function (acc) {
@@ -485,8 +507,8 @@
             }).catch(function () {
                 msg('Failed to start.', false);
             }).then(function () { btn.disabled = false; });
-        };
-        el('btn-stop').onclick = function () {
+        });
+        el('btn-stop').onclick = guard('stop', function () {
             expectedRunning = {};
             restartAt = {};
             a.stop_bots().then(function () {
@@ -494,7 +516,7 @@
                 renderTabs(); el('editor-title').textContent = tabLabel(active); renderEditorStatus();
                 msg('Stopped.', true);
             });
-        };
+        });
         var clearBtn = el('btn-clear-logs');
         if (clearBtn) { clearBtn.onclick = function () { buffers[activeKey()] = []; el('log').innerHTML = ''; }; }
 

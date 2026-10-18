@@ -3338,6 +3338,20 @@ def start_local_server(web_dashboard_dir, sub_apps, combined_api=None,
             return json.dumps({"success": False, "error": "unserialisable result"})
 
     # Dashboard routes
+    @app.hook('after_request')
+    def _no_store_for_ui():
+        """Keep the UI files out of every cache.
+
+        The desktop window runs WebView2 with ``private_mode=False``, so it
+        caches, and a redeploy that changes ``main.js``/``index.html`` can then
+        load a *mix* of old and new -- a page without the new fields while the
+        new script expects them, which throws inside every click handler and
+        leaves the menu looking dead (no request, no log).  Nothing here is worth
+        caching: the files are served from disk.
+        """
+        if not (request.path or '').startswith('/api/'):
+            response.set_header('Cache-Control', 'no-store')
+
     @app.route('/')
     @app.route('/index.html')
     def serve_dashboard():
