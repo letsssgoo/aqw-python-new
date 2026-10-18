@@ -66,11 +66,11 @@
                         <div class="full"><label>Whitelist (comma separated)</label><input id="f-whitelist" type="text"></div>
                         <div class="full" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
                             <label class="chk-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:7px 10px;border-radius:8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06)">
-                                <input type="checkbox" id="chk-save-state" style="accent-color:var(--primary-color,#a855f7);cursor:pointer">
-                                <span style="font-size:.8rem;color:#e2e8f0">Save state (join /yulgar, then relogin) every</span>
+                                <input type="checkbox" id="chk-auto-restart" checked style="accent-color:var(--primary-color,#a855f7);cursor:pointer">
+                                <span style="font-size:.8rem;color:#e2e8f0">Auto-restart if it stops, after</span>
                             </label>
-                            <input id="f-save-state" type="number" min="1" max="24" step="1" value="1" style="width:80px">
-                            <span style="font-size:.8rem;color:#94a3b8">hours</span>
+                            <input id="f-auto-restart-delay" type="number" min="5" max="3600" step="5" value="30" style="width:90px">
+                            <span style="font-size:.8rem;color:#94a3b8">seconds</span>
                         </div>
                     </div>
                     <div class="slot-status" id="editor-status" style="margin-top:10px"><span class="pill">idle</span></div>

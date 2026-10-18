@@ -33,6 +33,8 @@
             bot_path: "", farm_class: "", solo_class: "",
             whitelist: BOT_PRESET.slice(),
             auto_relogin: true, show_chat: true, mute_spam: true, anti_mod: true,
+            auto_restart: acc.auto_restart !== false,
+            auto_restart_delay: acc.auto_restart_delay || 30,
             bot_external: false, bot_parent_dir: ""
         };
     }
@@ -87,8 +89,8 @@
         el('f-farm').value = a.farm_class || '';
         el('f-solo').value = a.solo_class || '';
         el('f-whitelist').value = Array.isArray(a.whitelist) ? a.whitelist.join(', ') : (a.whitelist || '');
-        el('f-save-state').value = a.save_state_hours || 1;
-        el('chk-save-state').checked = (a.save_state_hours || 0) > 0;
+        el('chk-auto-restart').checked = a.auto_restart !== false;
+        el('f-auto-restart-delay').value = a.auto_restart_delay || 30;
         el('f-player').value = '';
         el('editor-title').textContent = tabLabel(active);
         renderEditorStatus();
@@ -110,13 +112,12 @@
         a.farm_class = el('f-farm').value;
         a.solo_class = el('f-solo').value;
         a.whitelist = el('f-whitelist').value.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
-        // The scheduled save-state relogin: the checkbox arms it, the number is
-        // the interval in hours (the input's own steppers keep it a number).
-        var saveHours = parseInt(el('f-save-state').value, 10);
-        if (!(saveHours > 0)) { saveHours = 1; }
-        if (saveHours > 24) { saveHours = 24; }
-        el('f-save-state').value = saveHours;
-        a.save_state_hours = el('chk-save-state').checked ? saveHours : 0;
+        a.auto_restart = !!el('chk-auto-restart').checked;
+        var delay = parseInt(el('f-auto-restart-delay').value, 10);
+        if (!(delay > 0)) { delay = 30; }
+        if (delay > 3600) { delay = 3600; }
+        el('f-auto-restart-delay').value = delay;
+        a.auto_restart_delay = delay;
     }
 
     // ---- items explorer (inventory / bank / temp) -------------------
@@ -237,7 +238,8 @@
             solo_class: (acc.solo_class || '').trim(),
             whitelist: acc.whitelist || [],
             auto_relogin: true, show_chat: true, mute_spam: true, anti_mod: true,
-            save_state_hours: acc.save_state_hours || 0,
+            auto_restart: acc.auto_restart !== false,
+            auto_restart_delay: acc.auto_restart_delay || 30,
             bot_external: !!acc.bot_external,
             bot_parent_dir: acc.bot_parent_dir || ''
         };
@@ -247,7 +249,7 @@
     function setEditorDisabled(disabled) {
         ['f-player', 'f-user', 'f-pass', 'f-server', 'f-room',
          'f-script', 'f-farm', 'f-solo', 'f-whitelist', 'btn-browse',
-         'f-save-state', 'chk-save-state'].forEach(function (id) {
+         'f-auto-restart-delay', 'chk-auto-restart'].forEach(function (id) {
             var node = el(id);
             if (node) { node.disabled = disabled; }
         });
@@ -287,6 +289,49 @@
 
     var runningStatus = {};   // username -> status object
 
+    // ---- auto-restart: a pane that stops comes back by itself ---------
+    // The engine already re-establishes its own session (stall watchdog, no
+    // relogin cap).  What it cannot do is come back after its thread has ended:
+    // a script error, or a give-up.  That is this: as long as the user asked for
+    // the account to run and the checkbox is on, it is started again, and keeps
+    // being started again until it really runs.
+    var expectedRunning = {};   // username -> the user asked for it to run
+    var restartAt = {};         // username -> when the next attempt fires (ms)
+    var restartTries = {};      // username -> attempts so far, for the log
+
+    function noteRestart(user, cls, text) {
+        appendLog(user, '<span class="' + cls + '">[auto-restart] ' + text + '</span>');
+    }
+
+    function autoRestartSweep() {
+        accounts.forEach(function (acc) {
+            var user = (acc.username || '').trim();
+            if (!user) return;
+            if (runningNames[user]) {           // it is up: forget the counting
+                restartAt[user] = 0;
+                restartTries[user] = 0;
+                return;
+            }
+            if (!expectedRunning[user] || acc.auto_restart === false) return;
+            if (restartAt[user] && Date.now() < restartAt[user]) return;
+            var delay = parseInt(acc.auto_restart_delay, 10) || 30;
+            restartTries[user] = (restartTries[user] || 0) + 1;
+            noteRestart(user, 'log-yellow', user + ' is not running; starting it ' +
+                    'again in ' + delay + 's (attempt ' + restartTries[user] + ')');
+            restartAt[user] = Date.now() + delay * 1000;
+            setTimeout(function () {
+                if (!expectedRunning[user]) return;
+                a.start_one(accountPayload(acc)).then(function (res) {
+                    restartAt[user] = 0;        // the sweep decides the next one
+                    if (!res || !res.success) {
+                        noteRestart(user, 'log-red', user + ' could not be started: ' +
+                                ((res && res.error) || 'unknown error'));
+                    }
+                }).catch(function () { restartAt[user] = 0; });
+            }, delay * 1000);
+        });
+    }
+
     function setStatuses(statuses) {
         runningNames = {};
         runningStatus = {};
@@ -296,6 +341,7 @@
         renderTabs();
         el('editor-title').textContent = tabLabel(active);
         renderEditorStatus();
+        autoRestartSweep();
     }
 
     // ---- log (per tab) ---------------------------------------------
@@ -395,6 +441,8 @@
             if (runningNames[user]) {
                 msg('');
                 btn.disabled = true;
+                expectedRunning[user] = false;
+                restartAt[user] = 0;
                 a.stop_one(user).then(function (res) {
                     if (!res || !res.success) { msg((res && res.error) || 'Failed to stop', false); return; }
                     msg('Stopped ' + user + '.', true);
@@ -409,6 +457,7 @@
                 // a second click could otherwise start the same account again.
                 btn.disabled = true;
                 a.save_config({ accounts: accounts.map(function (x) { return accountPayload(x); }) });
+                expectedRunning[user] = true;
                 a.start_one(accountPayload(acc)).then(function (res) {
                     if (!res || !res.success) { msg((res && res.error) || 'Failed to start', false); return; }
                     msg('Started ' + user + '.', true);
@@ -421,6 +470,10 @@
         el('btn-start').onclick = function () {
             syncFromEditor();
             var payload = accounts.map(function (acc) { return accountPayload(acc); });
+            accounts.forEach(function (acc) {
+                var u = (acc.username || '').trim();
+                if (u) { expectedRunning[u] = true; restartAt[u] = 0; }
+            });
             var btn = el('btn-start');
             msg('');
             btn.disabled = true;
@@ -434,6 +487,8 @@
             }).then(function () { btn.disabled = false; });
         };
         el('btn-stop').onclick = function () {
+            expectedRunning = {};
+            restartAt = {};
             a.stop_bots().then(function () {
                 runningNames = {}; runningStatus = {};
                 renderTabs(); el('editor-title').textContent = tabLabel(active); renderEditorStatus();
