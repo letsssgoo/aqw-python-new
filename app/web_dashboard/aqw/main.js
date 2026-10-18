@@ -46,8 +46,8 @@
             bot_path: "", farm_class: "", solo_class: "",
             whitelist: BOT_PRESET.slice(),
             auto_relogin: true, show_chat: true, mute_spam: true, anti_mod: true,
-            auto_restart: acc.auto_restart !== false,
-            auto_restart_delay: acc.auto_restart_delay || 30,
+            auto_restart: true,
+            auto_restart_delay: 30,
             bot_external: false, bot_parent_dir: ""
         };
     }
@@ -429,7 +429,7 @@
             renderTabs();
         });
 
-        el('btn-browse').onclick = function () {
+        el('btn-browse').onclick = guard('browse', function () {
             a.select_script().then(function (result) {
                 if (!result) return;
                 el('f-script').value = result.path || '';
@@ -437,7 +437,7 @@
                 el('f-script').dataset.parent = result.parent_dir || '';
                 syncFromEditor();
             });
-        };
+        });
 
         // Web mode has no file dialog: the field is typed by hand, and the full
         // module path is required (e.g. bot.darkon_mats.0_all_darkon_mats).
@@ -453,7 +453,7 @@
             if (browseBtn) { browseBtn.style.display = 'none'; }
         }
 
-        el('btn-add').onclick = function () { addAccount(); };
+        el('btn-add').onclick = guard('add account', function () { addAccount(); });
 
         el('btn-account-toggle').onclick = guard('account', function () {
             syncFromEditor();
@@ -518,7 +518,12 @@
             });
         });
         var clearBtn = el('btn-clear-logs');
-        if (clearBtn) { clearBtn.onclick = function () { buffers[activeKey()] = []; el('log').innerHTML = ''; }; }
+        if (clearBtn) {
+            clearBtn.onclick = guard('clear logs', function () {
+                buffers[activeKey()] = [];
+                el('log').innerHTML = '';
+            });
+        }
 
         a.load_config().then(function (config) {
             var list = (config && config.accounts) || [];
