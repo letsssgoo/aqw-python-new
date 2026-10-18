@@ -43,10 +43,12 @@ RELOGIN_MAX_ATTEMPTS = 0
 #: The largest relogin delay, in seconds, once the attempts start adding up.
 RELOGIN_MAX_DELAY_S = 300.0
 
-#: A session that receives nothing at all for this long is treated as stuck and
-#: re-established.  The socket is up, the script is looping, and no packet ever
-#: arrives again -- /shadowblast's "stuck at Enter" -- which nothing inside the
-#: script can notice.  ``0`` turns the check off.
+#: A session that sends nothing at all for this long is treated as stuck and is
+#: re-established, and so is one that receives nothing back for that long.
+#: Sending nothing is the stronger signal: /shadowblast's "stuck at Enter" keeps
+#: receiving packets -- other players in the map keep the socket busy -- while
+#: the bot itself casts at nothing and never sends again, so "no packets
+#: received" alone cannot see it.  ``0`` turns the check off.
 STALL_SECONDS = 15 * 60
 
 #: How often a running session says it is still alive, in seconds (0 = off).
@@ -66,6 +68,10 @@ class Bot:
     RELOGIN_DELAY_S: float = RELOGIN_DELAY_S
     #: See RELOGIN_MAX_ATTEMPTS: likewise an attribute, for the same reason.
     RELOGIN_MAX_ATTEMPTS: int = RELOGIN_MAX_ATTEMPTS
+    #: See STALL_SECONDS / HEARTBEAT_SECONDS: attributes so a test (or a caller)
+    #: can shorten them.
+    STALL_SECONDS: float = STALL_SECONDS
+    HEARTBEAT_SECONDS: float = HEARTBEAT_SECONDS
 
 
     def __init__(
@@ -95,10 +101,14 @@ class Bot:
         self.showChat = showChat
         #: The stall/heartbeat task of the current session.
         self.watch_task = None
-        #: Time of the last packet the server sent, and how many arrived since
-        #: the last heartbeat.  The stall detector and the heartbeat read these.
+        #: Time of the last packet the server sent, and of the last one we sent,
+        #: plus how many arrived/sent since the last heartbeat.  The stall
+        #: detector and the heartbeat read these: sending nothing is what a stuck
+        #: farm looks like, since other players keep the socket receiving.
         self.last_packet_ts = time.time()
+        self.last_send_ts = time.time()
         self.packets_seen = 0
+        self.packets_sent = 0
         self.items_drop_whitelist: list[str] = itemsDropWhiteList
         self.dropped_items: list[dict] = []
         self.auto_relogin = autoRelogin
@@ -130,6 +140,10 @@ class Bot:
         self.cmds = []
         self.index = 0
         self.areaId = None
+        #: The map name from ``moveToArea``; empty until the first one arrives,
+        #: so anything that reads it before then (the stall watcher, a log line)
+        #: sees a string rather than an AttributeError.
+        self.strMapName = ""
         # Player identity in the current cell. These three used to be created
         # lazily inside extract_user_ids, so calling get_user_id() before the
         # first cell load raised AttributeError -- see extract_user_ids for the
@@ -364,6 +378,26 @@ class Bot:
         self.check_spam_time = None
         self.spam_backoff_ms = 0
 
+    def _progress_signature(self):
+        """A cheap fingerprint of "the world moved", for the stall detector.
+
+        Map, cell, level, gold and how much is carried: a farm changes at least
+        one of those constantly.  A bot that keeps *sending* (retrying a jump at
+        a cell that is not there, the /shadowblast shape) never trips the
+        silence checks, but its fingerprint stops changing -- which is what this
+        catches.
+        """
+        player = self.player
+        try:
+            inv = sum(int(getattr(item, "qty", 0) or 0)
+                      for item in player.INVENTORY)
+            temp = sum(int(getattr(item, "qty", 0) or 0)
+                       for item in player.TEMPINVENTORY)
+        except Exception:
+            inv = temp = 0
+        return (self.strMapName, player.CELL, player.LEVEL, player.GOLD,
+                inv, temp)
+
     async def _watch_loop(self) -> None:
         """Say the session is alive, and re-establish it when it is not.
 
@@ -379,30 +413,55 @@ class Bot:
 
         Both are one sleep and a subtraction per tick, so the cost is nothing.
         """
-        stall = STALL_SECONDS
-        beat = HEARTBEAT_SECONDS
+        stall = self.STALL_SECONDS
+        beat = self.HEARTBEAT_SECONDS
         if not stall and not beat:
             return
-        tick = max(30.0, min(x for x in (stall, beat) if x) / 3.0)
+        tick = max(1.0, min(x for x in (stall, beat) if x) / 3.0)
         last_beat = time.time()
+        last_sig = self._progress_signature()
+        last_progress = time.time()
         while self.is_client_connected:
             await asyncio.sleep(tick)
             if not self.is_client_connected:
                 return
             now = time.time()
             if beat and now - last_beat >= beat:
-                packets, self.packets_seen = self.packets_seen, 0
+                seen, self.packets_seen = self.packets_seen, 0
+                sent, self.packets_sent = self.packets_sent, 0
                 last_beat = now
                 print(f"[watch] still running: {self.strMapName}/"
                       f"{self.player.CELL} level {self.player.LEVEL} "
                       f"{self.player.CURRENT_HP}/{self.player.MAX_HP} hp, "
-                      f"{packets} packets in the last {beat / 60:.0f} min")
-            quiet = now - self.last_packet_ts
-            if stall and quiet >= stall:
-                print(f"[watch] no packet for {quiet / 60:.0f} min in "
+                      f"{sent} sent / {seen} received in the last "
+                      f"{beat / 60:.0f} min")
+            if not stall:
+                continue
+            signature = self._progress_signature()
+            if signature != last_sig:
+                last_sig = signature
+                last_progress = now
+            quiet_out = now - self.last_send_ts
+            quiet_in = now - self.last_packet_ts
+            quiet_work = now - last_progress
+            if quiet_out >= stall:
+                print(f"[watch] sent nothing for {quiet_out / 60:.0f} min in "
                       f"{self.strMapName}/{self.player.CELL}; the session looks "
                       f"stuck, re-establishing it")
-                self.request_relogin(f"stalled {quiet / 60:.0f} min")
+                self.request_relogin(f"silent {quiet_out / 60:.0f} min")
+                return
+            if quiet_in >= stall:
+                print(f"[watch] nothing came back for {quiet_in / 60:.0f} min in "
+                      f"{self.strMapName}/{self.player.CELL}; the session looks "
+                      f"stuck, re-establishing it")
+                self.request_relogin(f"no answer {quiet_in / 60:.0f} min")
+                return
+            if quiet_work >= stall:
+                print(f"[watch] nothing has changed for "
+                      f"{quiet_work / 60:.0f} min in "
+                      f"{self.strMapName}/{self.player.CELL} (still sending, but "
+                      f"stuck); re-establishing the session")
+                self.request_relogin(f"no progress {quiet_work / 60:.0f} min")
                 return
 
     def _resolve_script_arg(self, botMain):
@@ -1319,6 +1378,8 @@ class Bot:
     
     def write_message(self, message):
         # print(f"[{datetime.now().strftime('%H:%M:%S')}] {message}")
+        self.last_send_ts = time.time()
+        self.packets_sent += 1
         if self.client_socket is None:
             return "Error: Connection is not established"
         try:
