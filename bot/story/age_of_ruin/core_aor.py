@@ -408,3 +408,68 @@ async def abyssal_zone(cmd: Command, sea_voice: bool = False,
     await kill_quest(cmd, 9313, ABYSSAL_MAP, "Necro Adipocere")
     await hand(9314)
     await hand(9315)
+
+
+DEEPWATER_LAST = 9338
+DEEPWATER_MAP = "trenchobserve"
+
+#: ``DeepWater``'s hand-written quests, by quest id: ``(map items, hunts, solo)``.
+#: Interleaved with plain calls, so the order lives in :func:`deep_water`.
+DEEPWATER_HANDS = {
+    9329: (((11975, 1),), (("Wraith I.D Card", "Venerated Wraith", 8),), False),
+    9330: (((11976, 1),), (("Turret Screws", "Seabase Turret", 8),), False),
+    9333: (((11978, 4),), (("Turret Disarmed", "Seabase Turret", 6),), False),
+    9337: (((11982, 1),), (("Waxen Limb", "Necro Adipocere", 3),
+                            ("Spirit Stinger", "Sea Spirit", 7)), False),
+    9338: ((), (("Lady Noelle Defeated", "Lady Noelle", 1),), True),
+}
+#: The one step the source guards with its own flag: with ``panopticonMerge`` on,
+#: the region stops after 9332.
+DEEPWATER_EARLY_STOP = 9332
+
+
+async def deep_water(cmd: Command, panopticon_merge: bool = False,
+                     sea_voice: bool = False,
+                     cold_thunder: bool = False) -> None:
+    """``CoreAOR.DeepWater``: quests 9329-9338 in /trenchobserve.
+
+    Args:
+        cmd (Command): Facade to act through.
+        panopticon_merge (bool): The reference's ``panopticonMerge`` option; on,
+            the region returns after 9332.
+        sea_voice (bool): Passed to :func:`abyssal_zone`.
+        cold_thunder (bool): Passed to :func:`abyssal_zone`.
+    """
+    if await cmd.is_completed_before(DEEPWATER_LAST):
+        return
+
+    await abyssal_zone(cmd, sea_voice, cold_thunder)
+
+    async def hand(quest_id: int) -> None:
+        if await cmd.is_completed_before(quest_id):
+            return
+        map_items, hunts, solo = DEEPWATER_HANDS[quest_id]
+        if solo:
+            await equip_class(cmd, solo=True)
+        await cmd.ensure_accept_quest(quest_id)
+        await cmd.join_map(DEEPWATER_MAP)
+        for item_id, qty in map_items:
+            await cmd.get_map_item(item_id, qty)
+        for item, monster, qty in hunts:
+            await hunt_item(cmd, item, qty, DEEPWATER_MAP, monster_name=monster)
+        await cmd.ensure_turn_in_quest(quest_id)
+
+    await hand(9329)
+    await hand(9330)
+    await map_item_quest(cmd, 9331, DEEPWATER_MAP, 11977, 4)
+    await kill_quest(cmd, DEEPWATER_EARLY_STOP, DEEPWATER_MAP, "Venerated Wraith")
+    if panopticon_merge:
+        return
+
+    await hand(9333)
+    await map_item_quest(cmd, 9334, DEEPWATER_MAP, (11979, 11981), 1)
+    await map_item_quest(cmd, 9334, DEEPWATER_MAP, 11980, 2)
+    await kill_quest(cmd, 9335, DEEPWATER_MAP, "Sea Spirit")
+    await kill_quest(cmd, 9336, DEEPWATER_MAP, "Necro Adipocere")
+    await hand(9337)
+    await hand(DEEPWATER_LAST)

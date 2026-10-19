@@ -403,7 +403,7 @@ def main() -> None:
     assert core_aor.MIDNIGHT_LAST == 9301
     print("AOR mid    : YulgarAria 9270-9274, MidnightZone 9292-9301")
 
-    az = aor_body[aor_body.index("async def abyssal_zone("):]
+    az = aor_body[aor_body.index("async def abyssal_zone("):aor_body.index("DEEPWATER_LAST")]
     assert [m.group(1) for m in _re.finditer(
         r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", az)] == [
         "9307", "9307", "9308", "9312", "9312", "9313"]
@@ -413,6 +413,16 @@ def main() -> None:
     hands = [int(m.group(1)) for m in _re.finditer(r"await hand\((\d+)\)", az)]
     assert hands == [9306, 9309, 9310, 9311, 9314, 9315], hands
     print("AOR abyss  : 9306-9315, 9307 and 9312 take two map-item calls")
+
+    dw = aor_body[aor_body.index("async def deep_water("):]
+    assert [m.group(1) for m in _re.finditer(
+        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", dw)] == [
+        "9331", "9334", "9334", "9335", "9336"]
+    assert sorted(core_aor.DEEPWATER_HANDS) == [9329, 9330, 9333, 9337, 9338]
+    assert core_aor.DEEPWATER_EARLY_STOP == 9332
+    assert core_aor.DEEPWATER_LAST == 9338
+    assert "if panopticon_merge:" in dw, "the source's early stop"
+    print("AOR deep   : DeepWater 9329-9338, early stop after 9332 by option")
 
     # Dua daftar drop itu variabel biasa di sumber: diport, bukan dilewati.
     assert core_sow.MAINYU_DROPS == ("Mainyu Rune", "Mainyu Tail", "Mainyu Wings")
