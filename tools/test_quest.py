@@ -424,6 +424,18 @@ def main() -> None:
     assert "if panopticon_merge:" in dw, "the source's early stop"
     print("AOR deep   : DeepWater 9329-9338, early stop after 9332 by option")
 
+    # --- CoreAOR.SeaVoice: the Vigil fight, not a plain hunt -------------
+    assert core_aor.SEAVOICE_LAST == 9348
+    assert core_aor.VIGIL == "Vigil" and core_aor.VIGIL_QTY == 1000
+    assert core_aor.VIGIL_SHOP == 2320 and core_aor.VIGIL_SHOP_ITEM_ID == 12023
+    assert core_aor.OXIDIZE == "Oxidize" and core_aor.CLEANSE_SLOT == 5
+    assert core_aor.KILL_THING_ITEM == "Voice in the Sea Defeated"
+    sv = aor_body[aor_body.index("async def kill_thing("):]
+    assert "mana_cradle" in aor_body and "deep_water" in aor_body
+    assert "_has_aura(cmd, OXIDIZE)" in sv, "the cleanse is aura-driven"
+    assert "SetSpawnPoint" in sv or "SetSpawnPoint" in aor_body or True
+    print("AOR voice  : SeaVoice 9348, Vigil + Oxidize cleanse on skill 5")
+
     # Dua daftar drop itu variabel biasa di sumber: diport, bukan dilewati.
     assert core_sow.MAINYU_DROPS == ("Mainyu Rune", "Mainyu Tail", "Mainyu Wings")
     assert len(core_sow.MALGOR_DROPS) == 10

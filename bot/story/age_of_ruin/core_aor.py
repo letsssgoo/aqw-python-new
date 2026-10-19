@@ -11,6 +11,7 @@ not, and are reported rather than skipped quietly: the ``seaVoice`` and
 and ``Story.PreLoad`` (the guards do its work).
 """
 from core.command import Command
+from bot.core_advanced import buy_item
 from bot.core_bots import equip_class
 from bot.core_story import kill_quest, map_item_quest
 from bot.story.shadows_of_war.core_sow import mana_cradle
@@ -473,3 +474,106 @@ async def deep_water(cmd: Command, panopticon_merge: bool = False,
     await kill_quest(cmd, 9336, DEEPWATER_MAP, "Necro Adipocere")
     await hand(9337)
     await hand(DEEPWATER_LAST)
+
+
+SEAVOICE_LAST = 9348
+SEAVOICE_MAP = "seavoice"
+#: The Vigil shop and item the fight needs, as ``KillThing`` hard-codes them.
+VIGIL_SHOP = 2320
+VIGIL_SHOP_ITEM_ID = 12023
+VIGIL = "Vigil"
+VIGIL_QTY = 1000
+#: ``KillThing``'s fight parameters for this region.
+KILL_THING_ITEM = "Voice in the Sea Defeated"
+KILL_THING_CELL, KILL_THING_PAD = "r2", "Left"
+#: The aura the boss applies, and the skill slot that cleanses it.
+OXIDIZE = "Oxidize"
+CLEANSE_SLOT = 5
+
+
+def _has_aura(cmd: Command, name: str) -> bool:
+    """Whether the player carries an aura called ``name``.
+
+    ``player.AURAS`` is what the dashboard reads, so the field is there; its
+    entries are model objects (with ``name``) in some builds and plain dicts in
+    others, and both shapes are accepted rather than guessing.
+    """
+    for aura in getattr(cmd.bot.player, "AURAS", []) or []:
+        if isinstance(aura, dict):
+            if str(aura.get("name", "")).lower() == name.lower():
+                return True
+        elif str(getattr(aura, "name", "")).lower() == name.lower():
+            return True
+    return False
+
+
+async def kill_thing(cmd: Command, map_name: str, item: str, item_used: int,
+                     quant: int = 1, is_temp: bool = False) -> None:
+    """``CoreAOR.KillThing``: the Vigil fight that a boss mechanic needs.
+
+    This is not a plain hunt.  The boss applies the ``Oxidize`` aura and only the
+    equipped Vigil cleanses it, through skill slot 5; that is why the reference
+    buys a thousand Vigils, equips one, holds cell ``r2/Left`` and drives the
+    skills itself instead of using its usual combat loop.
+
+    Where this engine cannot follow, it says so: ``SetSpawnPoint()`` is not
+    ported (a stopped decision -- it only changes where you come back after a
+    death), and there is no ``Skills.Stop()/Resume()`` pair because the skills
+    here are cast by this loop alone.
+
+    Args:
+        cmd (Command): Facade to act through.
+        map_name (str): Map the fight is in.
+        item (str): What the fight drops (a temp item, hence ``is_temp``).
+        item_used (int): Item id to equip -- the Vigil.
+        quant (int): How many of ``item``.
+        is_temp (bool): Whether ``item`` lands in the temp bag.
+    """
+    await cmd.join_map(map_name)
+    await buy_item(cmd, VIGIL_SHOP, VIGIL, VIGIL_QTY, map_name=map_name,
+                   shop_item_id=VIGIL_SHOP_ITEM_ID)
+
+    held = cmd.bot.player.get_item_inventory_by_id(item_used)
+    if held is not None and getattr(held, "item_name", ""):
+        await cmd.equip_item(held.item_name)
+        cmd.bot.log(f"{item_used} [Vigil] equipped")
+    else:
+        cmd.bot.log(f"[aor] item id {item_used} (the Vigil) is not in the "
+                    f"inventory; the fight will go badly without it.")
+
+    while cmd.is_still_connected() and cmd.is_not_in_cell(KILL_THING_CELL):
+        await cmd.jump_cell(KILL_THING_CELL, KILL_THING_PAD)
+        await cmd.sleep(500)
+
+    while cmd.is_still_connected() and not await cmd.has_item(item, quant,
+                                                              isTemp=is_temp):
+        if not cmd.is_player_alive():
+            while cmd.is_still_connected() and not cmd.is_player_alive():
+                await cmd.sleep(500)
+            continue
+        if cmd.is_not_in_cell(KILL_THING_CELL):
+            await cmd.jump_cell(KILL_THING_CELL, KILL_THING_PAD)
+        if _has_aura(cmd, OXIDIZE) and not _has_aura(cmd, VIGIL):
+            await cmd.use_skill(CLEANSE_SLOT, "*")
+        await cmd.use_next_skill([0, 1, 2, 3, 4], "*")
+        await cmd.sleep(200)
+
+    cmd.bot.log(f"KillThing completed for {item} ({quant}).")
+
+
+async def sea_voice(cmd: Command) -> None:
+    """``CoreAOR.SeaVoice``: quest 9348 in /seavoice, the Vigil fight.
+
+    The last region the seven Kathool merge shops wait on.  Its lead-in is
+    ``SoW.ManaCradle`` + ``DeepWater``, both ported.
+    """
+    if await cmd.is_completed_before(SEAVOICE_LAST):
+        return
+
+    await mana_cradle(cmd)
+    await deep_water(cmd)
+
+    await cmd.ensure_accept_quest(SEAVOICE_LAST)
+    await kill_thing(cmd, SEAVOICE_MAP, KILL_THING_ITEM, VIGIL, is_temp=True)
+    await cmd.ensure_turn_in_quest(SEAVOICE_LAST)
+    await cmd.sell_item(VIGIL, VIGIL_QTY)
