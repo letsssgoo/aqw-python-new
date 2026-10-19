@@ -261,6 +261,33 @@ def main() -> None:
     assert loc.KAPPA_MAP_ITEM == 92
     print("kitsune    : by-id order 1/4/3/6/2, three kappa drops, map item 92")
 
+    # --- Core13LoC.Lionfang: the whole quest order, source-verified ------
+    # The 65 quests in the order they are *executed* (the source guards 2797 and
+    # 2798 together, so 2797 runs first even though the guard names 2798).
+    import re as _re
+
+    source = pathlib.Path(loc.__file__).read_text(encoding="utf-8")
+    body = source[source.index("async def lionfang("):]
+    order = []
+    for match in _re.finditer(r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)"
+                              r"|ensure_accept_quest\((\d+)\)", body):
+        qid = match.group(1) or match.group(2)
+        if qid not in order:
+            order.append(qid)
+    assert order == [
+        "2612", "2613", "2614", "2615", "2616", "2617", "2618", "2619", "2620",
+        "2621", "2622", "2623", "2624", "2625", "2626", "2627", "2628", "2629",
+        "2630", "2666", "2667", "2668", "2669", "2670", "2671", "2672", "2673",
+        "2674", "2675", "2720", "2721", "2722", "2723", "2724", "2725", "2726",
+        "2727", "2728", "2729", "2730", "2731", "2732", "2740", "2792", "2793",
+        "2794", "2796", "2797", "2798", "2799", "2800", "2801", "2802", "2803",
+        "2804", "2805", "2806", "2807", "2808", "2809", "2810", "2811", "2812",
+        "2813", "2814"], order
+    assert loc.LIONFANG_LAST == 2814
+    assert loc.LIONFANG_2806 == ("Lightning Boots", "r1", "Left")
+    assert len(loc.LIONFANG_2731) == 3
+    print("lionfang   : 65 quests 2612-2814, execution order locked")
+
     print("\nquest tests OK")
 
 
