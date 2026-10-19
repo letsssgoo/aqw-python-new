@@ -76,7 +76,7 @@ async def _find_ingredients(cmd: Command, item_id, name: str,
         cmd.cancel_registered_quests()
         return
 
-    cmd.bot.log(f'[merge] "{name}" is not one of Midnight Zone Merge's '
+    cmd.bot.log(f'[merge] "{name}" is not one of Midnight Zone Merge\'s '
                 f"ingredients ({BASE_SCRIP}, Water Elf Pearl); skipping it.")
 
 
