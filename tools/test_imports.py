@@ -124,6 +124,7 @@ ENTRY_MODULES = [
     "bot.enhancements.absolution",
     "bot.enhancements.forge_cape",
     "bot.other.classes.rep_based.master_ranger",
+    "bot.other.merge_shops.twilight_zone_merge",
     "bot.bank_check",
     "bot.story.battle_under",
     "bot.story.nation.void_refuge",

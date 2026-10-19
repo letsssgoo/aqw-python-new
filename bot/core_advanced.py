@@ -153,8 +153,10 @@ async def start_buy_all_merge(cmd: Command, map_name: str, shop_id: int,
         cmd (Command): Facade to act through.
         map_name (str): Map the shop lives in.
         shop_id (int): Shop to empty.
-        find_ingredients (Callable | None): ``async (item_id, qty) -> None``,
+        find_ingredients (Callable | None): ``async (item_id, name, qty)``,
             the merge script's own farmer for items the shop does not sell.
+            The reference reaches it through its ``externalItem`` fields; the
+            three values are handed over as arguments instead.
         buy_only_this (str | None): The reference's ``buyOnlyThis``.
         item_blacklist (Sequence[str]): Names to skip.
         shop_item_id (int): Which entry to take when a name repeats.
@@ -231,7 +233,7 @@ async def _merge_item(cmd: Command, map_name: str, shop_id: int, entry,
             cmd.bot.log(f'[merge] "{name}" is not in shop {shop_id}; asking '
                         f'the merge script for x{need}')
             cmd.add_drop(name)
-            await find_ingredients(item_id, need)
+            await find_ingredients(item_id, name, need)
         else:
             cmd.bot.log(f'[merge] "{name}" is not in shop {shop_id} and no '
                         f'merge script was given; skipping it.')
