@@ -6,17 +6,18 @@ the part that is specific to the shop: which items it does *not* sell, and how
 each of those is farmed.
 
 Note:
-    The reference opens with ``AoR.TwilightZone()`` -- the Age of Ruin story
-    that unlocks the map.  ``CoreAOR`` is not ported yet, so that lead-in is left
-    out: the merge works on an account that already has /twilightzone, and this
-    module says so when it does not.  ``Core.SetOptions`` (the reference's option
-    menu) and ``BankingBlackList`` (this engine never auto-banks) have no
-    counterpart here either.
+    The merge walk is the engine's generic one, and the story lead-in is
+    ``AoR.TwilightZone()`` -- ported as
+    :func:`bot.story.age_of_ruin.core_aor.twilight_zone`, which walks its own
+    chain (TerminaTemple -> AshrayVillage -> SunlightZone -> TwilightZone).
+    ``Core.SetOptions`` (the reference's option menu) and ``BankingBlackList``
+    (this engine never auto-banks) have no counterpart here.
 """
 from typing import Optional, Sequence
 
 from bot.core_advanced import start_buy_all_merge
 from bot.core_bots import equip_class
+from bot.story.age_of_ruin.core_aor import twilight_zone
 from core.command import Command
 from templates.hunt import hunt_item
 
@@ -43,10 +44,8 @@ async def twilight_zone_merge(cmd: Command, buy_only_this: Optional[str] = None,
         buy_only_this (str | None): The reference's ``buyOnlyThis``.
         item_blacklist (Sequence[str]): Names to skip.
     """
-    if cmd.is_not_in_map(MAP):
-        cmd.bot.log(f'[merge] "{MAP}" is not unlocked here: the Age of Ruin '
-                    f'story (AoR.TwilightZone) is not ported, so run that story '
-                    f'first if the map refuses to load.')
+    # AoR.TwilightZone(): the story that unlocks the map, now ported.
+    await twilight_zone(cmd)
     await start_buy_all_merge(cmd, MAP, SHOP_ID,
                               find_ingredients=_find_ingredients,
                               buy_only_this=buy_only_this,
