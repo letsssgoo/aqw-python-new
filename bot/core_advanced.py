@@ -86,6 +86,167 @@ async def buy_item(cmd: Command, shop_id: int, item: Union[int, str],
 
 
 # ---------------------------------------------------------------------------
+# BuyAllMerge
+# ---------------------------------------------------------------------------
+
+#: ``CoreAdvanced.miscCatagories`` -- shop categories never worth merging.
+#: This engine's item model carries no category field, so the filter is not
+#: applied; it is recorded here for the day it does.
+MISC_CATEGORIES = ("Note", "Item", "QuestItem", "ServerUse")
+
+#: ``ProcessItemWithDependencies``' own recursion cap.
+MAX_MERGE_DEPTH = 15
+
+
+def _held_by_id(cmd: Command, item_id) -> int:
+    """How many of an item id the account holds, temp bag included."""
+    player = cmd.bot.player
+    total = 0
+    for getter in (player.get_item_inventory_by_id,
+                   player.get_item_temp_inventory_by_id):
+        found = getter(item_id)
+        if found is not None:
+            total += int(getattr(found, "qty", 0) or 0)
+    return total
+
+
+async def _open_shop(cmd: Command, map_name: str, shop_id: int) -> bool:
+    """Stand in the shop's map and load it -- ``EnsureShopLoaded``."""
+    if map_name and cmd.is_not_in_map(map_name):
+        await cmd.join_map(map_name)
+    return await cmd.ensure_load_shop(shop_id)
+
+
+def _merge_shop(cmd: Command, shop_id: int):
+    """The loaded shop, or None -- the same lookup ``BuyItem`` uses."""
+    return _find_shop(cmd, shop_id)
+
+
+def _merge_entry(shop, item_id):
+    """The shop entry whose ItemID is ``item_id``, or None."""
+    if shop is None:
+        return None
+    for entry in shop.items:
+        if str(entry.item_id) == str(item_id):
+            return entry
+    return None
+
+
+async def _merge_requirements(cmd: Command, entry):
+    """``(item_id, name, qty)`` rows of an entry's merge recipe."""
+    return [(iid, name, qty) for iid, name, qty in entry.merge_requirements]
+
+
+async def start_buy_all_merge(cmd: Command, map_name: str, shop_id: int,
+                              find_ingredients=None, buy_only_this: str = None,
+                              item_blacklist=(), shop_item_id: int = 0) -> None:
+    """``CoreAdvanced.StartBuyAllMerge``: merge everything a shop offers.
+
+    The recipe comes from each entry's own payload (``turnin``, see
+    :mod:`model.inventory`), so nothing is hard-coded per item: for every
+    requirement the shop itself sells it is bought or recursed into, and
+    anything else is handed to ``find_ingredients`` -- the merge script's own
+    farmer, which is what the reference reaches through its ``externalItem``
+    fields.  This port passes them as arguments instead.
+
+    Args:
+        cmd (Command): Facade to act through.
+        map_name (str): Map the shop lives in.
+        shop_id (int): Shop to empty.
+        find_ingredients (Callable | None): ``async (item_id, qty) -> None``,
+            the merge script's own farmer for items the shop does not sell.
+        buy_only_this (str | None): The reference's ``buyOnlyThis``.
+        item_blacklist (Sequence[str]): Names to skip.
+        shop_item_id (int): Which entry to take when a name repeats.
+    """
+    await _open_shop(cmd, map_name, shop_id)
+    shop = _merge_shop(cmd, shop_id)
+    if shop is None:
+        cmd.bot.log(f"[merge] shop {shop_id} never loaded; nothing merged.")
+        return
+
+    blocked = {name.lower() for name in item_blacklist}
+    seen = set()
+    for entry in shop.items:
+        name = entry.item_name
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        if name.lower().endswith("insignia") or name.lower() in blocked:
+            continue
+        if buy_only_this and name.lower() != buy_only_this.lower():
+            continue
+        if entry.is_upgrade and not cmd.get_player().is_member:
+            cmd.bot.log(f'[merge] skipping "{name}" (member only).')
+            continue
+        if _held_by_id(cmd, entry.item_id) >= 1:
+            cmd.bot.log(f'[merge] "{name}" is already owned.')
+            continue
+        cmd.bot.log(f'[merge] farming for "{name}"')
+        await _merge_item(cmd, map_name, shop_id, entry, 1, find_ingredients, 0)
+        await _open_shop(cmd, map_name, shop_id)
+        missing = [f"{n} x{q}" for iid, n, q in entry.merge_requirements
+                   if _held_by_id(cmd, iid) < q]
+        if not missing:
+            await cmd.buy_item(shop_id, name, 1,
+                               shop_item_id=entry.shop_item_id)
+        elif missing:
+            cmd.bot.log(f'[merge] "{name}" not bought yet, missing: '
+                        f'{", ".join(missing)}')
+
+
+async def _merge_item(cmd: Command, map_name: str, shop_id: int, entry,
+                      qty: int, find_ingredients, depth: int) -> None:
+    """``ProcessItemWithDependencies``: satisfy one entry, then buy it."""
+    if depth > MAX_MERGE_DEPTH:
+        cmd.bot.log(f"[merge] recursion cap reached at "
+                    f'"{entry.item_name}"; stopping this branch.')
+        return
+    if _held_by_id(cmd, entry.item_id) >= qty:
+        return
+
+    await _open_shop(cmd, map_name, shop_id)
+    shop = _merge_shop(cmd, shop_id)
+
+    for item_id, name, need in entry.merge_requirements:
+        need = need * qty
+        if _held_by_id(cmd, item_id) >= need:
+            cmd.bot.log(f'[merge] {name} owned x{need}')
+            continue
+
+        in_shop = _merge_entry(shop, item_id)
+        if in_shop is not None:
+            need = min(need, int(in_shop.stackable or need))
+            if not in_shop.merge_requirements:
+                if in_shop.is_upgrade and not cmd.get_player().is_member:
+                    cmd.bot.log(f'[merge] "{name}" is member only; cannot buy it.')
+                    return
+                await cmd.buy_item(shop_id, name, need,
+                                   shop_item_id=in_shop.shop_item_id)
+            else:
+                await _merge_item(cmd, map_name, shop_id, in_shop, need,
+                                  find_ingredients, depth + 1)
+        elif find_ingredients is not None:
+            # Not sold here: the merge script's own farmer takes it.
+            cmd.bot.log(f'[merge] "{name}" is not in shop {shop_id}; asking '
+                        f'the merge script for x{need}')
+            cmd.add_drop(name)
+            await find_ingredients(item_id, need)
+        else:
+            cmd.bot.log(f'[merge] "{name}" is not in shop {shop_id} and no '
+                        f'merge script was given; skipping it.')
+            continue
+
+        if _held_by_id(cmd, item_id) < need:
+            cmd.bot.log(f"[merge] warning: {name} x{need} was not acquired.")
+
+    await _open_shop(cmd, map_name, shop_id)
+    if all([_held_by_id(cmd, iid) >= q for iid, _, q in entry.merge_requirements]):
+        await cmd.buy_item(shop_id, entry.item_name, qty,
+                           shop_item_id=entry.shop_item_id)
+
+
+# ---------------------------------------------------------------------------
 # SmartEnhance
 # ---------------------------------------------------------------------------
 
