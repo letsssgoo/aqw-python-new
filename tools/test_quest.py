@@ -364,13 +364,30 @@ def main() -> None:
     assert "whitemap" in aor_body, "the source's own map reset for 9213"
     print("AOR        : TerminaTemple, gate 10438/9351/9851 by option")
 
-    av = aor_body[aor_body.index("async def ashray_village("):]
+    av = aor_body[aor_body.index("async def ashray_village("):aor_body.index("SUNLIGHT_LAST")]
     av_ids = [m.group(1) for m in _re.finditer(
         r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", av)]
     assert av_ids == ["9225", "9227", "9230", "9233"], av_ids
     assert [q for q, _, _ in core_aor.ASHRAY_HANDS] == [9226, 9228, 9229, 9231, 9232]
     assert core_aor.ASHRAY_LAST == 9234
     print("AOR ashray : 9225-9234, five hand blocks with their map items")
+
+    sl = aor_body[aor_body.index("async def sunlight_zone("):aor_body.index("TWILIGHT_LAST")]
+    sl_ids = [m.group(1) for m in _re.finditer(
+        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", sl)]
+    assert sl_ids == ["9242", "9243", "9247"], sl_ids
+    assert [q for q, _, _ in core_aor.SUNLIGHT_HANDS] == [9244, 9245, 9246,
+                                                          9248, 9249, 9250]
+    assert core_aor.SUNLIGHT_LAST == 9251
+
+    tw2 = aor_body[aor_body.index("async def twilight_zone("):]
+    tw2_ids = [m.group(1) for m in _re.finditer(
+        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", tw2)]
+    assert tw2_ids == ["9258", "9259", "9260", "9260", "9262", "9263", "9264",
+                       "9265"], tw2_ids
+    assert [q for q, _, _ in core_aor.TWILIGHT_HANDS] == [9261, 9266, 9267]
+    assert core_aor.TWILIGHT_LAST == 9268
+    print("AOR zones  : SunlightZone 9242-9251, TwilightZone 9258-9268")
 
     # Dua daftar drop itu variabel biasa di sumber: diport, bukan dilewati.
     assert core_sow.MAINYU_DROPS == ("Mainyu Rune", "Mainyu Tail", "Mainyu Wings")

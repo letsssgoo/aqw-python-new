@@ -162,3 +162,95 @@ async def ashray_village(cmd: Command, sea_voice: bool = False,
     await kill_quest(cmd, 9230, ASHRAY_MAP, "Kitefin Shark Bait")
     await map_item_quest(cmd, 9233, ASHRAY_MAP, (11669, 11670), 1)
     await kill_quest(cmd, ASHRAY_LAST, ASHRAY_MAP, "Seafoam Elemental")
+
+
+SUNLIGHT_LAST = 9251
+SUNLIGHT_MAP = "sunlightzone"
+
+#: ``SunlightZone``'s hand-written quests: ``(quest, [(map item, qty)], hunts)``.
+SUNLIGHT_HANDS = (
+    (9244, ((11705, 1), (11706, 1)), (("Mopped Water", "Blighted Water", 6),)),
+    (9245, ((11707, 3),), (("Jelly Filling", "Spectral Jellyfish", 6),)),
+    (9246, (), (("Stinging Tentacles", "Spectral Jellyfish", 6),
+                ("Grainy Water", "Blighted Water", 6))),
+    (9248, ((11711, 1),), (("Astravian Dispelled", "Astravian Illusion", 10),)),
+    (9249, ((11712, 5),), (("Infernal Dispelled", "Infernal Illusion", 10),)),
+    (9250, ((11713, 1),), (("Seraph Dispelled", "Seraphic Illusion", 10),)),
+)
+
+
+async def sunlight_zone(cmd: Command, sea_voice: bool = False,
+                        cold_thunder: bool = False) -> None:
+    """``CoreAOR.SunlightZone``: quests 9242-9251 in /sunlightzone."""
+    if await cmd.is_completed_before(SUNLIGHT_LAST):
+        return
+
+    await ashray_village(cmd, sea_voice, cold_thunder)
+
+    await kill_quest(cmd, 9242, SUNLIGHT_MAP, "Blighted Water")
+    await kill_quest(cmd, 9243, SUNLIGHT_MAP, "Spectral Jellyfish")
+
+    for quest_id, map_items, hunts in SUNLIGHT_HANDS:
+        if await cmd.is_completed_before(quest_id):
+            continue
+        await cmd.ensure_accept_quest(quest_id)
+        await cmd.join_map(SUNLIGHT_MAP)
+        for item_id, qty in map_items:
+            await cmd.get_map_item(item_id, qty)
+        for item, monster, qty in hunts:
+            await hunt_item(cmd, item, qty, SUNLIGHT_MAP, monster_name=monster)
+        await cmd.ensure_turn_in_quest(quest_id)
+
+    await map_item_quest(cmd, 9247, SUNLIGHT_MAP, (11708, 11709, 11710), 1)
+    await kill_quest(cmd, SUNLIGHT_LAST, SUNLIGHT_MAP, "Marine Snow")
+
+
+TWILIGHT_LAST = 9268
+TWILIGHT_MAP = "twilightzone"
+
+#: ``TwilightZone``'s hand-written quests.
+TWILIGHT_HANDS = (
+    (9261, (), (("Louse Antennae", "Whale Louse", 6),
+                ("Lamprey Tooth", "Polymelia Lamprey", 6))),
+    (9266, (), (("Spirit Restrained", "Decay Spirit", 7),
+                ("Guardian Restrained", "Ice Guardian", 7))),
+    (9267, (), (("Leviathan Fought", "Leviathan", 1),)),
+)
+
+
+async def twilight_zone(cmd: Command, sea_voice: bool = False,
+                        cold_thunder: bool = False) -> None:
+    """``CoreAOR.TwilightZone``: quests 9258-9268 in /twilightzone.
+
+    This is the region the ``TwilightZoneMerge`` shop calls, and the map its
+    ``/twilightzone`` merge lives in.  9260 is two map-item calls for one quest,
+    as the source has it; 9267 is fought in the solo class.
+    """
+    if await cmd.is_completed_before(TWILIGHT_LAST):
+        return
+
+    await sunlight_zone(cmd, sea_voice, cold_thunder)
+
+    await kill_quest(cmd, 9258, TWILIGHT_MAP, "Whale Louse")
+    await kill_quest(cmd, 9259, TWILIGHT_MAP, "Polymelia Lamprey")
+    await map_item_quest(cmd, 9260, TWILIGHT_MAP, 11749, 1)
+    await map_item_quest(cmd, 9260, TWILIGHT_MAP, 11750, 4)
+
+    for quest_id, map_items, hunts in TWILIGHT_HANDS:
+        if await cmd.is_completed_before(quest_id):
+            continue
+        await cmd.ensure_accept_quest(quest_id)
+        if quest_id == 9267:
+            await equip_class(cmd, solo=True)
+        await cmd.join_map(TWILIGHT_MAP)
+        for item_id, qty in map_items:
+            await cmd.get_map_item(item_id, qty)
+        for item, monster, qty in hunts:
+            await hunt_item(cmd, item, qty, TWILIGHT_MAP, monster_name=monster)
+        await cmd.ensure_turn_in_quest(quest_id)
+
+    await map_item_quest(cmd, 9262, TWILIGHT_MAP, (11751, 11752), 1)
+    await kill_quest(cmd, 9263, TWILIGHT_MAP, "Decay Spirit")
+    await kill_quest(cmd, 9264, TWILIGHT_MAP, "Ice Guardian")
+    await map_item_quest(cmd, 9265, TWILIGHT_MAP, (11753, 11754, 11755), 1)
+    await map_item_quest(cmd, TWILIGHT_LAST, TWILIGHT_MAP, 11756, 1)
