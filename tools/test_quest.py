@@ -288,6 +288,22 @@ def main() -> None:
     assert len(loc.LIONFANG_2731) == 3
     print("lionfang   : 65 quests 2612-2814, execution order locked")
 
+    # --- CoreSoW.RuinedCrown: quest order, 8784 before 8783 --------------
+    from bot.story.shadows_of_war import core_sow
+
+    body = pathlib.Path(core_sow.__file__).read_text(encoding="utf-8")
+    body = body[body.index("async def ruined_crown("):]
+    # Yang literal di badan fungsi: map/kill quests, plus urutannya.
+    literals = [m.group(1) for m in _re.finditer(
+        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", body)]
+    assert literals == ["8778", "8780", "8781", "8784", "8783", "8785"], literals
+    assert body.index("8784") < body.index("8783"), "8784 harus sebelum 8783"
+    # Yang lewat konstanta: blok tangan, gerbang, dan quest merge.
+    assert [q for q, _ in core_sow.RUINED_CROWN_HANDS] == [8779, 8782, 8786]
+    assert core_sow.RUINED_CROWN_LAST == 8787
+    assert core_sow.RUINED_CROWN_MERGE_QUEST == 8788
+    print("ruinedcrown: 8778-8788, 8784 before 8783, 8788 after the gate")
+
     # --- the reward whitelist QuestProgression does ----------------------
     # `Story.QuestProgression` has three jobs: wait for the quest to be unlocked,
     # skip it when it is already completed, and add its *rewards* as drops so the

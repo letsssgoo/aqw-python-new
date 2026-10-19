@@ -167,6 +167,7 @@ SUPPORT_MODULES = [
     "bot.other.farm_joe_kits.core_farmer_joe",
     "bot.story.lordsofchaos.core13loc",
     "bot.story.sepulchure_saga.core_sepulchure",
+    "bot.story.shadows_of_war.core_sow",
 ]
 
 
