@@ -323,7 +323,7 @@ def main() -> None:
     assert core_sow.TIMESTREAM_WAR_LAST == 8819
     print("soW chain  : RuinedCrown -> Timekeep -> TimestreamWar, order locked")
 
-    dl = body[body.index("async def dead_lines("):]
+    dl = body[body.index("async def dead_lines("):body.index("SHADOWFLAME_LAST")]
     dl_ids = [m.group(1) for m in _re.finditer(
         r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", dl)]
     assert dl_ids == ["8859"], dl_ids        # 8868 lewat konstanta DEADLINES_LAST
@@ -331,6 +331,23 @@ def main() -> None:
                                                           8864, 8865, 8866, 8867]
     assert core_sow.DEADLINES_LAST == 8868
     print("deadlines  : 8859-8868, eight hand blocks with their map items")
+
+    sf = body[body.index("async def shadow_flame("):body.index("MANACRADLE_LAST")]
+    sf_ids = [m.group(1) for m in _re.finditer(
+        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", sf)]
+    assert sf_ids == ["8956", "8956", "8961", "8962"], sf_ids
+    assert [q for q, _, _ in core_sow.SHADOWFLAME_HANDS] == [8957, 8958, 8959,
+                                                            8960, 8963, 8964]
+    assert core_sow.SHADOWFLAME_LAST == 8965
+
+    mc = body[body.index("async def mana_cradle("):]
+    mc_ids = [m.group(1) for m in _re.finditer(
+        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", mc)]
+    assert mc_ids == ["9116", "9117", "9118", "9118", "9120", "9121", "9122"], mc_ids
+    assert [q for q, _, _ in core_sow.MANACRADLE_HANDS] == [9119, 9123]
+    assert core_sow.MANACRADLE_BOSSES == ((9124, "Malgor"), (9125, "The Mainyu"))
+    assert core_sow.MANACRADLE_LAST == 9126
+    print("SoW done   : ShadowFlame -> ManaCradle, chain closed at 9126")
 
     # --- the reward whitelist QuestProgression does ----------------------
     # `Story.QuestProgression` has three jobs: wait for the quest to be unlocked,

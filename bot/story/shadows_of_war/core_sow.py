@@ -202,3 +202,103 @@ async def dead_lines(cmd: Command) -> None:
 
     await equip_class(cmd, solo=True)
     await kill_quest(cmd, DEADLINES_LAST, DEADLINES_MAP, "Eternal Dragon")
+
+
+SHADOWFLAME_LAST = 8965
+SHADOWFLAME_MAP = "worldscore"
+
+#: ``ShadowFlame``'s hand-written quests: ``(quest, [(map item, qty)], hunts)``.
+SHADOWFLAME_HANDS = (
+    (8957, ((10878, 5),), (("Pulsating Mana Residue", "Elemental Attempt", 12),)),
+    (8958, ((10879, 1),), (("Waxen Horns", "Infernal Mockery", 12),)),
+    (8959, ((10880, 4),), (("Infernal Shoved", "Infernal Mockery", 10),)),
+    (8960, ((10881, 1),), (("Vanquished Elemental", "Elemental Attempt", 14),)),
+    (8963, ((10883, 1),), (("Rubbery Wings", "Infernal Mockery", 14),)),
+    (8964, ((10884, 1),), (("Sterile Mana", "Elemental Attempt", 16),)),
+)
+
+
+async def shadow_flame(cmd: Command) -> None:
+    """``CoreSoW.ShadowFlame``: quests 8956-8965 in /worldscore."""
+    if await cmd.is_completed_before(SHADOWFLAME_LAST):
+        return
+
+    await dead_lines(cmd)
+    await equip_class(cmd, solo=True)
+
+    # Lies in Peace 8956 -- one quest, a map item and a kill.
+    await map_item_quest(cmd, 8956, SHADOWFLAME_MAP, 10877, 1)
+    await kill_quest(cmd, 8956, SHADOWFLAME_MAP, "False Wyvern")
+
+    for quest_id, map_items, hunts in SHADOWFLAME_HANDS:
+        if await cmd.is_completed_before(quest_id):
+            continue
+        await cmd.ensure_accept_quest(quest_id)
+        await cmd.join_map(SHADOWFLAME_MAP)
+        for item_id, qty in map_items:
+            await cmd.get_map_item(item_id, qty)
+        for item, monster, qty in hunts:
+            await hunt_item(cmd, item, qty, SHADOWFLAME_MAP, monster_name=monster)
+        await cmd.ensure_turn_in_quest(quest_id)
+
+    await map_item_quest(cmd, 8961, SHADOWFLAME_MAP, 10882, 4)
+    await kill_quest(cmd, 8962, SHADOWFLAME_MAP, "Crystalized Mana")
+    await kill_quest(cmd, SHADOWFLAME_LAST, SHADOWFLAME_MAP, "Mask of Tranquility")
+
+
+MANACRADLE_LAST = 9126
+MANACRADLE_MAP = "manacradle"
+
+#: ``ManaCradle``'s hand-written quests, same shape as above.
+MANACRADLE_HANDS = (
+    (9119, (), (("Crystal Shard", "Crystalized Mana", 8),
+                ("Elemental Drops", "Elemental Attempt", 8))),
+    (9123, ((11271, 1),), (("Dark Shard", "Darkness Elemental", 10),
+                           ("Dark Residue", "Dark Tainted Mana", 10))),
+)
+#: Malgor and The Mainyu, the two the source fights in its dodge class.
+MANACRADLE_BOSSES = ((9124, "Malgor"), (9125, "The Mainyu"))
+
+
+async def mana_cradle(cmd: Command) -> None:
+    """``CoreSoW.ManaCradle``: quests 9116-9125 in /manacradle.
+
+    This is the last link of the chain ``AOR.TerminaTemple`` needs.
+
+    Where this engine cannot follow, it says so instead of guessing:
+    ``Core.EquipClass(ClassType.Dodge)`` has no ``Dodge`` case here, so the solo
+    class is equipped for the two bosses; ``Core.ToBank(MainyuDrops/MalgorDrops)``
+    names two lists that only exist in the reference; and ``Adv.GearStore`` is
+    skipped, as everywhere else in this port.  The last two quests (9126/9127)
+    are commented out in the source and stay out.
+    """
+    if await cmd.is_completed_before(MANACRADLE_LAST):
+        return
+
+    await shadow_flame(cmd)
+    await equip_class(cmd, solo=True)
+
+    await kill_quest(cmd, 9116, MANACRADLE_MAP, "Elemental Attempt")
+    await kill_quest(cmd, 9117, MANACRADLE_MAP, "Crystalized Mana")
+    await map_item_quest(cmd, 9118, MANACRADLE_MAP, 11268, 3)
+    await map_item_quest(cmd, 9118, MANACRADLE_MAP, 11269, 3)
+
+    for quest_id, map_items, hunts in MANACRADLE_HANDS:
+        if await cmd.is_completed_before(quest_id):
+            continue
+        await cmd.ensure_accept_quest(quest_id)
+        await cmd.join_map(MANACRADLE_MAP)
+        for item_id, qty in map_items:
+            await cmd.get_map_item(item_id, qty)
+        for item, monster, qty in hunts:
+            await hunt_item(cmd, item, qty, MANACRADLE_MAP, monster_name=monster)
+        await cmd.ensure_turn_in_quest(quest_id)
+
+    await kill_quest(cmd, 9120, MANACRADLE_MAP, "Dark Tainted Mana")
+    await kill_quest(cmd, 9121, MANACRADLE_MAP, "Darkness Elemental")
+    await map_item_quest(cmd, 9122, MANACRADLE_MAP, 11270, 5)
+
+    # The reference swaps to its dodge class here; this engine has no Dodge case.
+    await equip_class(cmd, solo=True)
+    for quest_id, monster in MANACRADLE_BOSSES:
+        await kill_quest(cmd, quest_id, MANACRADLE_MAP, monster)
