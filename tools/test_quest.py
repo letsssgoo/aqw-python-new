@@ -458,6 +458,30 @@ def main() -> None:
     assert "Tainted Gem" in bot.items_drop_whitelist, bot.items_drop_whitelist
     print("rewards    : the story helper whitelists the quest's rewards")
 
+    # --- paket %...% tidak boleh menyentuh `cmd` (UnboundLocalError) -----
+    # `castWait`/`CatchResult` sempat ditaruh di cabang persen, tempat `cmd`
+    # belum ada: setiap pesan persen yang tidak dikenal langsung meledak.
+    bot.is_client_connected = True
+    for raw in ("%xt%zm%unknown%1%", "%xt%zm%You joined battleon-2%",
+                "%xt%zm%server%something%"):
+        asyncio.run(bot.handle_server_response(raw))          # tidak boleh raise
+    check_flag = (bot.fishing_cast_wait, bot.fishing_caught)
+    assert check_flag == (False, False), check_flag
+    asyncio.run(bot.handle_server_response(
+        _server("castWait", wait=4200, derp=False)))
+    assert bot.fishing_cast_wait is True and bot.fishing_wait_ms == 4200, \
+        (bot.fishing_cast_wait, bot.fishing_wait_ms)
+    asyncio.run(bot.handle_server_response(
+        _server("CatchResult", catchResult={"act": "CatchPole"})))
+    assert bot.fishing_caught is True, bot.fishing_caught
+    print("percent   : %...% messages are safe; castWait/CatchResult parse")
+
+    # --- jalur merge: _find_shop harus benar-benar terimpor ---------------
+    from bot import core_advanced
+
+    assert callable(core_advanced._merge_shop), "merge shop lookup hilang"
+    print("merge     : core_advanced._find_shop is bound")
+
     print("\nquest tests OK")
 
 

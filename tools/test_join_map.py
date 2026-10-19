@@ -200,6 +200,18 @@ def main() -> int:
     check("map compare is case-insensitive",
           asyncio.run(cmd.wait_for_map("EVILWARNUL")), True)
 
+    # --- 7. a disconnected client must not retry the join ---------------
+    print("\n-- the join loop after the bot was stopped --")
+    bot = StubBot("battleon", answers=False)
+    cmd = Command(bot)
+    cmd.MAP_JOIN_TIMEOUT_MS = 50
+    bot.is_client_connected = False
+    from templates.hunt import _join_for_hunt
+
+    check("gives up at once, no transfer", 
+          asyncio.run(_join_for_hunt(cmd, "evilwarnul", None, "x")), False)
+    check("and sent nothing", bot.transfers(), [])
+
     print()
     print("=" * 74)
     print(f"passed {PASS}   failed {FAIL}")
