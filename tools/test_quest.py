@@ -314,7 +314,7 @@ def main() -> None:
     assert [q for q, _ in core_sow.TIMEKEEP_HANDS] == [8810, 8811, 8813]
     assert core_sow.TIMEKEEP_LAST == 8813
 
-    tw = body[body.index("async def timestream_war("):]
+    tw = body[body.index("async def timestream_war("):body.index("DEADLINES_LAST")]
     tw_ids = [m.group(1) for m in _re.finditer(
         r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", tw)]
     # 8819 ditulis lewat konstanta TIMESTREAM_WAR_LAST, bukan literal
@@ -322,6 +322,15 @@ def main() -> None:
     assert core_sow.TIMESTREAM_MEDAL_QUEST == 8814
     assert core_sow.TIMESTREAM_WAR_LAST == 8819
     print("soW chain  : RuinedCrown -> Timekeep -> TimestreamWar, order locked")
+
+    dl = body[body.index("async def dead_lines("):]
+    dl_ids = [m.group(1) for m in _re.finditer(
+        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", dl)]
+    assert dl_ids == ["8859"], dl_ids        # 8868 lewat konstanta DEADLINES_LAST
+    assert [q for q, _, _ in core_sow.DEADLINES_HANDS] == [8860, 8861, 8862, 8863,
+                                                          8864, 8865, 8866, 8867]
+    assert core_sow.DEADLINES_LAST == 8868
+    print("deadlines  : 8859-8868, eight hand blocks with their map items")
 
     # --- the reward whitelist QuestProgression does ----------------------
     # `Story.QuestProgression` has three jobs: wait for the quest to be unlocked,

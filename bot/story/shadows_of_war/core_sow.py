@@ -156,3 +156,49 @@ async def timestream_war(cmd: Command) -> None:
     await kill_quest(cmd, 8817, TIMESTREAM_WAR_MAP, "Decaying Locust")
     await kill_quest(cmd, 8818, TIMESTREAM_WAR_MAP, "False Wyvern")
     await kill_quest(cmd, TIMESTREAM_WAR_LAST, TIMESTREAM_WAR_MAP, "Second Speaker")
+
+
+DEADLINES_LAST = 8868
+DEADLINES_MAP = "deadlines"
+
+#: ``DeadLines``' hand-written quests: ``(quest, map items, hunts)``.  Seven of
+#: the eight want map items *and* a drop before they can be turned in.
+DEADLINES_HANDS = (
+    (8860, (10602,), (("Mana Dispelled", "Frenzied Mana", 6),)),
+    (8861, (10603, 10604), (("Shadowfall Helm", "Shadowfall Warrior", 7),)),
+    (8862, (10605, 10606), (("Knight's Crest", "Swordhaven Knight", 7),)),
+    (8863, (10607, 10608), (("Shadowfall Bones", "Shadowfall Warrior", 7),)),
+    (8864, (10609, 10610), (("Knight's Armaments", "Swordhaven Knight", 7),)),
+    (8865, (10611, 10612), (("Mana Dissipated", "Frenzied Mana", 6),)),
+    (8866, (10613,), (("Mage Hoods", "Chaos Mage", 6),)),
+    (8867, (10614,), (("Mana Cleared", "Frenzied Mana", 6),)),
+)
+
+
+async def dead_lines(cmd: Command) -> None:
+    """``CoreSoW.DeadLines``: quests 8859-8868 in /deadlines.
+
+    The last quest is fought in the solo class, which the source sets just before
+    it; the map name is written ``"DeadLines"`` there and ``"deadlines"`` in the
+    hand-written blocks, and one spelling is used here throughout.
+    """
+    if await cmd.is_completed_before(DEADLINES_LAST):
+        return
+
+    await timestream_war(cmd)
+
+    await map_item_quest(cmd, 8859, DEADLINES_MAP, 10601, 6)
+
+    for quest_id, map_items, hunts in DEADLINES_HANDS:
+        if await cmd.is_completed_before(quest_id):
+            continue
+        await cmd.ensure_accept_quest(quest_id)
+        await cmd.join_map(DEADLINES_MAP)
+        for item_id in map_items:
+            await cmd.get_map_item(item_id)
+        for item, monster, qty in hunts:
+            await hunt_item(cmd, item, qty, DEADLINES_MAP, monster_name=monster)
+        await cmd.ensure_turn_in_quest(quest_id)
+
+    await equip_class(cmd, solo=True)
+    await kill_quest(cmd, DEADLINES_LAST, DEADLINES_MAP, "Eternal Dragon")
