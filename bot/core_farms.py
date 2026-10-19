@@ -845,9 +845,42 @@ async def sandsea_rep(cmd: Command, rank: int = 10) -> None:
                      quests=SANDSEA_QUESTS)
 
 
+#: ``CoreFarms.SomniaREP``: the three quests of /somnia, one pass per item set.
+SOMNIA_MAP = "somnia"
+SOMNIA_QUESTS = (7665, 7666, 7669)
+SOMNIA_HUNTS = (("Dream Truffle", "Nightspore", 8),
+                ("Orphium Ore", "Orpheum Elemental", 8),
+                ("Dreamsilk", "Dream Larva", 5))
+
+
+async def somnia_rep(cmd: Command, rank: int = 10) -> None:
+    """``CoreFarms.SomniaREP``: quests 7665/7666/7669 in /somnia.
+
+    The reference pins a save state and toggles the reputation boost around this
+    loop; this engine has neither, and both stay off here as they do by default
+    there.  Its ``EnsureAcceptmultiple``/``EnsureComplete`` triple is the three
+    quests accepted, fed and turned in per pass -- ``log: false`` on the hunts,
+    which is this engine's default logger.
+    """
+    if cmd.get_faction_rank("Somnia") >= rank:
+        return
+
+    await equip_class(cmd)
+    cmd.bot.log(f"Farming rank {rank}")
+    while cmd.is_still_connected() and cmd.get_faction_rank("Somnia") < rank:
+        for quest_id in SOMNIA_QUESTS:
+            await cmd.ensure_accept_quest(quest_id)
+        for item, monster, qty in SOMNIA_HUNTS:
+            await hunt_item(cmd, item, qty, SOMNIA_MAP, monster_name=monster,
+                            is_temp=True)
+        for quest_id in SOMNIA_QUESTS:
+            await cmd.ensure_turn_in_quest(quest_id)
+
+
 #: Faction name -> the ported method, mirroring ``CoreFarms.<Name>REP``.
 FACTION_FARMS = {
     "Good": good_rep,
+    "Somnia": somnia_rep,
     "Sandsea": sandsea_rep,
     "Vampire": vampire_rep,
     "Yokai": yokai_rep,
