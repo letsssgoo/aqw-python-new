@@ -168,6 +168,7 @@ SUPPORT_MODULES = [
     "bot.story.lordsofchaos.core13loc",
     "bot.story.sepulchure_saga.core_sepulchure",
     "bot.story.shadows_of_war.core_sow",
+    "bot.story.age_of_ruin.core_aor",
 ]
 
 

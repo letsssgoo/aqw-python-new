@@ -349,6 +349,21 @@ def main() -> None:
     assert core_sow.MANACRADLE_LAST == 9126
     print("SoW done   : ShadowFlame -> ManaCradle, chain closed at 9126")
 
+    # --- CoreAOR.TerminaTemple: the gate depends on the option flags -----
+    from bot.story.age_of_ruin import core_aor
+
+    assert core_aor.termina_temple_last(False, False) == 10438
+    assert core_aor.termina_temple_last(True, False) == 9351
+    assert core_aor.termina_temple_last(False, True) == 9851
+    assert [q for q, _, _ in core_aor.TERMINA_TEMPLE_HANDS] == [9213, 9214]
+    assert core_aor.TERMINA_TEMPLE_HANDS[0][1] == ((11625, 1), (11626, 1), (11627, 1))
+    assert [q for q, _, _ in core_aor.TERMINA_TEMPLE_STEPS] == [9351, 9851]
+    assert core_aor.SEAVOICE_GATE == 9348
+    aor_body = pathlib.Path(core_aor.__file__).read_text(encoding="utf-8")
+    assert "mana_cradle" in aor_body, "lead-in SoW.ManaCradle"
+    assert "whitemap" in aor_body, "the source's own map reset for 9213"
+    print("AOR        : TerminaTemple, gate 10438/9351/9851 by option")
+
     # Dua daftar drop itu variabel biasa di sumber: diport, bukan dilewati.
     assert core_sow.MAINYU_DROPS == ("Mainyu Rune", "Mainyu Tail", "Mainyu Wings")
     assert len(core_sow.MALGOR_DROPS) == 10
