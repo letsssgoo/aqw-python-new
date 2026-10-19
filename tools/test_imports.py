@@ -124,6 +124,14 @@ ENTRY_MODULES = [
     "bot.enhancements.absolution",
     "bot.enhancements.forge_cape",
     "bot.other.classes.rep_based.master_ranger",
+    "bot.other.merge_shops.twilight_zone_merge",
+    "bot.other.merge_shops.undine_commissary_merge",
+    "bot.other.merge_shops.seaview_souvenirs_merge",
+    "bot.other.merge_shops.midnight_zone_merge",
+    "bot.other.merge_shops.abyssal_zone_merge",
+    "bot.other.merge_shops.trench_observe_merge",
+    "bot.other.merge_shops.sea_voice_merge",
+    "bot.other.kathool_adept_prerequisite",
     "bot.bank_check",
     "bot.story.battle_under",
     "bot.story.nation.void_refuge",
@@ -166,6 +174,8 @@ SUPPORT_MODULES = [
     "bot.other.farm_joe_kits.core_farmer_joe",
     "bot.story.lordsofchaos.core13loc",
     "bot.story.sepulchure_saga.core_sepulchure",
+    "bot.story.shadows_of_war.core_sow",
+    "bot.story.age_of_ruin.core_aor",
 ]
 
 

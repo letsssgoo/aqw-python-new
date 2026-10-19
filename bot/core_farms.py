@@ -22,6 +22,7 @@ noted where it happens:
   over a settings gap.
 """
 import random
+import time
 from typing import Awaitable, Callable, Optional, Sequence, Tuple
 
 from bot.core_bots import (Alignment, REP_THRESHOLDS, buy_item, can_we_aggro,
@@ -845,9 +846,143 @@ async def sandsea_rep(cmd: Command, rank: int = 10) -> None:
                      quests=SANDSEA_QUESTS)
 
 
+#: ``CoreFarms.FishingREP``: the fishing minigame, not a quest farm.
+FISHING_MAP = "fishing"
+FISHING_BAIT = "Fishing Bait"
+FISHING_DYNAMITE = "Fishing Dynamite"
+FISHING_QUEST = 1682
+FISHING_BAIT_FARM = ("greenguardwest", "West3", "Right", "Frogzard")
+FISHING_DYNAMITE_FARM = ("greenguardwest", "West4", "Right", "Slime")
+#: The reference's own starter value; the server's ``castWait`` replaces it.
+FISHING_WAIT_MS = 3500
+#: How long to wait for ``castWait`` / ``CatchResult`` before casting again.
+FISHING_REPLY_TIMEOUT_MS = 10_000
+
+
+async def get_bait_and_dynamite(cmd: Command, bait: int = 0,
+                                dynamite: int = 20) -> None:
+    """``CoreFarms.GetBaitandDynamite``: quest 1682 in /greenguardwest."""
+    if (await cmd.has_item(FISHING_BAIT, bait)
+            and await cmd.has_item(FISHING_DYNAMITE, dynamite)):
+        return
+
+    await cmd.register_quest(FISHING_QUEST)
+    for item, qty, (map_name, cell, pad, monster) in (
+            (FISHING_BAIT, bait, FISHING_BAIT_FARM),
+            (FISHING_DYNAMITE, dynamite, FISHING_DYNAMITE_FARM)):
+        if qty <= 0:
+            continue
+        await hunt_item(cmd, item, qty, map_name, cell=cell, pad=pad,
+                        monster_name=monster, is_temp=False)
+    cmd.cancel_registered_quests()
+    cmd.bot.log("Returning to Fishing Map")
+
+
+async def fishing_rep(cmd: Command, rank: int = 10) -> None:
+    """``CoreFarms.FishingREP``: cast, wait, pull, repeat.
+
+    A minigame rather than a quest farm: the rep comes from the fish the server
+    turns in itself, so the whole job is the three-packet exchange
+
+    ``FishCast`` -> ``castWait`` (its own ``wait`` ms) -> ``getFish`` ->
+    ``CatchResult``.
+
+    The cast timer is **not** fixed -- 2800 to 7000 ms in the capture -- so the
+    wait comes from the ``castWait`` reply; the reference keeps ``3500`` only as
+    its starter value.  What this port leaves out, and says so: ``shouldDerp``
+    (the Derp Moosefish hunt, which needs achievement and web-badge reads this
+    engine does not have) and ``TrashCan`` (discarding bait; there is no trash
+    action here -- sell it instead if you want it gone).
+    """
+    if cmd.get_faction_rank("Fishing") >= rank:
+        return
+
+    await get_bait_and_dynamite(cmd, 0, 1)
+    await equip_class(cmd)
+    cmd.bot.log(f"Farming Fishing rank {rank}")
+
+    while (cmd.is_still_connected()
+           and cmd.get_faction_rank("Fishing") < rank):
+        await get_bait_and_dynamite(cmd, 0, 50)
+        if cmd.is_not_in_map(FISHING_MAP):
+            await cmd.join_map(FISHING_MAP)
+        while (cmd.is_still_connected()
+               and await cmd.has_item(FISHING_DYNAMITE)
+               and cmd.get_faction_rank("Fishing") < rank):
+            before = cmd.get_faction_rank("Fishing")
+
+            cmd.bot.fishing_cast_wait = False
+            cmd.bot.fishing_caught = False
+            await cmd.sleep(1000)
+            cmd.bot.log("Casting Dynamite...")
+            await cmd.send_packet("%xt%zm%FishCast%1%Dynamite%30%")
+
+            if not await _fishing_reply(cmd, "fishing_cast_wait"):
+                cmd.bot.log("Timed out waiting for castWait packet.")
+                continue
+            wait_ms = cmd.bot.fishing_wait_ms or FISHING_WAIT_MS
+            cmd.bot.log(f"Cast timer received: {wait_ms}ms")
+
+            # The whole point of the packet: do not cast again before the timer
+            # the server named has elapsed.
+            await cmd.sleep(wait_ms)
+
+            await cmd.send_packet("%xt%zm%getFish%1%false%")
+            await _fishing_reply(cmd, "fishing_caught")
+
+            if cmd.get_faction_rank("Fishing") > before:
+                cmd.bot.log("Successful cast")
+            else:
+                cmd.bot.log("Failed cast")
+
+
+async def _fishing_reply(cmd: Command, flag: str) -> bool:
+    """Wait (bounded) for one of the fishing replies to land."""
+    deadline = time.monotonic() + FISHING_REPLY_TIMEOUT_MS / 1000
+    while cmd.is_still_connected() and time.monotonic() < deadline:
+        if getattr(cmd.bot, flag, False):
+            setattr(cmd.bot, flag, False)
+            return True
+        await cmd.sleep(100)
+    return False
+
+
+#: ``CoreFarms.SomniaREP``: the three quests of /somnia, one pass per item set.
+SOMNIA_MAP = "somnia"
+SOMNIA_QUESTS = (7665, 7666, 7669)
+SOMNIA_HUNTS = (("Dream Truffle", "Nightspore", 8),
+                ("Orphium Ore", "Orpheum Elemental", 8),
+                ("Dreamsilk", "Dream Larva", 5))
+
+
+async def somnia_rep(cmd: Command, rank: int = 10) -> None:
+    """``CoreFarms.SomniaREP``: quests 7665/7666/7669 in /somnia.
+
+    The reference pins a save state and toggles the reputation boost around this
+    loop; this engine has neither, and both stay off here as they do by default
+    there.  Its ``EnsureAcceptmultiple``/``EnsureComplete`` triple is the three
+    quests accepted, fed and turned in per pass -- ``log: false`` on the hunts,
+    which is this engine's default logger.
+    """
+    if cmd.get_faction_rank("Somnia") >= rank:
+        return
+
+    await equip_class(cmd)
+    cmd.bot.log(f"Farming rank {rank}")
+    while cmd.is_still_connected() and cmd.get_faction_rank("Somnia") < rank:
+        for quest_id in SOMNIA_QUESTS:
+            await cmd.ensure_accept_quest(quest_id)
+        for item, monster, qty in SOMNIA_HUNTS:
+            await hunt_item(cmd, item, qty, SOMNIA_MAP, monster_name=monster,
+                            is_temp=True)
+        for quest_id in SOMNIA_QUESTS:
+            await cmd.ensure_turn_in_quest(quest_id)
+
+
 #: Faction name -> the ported method, mirroring ``CoreFarms.<Name>REP``.
 FACTION_FARMS = {
     "Good": good_rep,
+    "Somnia": somnia_rep,
     "Sandsea": sandsea_rep,
     "Vampire": vampire_rep,
     "Yokai": yokai_rep,

@@ -164,6 +164,16 @@ class Bot:
         self.failed_get_quest_datas = []
         self.aggro_mons_id = []
         self.aggro_delay_ms = 500
+        #: Fishing: set by the ``castWait`` / ``CatchResult`` packets and read by
+        #: ``bot.core_farms.fishing_rep``.
+        self.fishing_cast_wait = False
+        self.fishing_caught = False
+        self.fishing_wait_ms = 0
+        self.fishing_derp = False
+        self.fishing_catch_result = {}
+        #: Set when a monster respawned since the area packet that built the
+        #: list; read by the hunts when their target cannot be found.
+        self.monsters_stale = False
         #: The one aggro handler task.  ``Command.start_aggro`` is called from
         #: inside farm loops, so it must replace this task rather than add one.
         self.aggro_task = None
@@ -727,6 +737,8 @@ class Bot:
                 self.areaId = data["areaId"]
                 self.strMapName: str = data["strMapName"] #"yulgar"
                 self.monsters: list[Monster] = []
+                #: Cleared by a fresh area packet, set by ``respawnMon``.
+                self.monsters_stale = False
                 self.player_in_area: list[PlayerArea] = []
                 for i_uo_branch in uo_branch:
                     if (i_uo_branch["uoName"].lower() == self.player.USER.lower()):
@@ -1240,8 +1252,34 @@ class Bot:
                         if pad:
                             player.str_pad = pad
                         break
+            elif cmd == "castWait":
+                # Fishing: the server says how long this cast takes (it varies:
+                # 2800-7000 ms in the capture) and whether it is a derp cast.
+                # CoreFarms.FishingREP waits for this instead of trusting its own
+                # 3500 ms starter value, and this is that packet.
+                self.fishing_wait_ms = int(data.get("wait") or 0)
+                self.fishing_derp = bool(data.get("derp") or False)
+                self.fishing_cast_wait = True
+            elif cmd == "CatchResult":
+                # Fishing: what was caught.  The server turns the fish in itself
+                # (a ``turnIn`` message follows), so nothing is sent from here.
+                self.fishing_catch_result = data.get("catchResult") or {}
+                self.fishing_caught = True
             elif "respawnMon" in msg:
-                pass
+                # ``%xt%respawnMon%-1%<MonMapID>%``: a monster is back.  It carries
+                # no name and no cell, so it cannot be *added* to the list -- but
+                # it does say the map's monster state moved on, which is the hint
+                # ``jump_to_monster`` needs when its target is nowhere to be found.
+                # Ignoring this packet outright (it used to be a bare ``pass``) is
+                # why a bot parked at a map's spawn could not walk back to a
+                # monster that had respawned: /shadowblast's "stuck at Enter".
+                parts = msg.split("%")
+                mon_id = parts[4] if len(parts) > 4 else ""
+                for mon in self.monsters:
+                    if mon.mon_map_id == mon_id:
+                        mon.is_alive = True
+                        break
+                self.monsters_stale = True
             elif "chatm" in msg:
                 if self.showChat:
                     msg = msg.split('%')

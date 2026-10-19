@@ -616,7 +616,8 @@ def main() -> None:
     assert asyncio.run(farm_faction(unknown, "Arcangrove", 10)) is False
     assert unknown.calls == [], unknown.calls          # reported, never farmed
     assert set(FACTION_FARMS) == {"Good", "Vampire", "Yokai", "Evil",
-                                  "ChronoSpan", "CraggleRock", "Sandsea"}, \
+                                  "ChronoSpan", "CraggleRock", "Sandsea",
+                                  "Somnia"}, \
         sorted(FACTION_FARMS)
     known = Stub(vampire_rank=10)
     assert asyncio.run(farm_faction(known, "Vampire", 10)) is True
@@ -834,6 +835,19 @@ def main() -> None:
     assert ("jump_cell", "r6", "Left") in chrono.calls, chrono.calls
     assert ("jump_cell", "r4", "Left") in chrono.calls, chrono.calls
     print("chronospan : quest 2204 across thespan r6 and r4")
+
+    from bot.core_farms import SOMNIA_HUNTS, somnia_rep
+
+    somnia = Stub(ranks={"Somnia": 9})
+    _rank_on_turn_in(somnia, "Somnia", 10)
+    asyncio.run(somnia_rep(somnia, 10))
+    assert ("ensure_accept_quest", 7665) in somnia.calls, somnia.calls
+    assert ("ensure_accept_quest", 7669) in somnia.calls, somnia.calls
+    assert ("ensure_turn_in_quest", 7666) in somnia.calls, somnia.calls
+    hunted = [c[1] for c in somnia.calls if c[0] == "add_drop"]
+    assert [item for item, _, _ in SOMNIA_HUNTS] == [h for h in hunted if h in
+                                                     [i for i, _, _ in SOMNIA_HUNTS]], hunted
+    print("somnia     : three quests fed and turned in per pass")
 
     no_monster = Stub()
     asyncio.run(craggle_rock_rep(no_monster, 10))

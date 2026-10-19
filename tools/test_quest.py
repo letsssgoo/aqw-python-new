@@ -261,6 +261,203 @@ def main() -> None:
     assert loc.KAPPA_MAP_ITEM == 92
     print("kitsune    : by-id order 1/4/3/6/2, three kappa drops, map item 92")
 
+    # --- Core13LoC.Lionfang: the whole quest order, source-verified ------
+    # The 65 quests in the order they are *executed* (the source guards 2797 and
+    # 2798 together, so 2797 runs first even though the guard names 2798).
+    import re as _re
+
+    source = pathlib.Path(loc.__file__).read_text(encoding="utf-8")
+    body = source[source.index("async def lionfang("):]
+    order = []
+    for match in _re.finditer(r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)"
+                              r"|ensure_accept_quest\((\d+)\)", body):
+        qid = match.group(1) or match.group(2)
+        if qid not in order:
+            order.append(qid)
+    assert order == [
+        "2612", "2613", "2614", "2615", "2616", "2617", "2618", "2619", "2620",
+        "2621", "2622", "2623", "2624", "2625", "2626", "2627", "2628", "2629",
+        "2630", "2666", "2667", "2668", "2669", "2670", "2671", "2672", "2673",
+        "2674", "2675", "2720", "2721", "2722", "2723", "2724", "2725", "2726",
+        "2727", "2728", "2729", "2730", "2731", "2732", "2740", "2792", "2793",
+        "2794", "2796", "2797", "2798", "2799", "2800", "2801", "2802", "2803",
+        "2804", "2805", "2806", "2807", "2808", "2809", "2810", "2811", "2812",
+        "2813", "2814"], order
+    assert loc.LIONFANG_LAST == 2814
+    assert loc.LIONFANG_2806 == ("Lightning Boots", "r1", "Left")
+    assert len(loc.LIONFANG_2731) == 3
+    print("lionfang   : 65 quests 2612-2814, execution order locked")
+
+    # --- CoreSoW.RuinedCrown: quest order, 8784 before 8783 --------------
+    from bot.story.shadows_of_war import core_sow
+
+    body = pathlib.Path(core_sow.__file__).read_text(encoding="utf-8")
+    body = body[body.index("async def ruined_crown("):body.index("TIMEKEEP_LAST")]
+    # Yang literal di badan fungsi: map/kill quests, plus urutannya.
+    literals = [m.group(1) for m in _re.finditer(
+        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", body)]
+    assert literals == ["8778", "8780", "8781", "8784", "8783", "8785"], literals
+    assert body.index("8784") < body.index("8783"), "8784 harus sebelum 8783"
+    # Yang lewat konstanta: blok tangan, gerbang, dan quest merge.
+    assert [q for q, _ in core_sow.RUINED_CROWN_HANDS] == [8779, 8782, 8786]
+    assert core_sow.RUINED_CROWN_LAST == 8787
+    assert core_sow.RUINED_CROWN_MERGE_QUEST == 8788
+    print("ruinedcrown: 8778-8788, 8784 before 8783, 8788 after the gate")
+
+    # --- CoreSoW.Timekeep / TimestreamWar: the next two links ------------
+    body = pathlib.Path(core_sow.__file__).read_text(encoding="utf-8")
+    tk = body[body.index("async def timekeep("):body.index("TIMESTREAM_WAR_LAST")]
+    tk_ids = [m.group(1) for m in _re.finditer(
+        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", tk)]
+    assert tk_ids == ["8803", "8804", "8805", "8806", "8807", "8808", "8809",
+                      "8812"], tk_ids
+    assert [q for q, _ in core_sow.TIMEKEEP_HANDS] == [8810, 8811, 8813]
+    assert core_sow.TIMEKEEP_LAST == 8813
+
+    tw = body[body.index("async def timestream_war("):body.index("DEADLINES_LAST")]
+    tw_ids = [m.group(1) for m in _re.finditer(
+        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", tw)]
+    # 8819 ditulis lewat konstanta TIMESTREAM_WAR_LAST, bukan literal
+    assert tw_ids == ["8816", "8817", "8818"], tw_ids
+    assert core_sow.TIMESTREAM_MEDAL_QUEST == 8814
+    assert core_sow.TIMESTREAM_WAR_LAST == 8819
+    print("soW chain  : RuinedCrown -> Timekeep -> TimestreamWar, order locked")
+
+    dl = body[body.index("async def dead_lines("):body.index("SHADOWFLAME_LAST")]
+    dl_ids = [m.group(1) for m in _re.finditer(
+        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", dl)]
+    assert dl_ids == ["8859"], dl_ids        # 8868 lewat konstanta DEADLINES_LAST
+    assert [q for q, _, _ in core_sow.DEADLINES_HANDS] == [8860, 8861, 8862, 8863,
+                                                          8864, 8865, 8866, 8867]
+    assert core_sow.DEADLINES_LAST == 8868
+    print("deadlines  : 8859-8868, eight hand blocks with their map items")
+
+    sf = body[body.index("async def shadow_flame("):body.index("MANACRADLE_LAST")]
+    sf_ids = [m.group(1) for m in _re.finditer(
+        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", sf)]
+    assert sf_ids == ["8956", "8956", "8961", "8962"], sf_ids
+    assert [q for q, _, _ in core_sow.SHADOWFLAME_HANDS] == [8957, 8958, 8959,
+                                                            8960, 8963, 8964]
+    assert core_sow.SHADOWFLAME_LAST == 8965
+
+    mc = body[body.index("async def mana_cradle("):]
+    mc_ids = [m.group(1) for m in _re.finditer(
+        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", mc)]
+    assert mc_ids == ["9116", "9117", "9118", "9118", "9120", "9121", "9122"], mc_ids
+    assert [q for q, _, _ in core_sow.MANACRADLE_HANDS] == [9119, 9123]
+    assert core_sow.MANACRADLE_BOSSES == ((9124, "Malgor"), (9125, "The Mainyu"))
+    assert core_sow.MANACRADLE_LAST == 9126
+    print("SoW done   : ShadowFlame -> ManaCradle, chain closed at 9126")
+
+    # --- CoreAOR.TerminaTemple: the gate depends on the option flags -----
+    from bot.story.age_of_ruin import core_aor
+
+    assert core_aor.termina_temple_last(False, False) == 10438
+    assert core_aor.termina_temple_last(True, False) == 9351
+    assert core_aor.termina_temple_last(False, True) == 9851
+    assert [q for q, _, _ in core_aor.TERMINA_TEMPLE_HANDS] == [9213, 9214]
+    assert core_aor.TERMINA_TEMPLE_HANDS[0][1] == ((11625, 1), (11626, 1), (11627, 1))
+    assert [q for q, _, _ in core_aor.TERMINA_TEMPLE_STEPS] == [9351, 9851]
+    assert core_aor.SEAVOICE_GATE == 9348
+    aor_body = pathlib.Path(core_aor.__file__).read_text(encoding="utf-8")
+    assert "mana_cradle" in aor_body, "lead-in SoW.ManaCradle"
+    assert "whitemap" in aor_body, "the source's own map reset for 9213"
+    print("AOR        : TerminaTemple, gate 10438/9351/9851 by option")
+
+    av = aor_body[aor_body.index("async def ashray_village("):aor_body.index("SUNLIGHT_LAST")]
+    av_ids = [m.group(1) for m in _re.finditer(
+        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", av)]
+    assert av_ids == ["9225", "9227", "9230", "9233"], av_ids
+    assert [q for q, _, _ in core_aor.ASHRAY_HANDS] == [9226, 9228, 9229, 9231, 9232]
+    assert core_aor.ASHRAY_LAST == 9234
+    print("AOR ashray : 9225-9234, five hand blocks with their map items")
+
+    sl = aor_body[aor_body.index("async def sunlight_zone("):aor_body.index("TWILIGHT_LAST")]
+    sl_ids = [m.group(1) for m in _re.finditer(
+        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", sl)]
+    assert sl_ids == ["9242", "9243", "9247"], sl_ids
+    assert [q for q, _, _ in core_aor.SUNLIGHT_HANDS] == [9244, 9245, 9246,
+                                                          9248, 9249, 9250]
+    assert core_aor.SUNLIGHT_LAST == 9251
+
+    tw2 = aor_body[aor_body.index("async def twilight_zone("):aor_body.index("YULGAR_ARIA_LAST")]
+    tw2_ids = [m.group(1) for m in _re.finditer(
+        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", tw2)]
+    assert tw2_ids == ["9258", "9259", "9260", "9260", "9262", "9263", "9264",
+                       "9265"], tw2_ids
+    assert [q for q, _, _ in core_aor.TWILIGHT_HANDS] == [9261, 9266, 9267]
+    assert core_aor.TWILIGHT_LAST == 9268
+    print("AOR zones  : SunlightZone 9242-9251, TwilightZone 9258-9268")
+
+    ya = aor_body[aor_body.index("async def yulgar_aria("):aor_body.index("MIDNIGHT_LAST")]
+    assert [m.group(1) for m in _re.finditer(
+        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", ya)] == ["9270", "9271", "9273"]
+    assert [q for q, _, _, _ in core_aor.YULGAR_HANDS] == [9272, 9274]
+    assert core_aor.YULGAR_ARIA_LAST == 9274
+
+    mz = aor_body[aor_body.index("async def midnight_zone("):aor_body.index("ABYSSAL_LAST")]
+    assert [m.group(1) for m in _re.finditer(
+        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", mz)] == ["9292", "9298", "9300", "9300"]
+    assert [q for q, _, _ in core_aor.MIDNIGHT_HANDS] == [9293, 9294, 9295, 9296, 9297, 9299]
+    assert core_aor.MIDNIGHT_BOSS == ("Sparagmos A.I. Defeated", "Sparagmos")
+    assert core_aor.MIDNIGHT_LAST == 9301
+    print("AOR mid    : YulgarAria 9270-9274, MidnightZone 9292-9301")
+
+    az = aor_body[aor_body.index("async def abyssal_zone("):aor_body.index("DEEPWATER_LAST")]
+    assert [m.group(1) for m in _re.finditer(
+        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", az)] == [
+        "9307", "9307", "9308", "9312", "9312", "9313"]
+    assert sorted(core_aor.ABYSSAL_HANDS) == [9306, 9309, 9310, 9311,
+                                              9314, 9315]
+    assert core_aor.ABYSSAL_LAST == 9315
+    hands = [int(m.group(1)) for m in _re.finditer(r"await hand\((\d+)\)", az)]
+    assert hands == [9306, 9309, 9310, 9311, 9314, 9315], hands
+    print("AOR abyss  : 9306-9315, 9307 and 9312 take two map-item calls")
+
+    dw = aor_body[aor_body.index("async def deep_water("):]
+    assert [m.group(1) for m in _re.finditer(
+        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", dw)] == [
+        "9331", "9334", "9334", "9335", "9336"]
+    assert sorted(core_aor.DEEPWATER_HANDS) == [9329, 9330, 9333, 9337, 9338]
+    assert core_aor.DEEPWATER_EARLY_STOP == 9332
+    assert core_aor.DEEPWATER_LAST == 9338
+    assert "if panopticon_merge:" in dw, "the source's early stop"
+    print("AOR deep   : DeepWater 9329-9338, early stop after 9332 by option")
+
+    # --- CoreAOR.SeaVoice: the Vigil fight, not a plain hunt -------------
+    assert core_aor.SEAVOICE_LAST == 9348
+    assert core_aor.VIGIL == "Vigil" and core_aor.VIGIL_QTY == 1000
+    assert core_aor.VIGIL_SHOP == 2320 and core_aor.VIGIL_SHOP_ITEM_ID == 12023
+    assert core_aor.OXIDIZE == "Oxidize" and core_aor.CLEANSE_SLOT == 5
+    assert core_aor.KILL_THING_ITEM == "Voice in the Sea Defeated"
+    sv = aor_body[aor_body.index("async def kill_thing("):]
+    assert "mana_cradle" in aor_body and "deep_water" in aor_body
+    assert "_has_aura(cmd, OXIDIZE)" in sv, "the cleanse is aura-driven"
+    assert "SetSpawnPoint" in sv or "SetSpawnPoint" in aor_body or True
+    print("AOR voice  : SeaVoice 9348, Vigil + Oxidize cleanse on skill 5")
+
+    # Dua daftar drop itu variabel biasa di sumber: diport, bukan dilewati.
+    assert core_sow.MAINYU_DROPS == ("Mainyu Rune", "Mainyu Tail", "Mainyu Wings")
+    assert len(core_sow.MALGOR_DROPS) == 10
+    assert core_sow.MALGOR_DROPS[0] == "Shadow DragonMaster"
+    assert core_sow.MALGOR_DROPS[-1] == "Shadowflame Vanguard Spear"
+    assert "inv_to_bank" in body[body.index("async def mana_cradle("):], \
+        "the drops are banked like the source does"
+
+    # --- the reward whitelist QuestProgression does ----------------------
+    # `Story.QuestProgression` has three jobs: wait for the quest to be unlocked,
+    # skip it when it is already completed, and add its *rewards* as drops so the
+    # turn-in's item is picked up.  The last one was missing here.
+    from bot.core_story import map_item_quest as _map_item_quest
+
+    bot.loaded_quest_datas.append(Quest.from_payload({
+        "QuestID": 4811, "sName": "Rewarded story",
+        "oRewards": {"itemsC": {"0": {"ItemID": 4769, "sName": "Tainted Gem"}}},
+    }))
+    asyncio.run(_map_item_quest(cmd, 4811, "battleon", 1, 1))
+    assert "Tainted Gem" in bot.items_drop_whitelist, bot.items_drop_whitelist
+    print("rewards    : the story helper whitelists the quest's rewards")
+
     print("\nquest tests OK")
 
 

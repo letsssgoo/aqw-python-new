@@ -1500,6 +1500,14 @@ class Command:
 
         matching_monsters = [m for m in self.bot.monsters if _is_match(m)]
         if not matching_monsters:
+            # Silence here is what left a bot standing at a map's spawn: the
+            # caller keeps casting at nothing and nothing ever says why.
+            known = ", ".join(sorted({(m.mon_name or "?")
+                                      for m in self.bot.monsters})) or "(list empty)"
+            self.bot.log(f"[move] {monsterName} is not in "
+                         f"{self.bot.strMapName}'s monster list (known: {known}"
+                         f"{' (stale)' if self.bot.monsters_stale else ''}); "
+                         f"staying at {self.bot.player.CELL}")
             return
 
         player_cell = str(self.bot.player.CELL or "").lower()
