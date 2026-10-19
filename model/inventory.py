@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from core.utils import normalize
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from . import enhancement as _enh
 
@@ -101,6 +101,21 @@ class ItemInventory:
         self.required_quest: str = str(data.get('sQuest') or '')
         self.is_staff: bool = _flag(data, 'bStaff')
         self.stackable: int = _int(data, 'iStk')        # max stack size
+
+        # --- merge recipe ---------------------------------------------
+        # A merge shop entry lists what it costs in ``turnin`` -- the same field
+        # an accepted quest uses for its own requirements, so it is parsed the
+        # same way here: ``[(ItemID, sName, iQty), ...]``.  ``MergeID`` is the
+        # entry's own merge id, and ``bMerge`` on the shop marks the shop itself.
+        # This is what makes ``BuyAllMerge`` possible without a hard-coded recipe
+        # per item: Seaview Souvenirs' "Ashray Villager" arrives with
+        # Gold Voucher 25k x4, Sur-gion Token x30, Treasure Chest x30.
+        self.merge_requirements: List[Tuple[str, str, int]] = [
+            (str(entry.get('ItemID', '')), str(entry.get('sName', '')),
+             _int(entry, 'iQty'))
+            for entry in (data.get('turnin') or []) if isinstance(entry, dict)
+        ]
+        self.merge_id: str = str(data.get('MergeID', ''))
 
         # --- slot / type ----------------------------------------------
         # ar = "Class"
