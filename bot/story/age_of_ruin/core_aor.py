@@ -349,3 +349,62 @@ async def midnight_zone(cmd: Command, sea_voice: bool = False,
     await hunt_item(cmd, MIDNIGHT_BOSS[0], 1, MIDNIGHT_MAP,
                     monster_name=MIDNIGHT_BOSS[1])
     await cmd.ensure_turn_in_quest(MIDNIGHT_LAST)
+
+
+ABYSSAL_LAST = 9315
+ABYSSAL_MAP = "abyssalzone"
+
+#: ``AbyssalZone``'s hand-written quests, by quest id: ``(map items, hunts,
+#: solo)``.  They are *interleaved* with plain calls in the source, so the order
+#: lives in :func:`abyssal_zone` rather than in this table.
+ABYSSAL_HANDS = {
+    9306: (((11914, 1),), (("Shark Fin", "Kitefin Shark Bait", 8),), False),
+    9309: (((11895, 3),), (("Shadow Sample", "Shadow Viscera", 7),), False),
+    9310: ((), (("Shadow Organs", "Shadow Viscera", 6),
+                ("Decayed Elemental Gem", "Blighted Water", 6)), False),
+    9311: (((11896, 1),), (("Foamy Residue", "Foam Scavenger", 10),), False),
+    9314: (((11899, 1),), (("Necro Wax", "Necro Adipocere", 3),
+                            ("Scavenger Tentacle", "Foam Scavenger", 7)), False),
+    9315: ((), (("The Ashray Vanquished", "The Ashray", 1),), True),
+}
+
+
+async def abyssal_zone(cmd: Command, sea_voice: bool = False,
+                       cold_thunder: bool = False) -> None:
+    """``CoreAOR.AbyssalZone``: quests 9306-9315 in /abyssalzone.
+
+    The hand-written quests are interleaved with plain ones in the source -- 9307
+    and 9312 each take two ``MapItemQuest`` calls for one quest -- so this walks
+    the order explicitly.  9315 is fought in the solo class.
+    """
+    if await cmd.is_completed_before(ABYSSAL_LAST):
+        return
+
+    await midnight_zone(cmd, sea_voice, cold_thunder)
+
+    async def hand(quest_id: int) -> None:
+        if await cmd.is_completed_before(quest_id):
+            return
+        map_items, hunts, solo = ABYSSAL_HANDS[quest_id]
+        if solo:
+            await equip_class(cmd, solo=True)
+        await cmd.ensure_accept_quest(quest_id)
+        await cmd.join_map(ABYSSAL_MAP)
+        for item_id, qty in map_items:
+            await cmd.get_map_item(item_id, qty)
+        for item, monster, qty in hunts:
+            await hunt_item(cmd, item, qty, ABYSSAL_MAP, monster_name=monster)
+        await cmd.ensure_turn_in_quest(quest_id)
+
+    await hand(9306)
+    await map_item_quest(cmd, 9307, ABYSSAL_MAP, 11893, 6)
+    await map_item_quest(cmd, 9307, ABYSSAL_MAP, 11894, 1)
+    await kill_quest(cmd, 9308, ABYSSAL_MAP, "Blighted Water")
+    await hand(9309)
+    await hand(9310)
+    await hand(9311)
+    await map_item_quest(cmd, 9312, ABYSSAL_MAP, 11897, 6)
+    await map_item_quest(cmd, 9312, ABYSSAL_MAP, 11898, 1)
+    await kill_quest(cmd, 9313, ABYSSAL_MAP, "Necro Adipocere")
+    await hand(9314)
+    await hand(9315)
