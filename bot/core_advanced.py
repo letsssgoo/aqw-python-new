@@ -190,8 +190,8 @@ async def start_buy_all_merge(cmd: Command, map_name: str, shop_id: int,
         missing = [f"{n} x{q}" for iid, n, q in entry.merge_requirements
                    if _held_by_id(cmd, iid) < q]
         if not missing:
-            await cmd.buy_item(shop_id, name, 1,
-                               shop_item_id=entry.shop_item_id)
+            await buy_item(cmd, shop_id, name, 1, map_name=map_name,
+                           shop_item_id=entry.shop_item_id)
         elif missing:
             cmd.bot.log(f'[merge] "{name}" not bought yet, missing: '
                         f'{", ".join(missing)}')
@@ -223,8 +223,8 @@ async def _merge_item(cmd: Command, map_name: str, shop_id: int, entry,
                 if in_shop.is_upgrade and not cmd.get_player().is_member:
                     cmd.bot.log(f'[merge] "{name}" is member only; cannot buy it.')
                     return
-                await cmd.buy_item(shop_id, name, need,
-                                   shop_item_id=in_shop.shop_item_id)
+                await buy_item(cmd, shop_id, name, need, map_name=map_name,
+                               shop_item_id=in_shop.shop_item_id)
             else:
                 await _merge_item(cmd, map_name, shop_id, in_shop, need,
                                   find_ingredients, depth + 1)
@@ -244,8 +244,8 @@ async def _merge_item(cmd: Command, map_name: str, shop_id: int, entry,
 
     await _open_shop(cmd, map_name, shop_id)
     if all([_held_by_id(cmd, iid) >= q for iid, _, q in entry.merge_requirements]):
-        await cmd.buy_item(shop_id, entry.item_name, qty,
-                           shop_item_id=entry.shop_item_id)
+        await buy_item(cmd, shop_id, entry.item_name, qty, map_name=map_name,
+                       shop_item_id=entry.shop_item_id)
 
 
 # ---------------------------------------------------------------------------
