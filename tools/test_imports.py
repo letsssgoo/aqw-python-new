@@ -130,6 +130,7 @@ ENTRY_MODULES = [
     "bot.other.merge_shops.midnight_zone_merge",
     "bot.other.merge_shops.abyssal_zone_merge",
     "bot.other.merge_shops.trench_observe_merge",
+    "bot.other.merge_shops.sea_voice_merge",
     "bot.bank_check",
     "bot.story.battle_under",
     "bot.story.nation.void_refuge",
