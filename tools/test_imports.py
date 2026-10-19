@@ -131,6 +131,7 @@ ENTRY_MODULES = [
     "bot.other.merge_shops.abyssal_zone_merge",
     "bot.other.merge_shops.trench_observe_merge",
     "bot.other.merge_shops.sea_voice_merge",
+    "bot.other.kathool_adept_prerequisite",
     "bot.bank_check",
     "bot.story.battle_under",
     "bot.story.nation.void_refuge",
