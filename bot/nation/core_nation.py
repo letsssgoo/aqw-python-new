@@ -1867,8 +1867,12 @@ async def emblem_of_nulgath(cmd: Command, quant: int = 500) -> None:
            and not await cmd.has_item("Emblem of Nulgath", quant)):
         await hunt_item(cmd, "Gem of Domination", 1, "shadowblast",
                         monster_name="Shadowrise Guard", is_temp=False)
-        await hunt_item(cmd, "Fiend Seal", 25, "shadowblast",
-                        monster_name="Legion Fenrir", is_temp=False)
+        # The reference has both routes for this item; the cell one is the one
+        # that works here, because this engine has no Flash monster list to walk
+        # to a name with: ``KillMonster("shadowblast", "r13", "Left", "*",
+        # "Fiend Seal", 10, false)``.
+        await hunt_item(cmd, "Fiend Seal", 25, "shadowblast", cell="r13",
+                        pad="Left", monster_name="*", is_temp=False)
 
 
 async def swindle_return(cmd: Command, item: Optional[str] = None,

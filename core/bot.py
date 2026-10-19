@@ -164,6 +164,9 @@ class Bot:
         self.failed_get_quest_datas = []
         self.aggro_mons_id = []
         self.aggro_delay_ms = 500
+        #: Set when a monster respawned since the area packet that built the
+        #: list; read by the hunts when their target cannot be found.
+        self.monsters_stale = False
         #: The one aggro handler task.  ``Command.start_aggro`` is called from
         #: inside farm loops, so it must replace this task rather than add one.
         self.aggro_task = None
@@ -727,6 +730,8 @@ class Bot:
                 self.areaId = data["areaId"]
                 self.strMapName: str = data["strMapName"] #"yulgar"
                 self.monsters: list[Monster] = []
+                #: Cleared by a fresh area packet, set by ``respawnMon``.
+                self.monsters_stale = False
                 self.player_in_area: list[PlayerArea] = []
                 for i_uo_branch in uo_branch:
                     if (i_uo_branch["uoName"].lower() == self.player.USER.lower()):
@@ -1241,7 +1246,20 @@ class Bot:
                             player.str_pad = pad
                         break
             elif "respawnMon" in msg:
-                pass
+                # ``%xt%respawnMon%-1%<MonMapID>%``: a monster is back.  It carries
+                # no name and no cell, so it cannot be *added* to the list -- but
+                # it does say the map's monster state moved on, which is the hint
+                # ``jump_to_monster`` needs when its target is nowhere to be found.
+                # Ignoring this packet outright (it used to be a bare ``pass``) is
+                # why a bot parked at a map's spawn could not walk back to a
+                # monster that had respawned: /shadowblast's "stuck at Enter".
+                parts = msg.split("%")
+                mon_id = parts[4] if len(parts) > 4 else ""
+                for mon in self.monsters:
+                    if mon.mon_map_id == mon_id:
+                        mon.is_alive = True
+                        break
+                self.monsters_stale = True
             elif "chatm" in msg:
                 if self.showChat:
                     msg = msg.split('%')

@@ -64,7 +64,11 @@ def _has_target(cmd: Command, monster_name: str) -> bool:
     """
     names = [t.strip().lower() for t in str(monster_name or "*").split(',')
              if t.strip()] or ["*"]
-    for mon in cmd.bot.monsters:
+    for mon in getattr(cmd.bot, "monsters", []) or []:
+        # ``jump_to_monster`` skips a monster without a frame, so a target that
+        # only matches by name is not one this hunt can actually walk to.
+        if not getattr(mon, "frame", ""):
+            continue
         if "*" in names:
             return True
         mon_name = (mon.mon_name or "").lower()
@@ -75,6 +79,26 @@ def _has_target(cmd: Command, monster_name: str) -> bool:
             if target in (mon_id, mon_name):
                 return True
     return False
+
+
+async def _refresh_map(cmd: Command, map_name: str, room_number,
+                       item_name: str, monster_name: str) -> bool:
+    """Force a fresh area packet by leaving the map and coming back.
+
+    ``join_map`` is a no-op when the caller is already in the map, and the area
+    packet -- the only thing that lists a map's monsters with their cells -- is
+    sent by the server on a join.  A hunt whose target cannot be found therefore
+    has to bounce through another map to get one.  /shadowblast's "stuck at
+    Enter" is exactly this: a guard respawned, the list still held its old cell,
+    and the bot stood at the spawn casting at nothing.
+
+    Returns:
+        bool: True when the map was re-entered.
+    """
+    cmd.bot.log(f"[hunt] {item_name}: {monster_name} is not in {map_name}'s "
+                f"monster list; leaving and re-entering to refresh it")
+    await cmd.join_map("battleon")
+    return await _join_for_hunt(cmd, map_name, room_number, item_name)
 
 
 async def move_to_cell(cmd: Command, cell: str, pad: str,
@@ -177,6 +201,16 @@ async def hunt_item(
                 return
     else:
         await cmd.jump_to_monster(monster_name, most_monster)
+        if (getattr(cmd.bot, "monsters", None)
+                and not _has_target(cmd, monster_name)):
+            # The map knows its monsters and ours is not among them: a
+            # dynamically spawned one (shadowblast's guards, which the server
+            # announces with respawnMon) whose cell only a fresh area packet can
+            # bring back -- and leaving and coming back is the only way to force
+            # one from here.
+            await _refresh_map(cmd, map_name, room_number, item_name,
+                               monster_name)
+            await cmd.jump_to_monster(monster_name, most_monster)
 
     if farming_logger:
         cmd.farming_logger(item_name, item_qty, is_temp)
@@ -225,8 +259,8 @@ async def hunt_item(
             cmd.bot.log(f"[hunt] {item_name}: still at "
                         f"{cmd.bot.player.CELL} with {held}/{item_qty} and no "
                         f"target; looking for {monster_name} again")
-            if not _has_target(cmd, monster_name):
-                await cmd.join_map(map_name, room_number)
+            await _refresh_map(cmd, map_name, room_number, item_name,
+                               monster_name)
             await cmd.jump_to_monster(monster_name, most_monster)
             continue
         playerclass = cmd.get_equipped_class()
