@@ -349,6 +349,14 @@ def main() -> None:
     assert core_sow.MANACRADLE_LAST == 9126
     print("SoW done   : ShadowFlame -> ManaCradle, chain closed at 9126")
 
+    # Dua daftar drop itu variabel biasa di sumber: diport, bukan dilewati.
+    assert core_sow.MAINYU_DROPS == ("Mainyu Rune", "Mainyu Tail", "Mainyu Wings")
+    assert len(core_sow.MALGOR_DROPS) == 10
+    assert core_sow.MALGOR_DROPS[0] == "Shadow DragonMaster"
+    assert core_sow.MALGOR_DROPS[-1] == "Shadowflame Vanguard Spear"
+    assert "inv_to_bank" in body[body.index("async def mana_cradle("):], \
+        "the drops are banked like the source does"
+
     # --- the reward whitelist QuestProgression does ----------------------
     # `Story.QuestProgression` has three jobs: wait for the quest to be unlocked,
     # skip it when it is already completed, and add its *rewards* as drops so the

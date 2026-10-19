@@ -246,6 +246,21 @@ async def shadow_flame(cmd: Command) -> None:
     await kill_quest(cmd, SHADOWFLAME_LAST, SHADOWFLAME_MAP, "Mask of Tranquility")
 
 
+#: ``CoreSoW.MainyuDrops`` -- the Mainyu's drops, banked after the fight.
+MAINYU_DROPS = ("Mainyu Rune", "Mainyu Tail", "Mainyu Wings")
+
+#: ``CoreSoW.MalgorDrops`` -- Malgor's drops, banked with them.
+MALGOR_DROPS = ("Shadow DragonMaster",
+                "Shadow DragonMaster's Helm",
+                "Shadow DragonMaster's Tail + Blades",
+                "Shadow Dragonscale Blade",
+                "Shadowflame Devastation",
+                "ShadowFlame Dragon Blade",
+                "Shadowflame Shroud",
+                "Shadowflame Vanguard Armet",
+                "Shadowflame Vanguard Armet Locks",
+                "Shadowflame Vanguard Spear")
+
 MANACRADLE_LAST = 9126
 MANACRADLE_MAP = "manacradle"
 
@@ -267,10 +282,11 @@ async def mana_cradle(cmd: Command) -> None:
 
     Where this engine cannot follow, it says so instead of guessing:
     ``Core.EquipClass(ClassType.Dodge)`` has no ``Dodge`` case here, so the solo
-    class is equipped for the two bosses; ``Core.ToBank(MainyuDrops/MalgorDrops)``
-    names two lists that only exist in the reference; and ``Adv.GearStore`` is
-    skipped, as everywhere else in this port.  The last two quests (9126/9127)
-    are commented out in the source and stay out.
+    class is equipped for the two bosses, and ``Adv.GearStore`` is skipped, as
+    everywhere else in this port.  ``Core.ToBank(MainyuDrops + MalgorDrops)`` is
+    here: those are plain name lists in the source, ported as
+    :data:`MAINYU_DROPS` and :data:`MALGOR_DROPS`.  The last two quests
+    (9126/9127) are commented out in the source and stay out.
     """
     if await cmd.is_completed_before(MANACRADLE_LAST):
         return
@@ -302,3 +318,5 @@ async def mana_cradle(cmd: Command) -> None:
     await equip_class(cmd, solo=True)
     for quest_id, monster in MANACRADLE_BOSSES:
         await kill_quest(cmd, quest_id, MANACRADLE_MAP, monster)
+
+    await cmd.inv_to_bank(MALGOR_DROPS + MAINYU_DROPS)
