@@ -297,6 +297,7 @@ async def kill_quest(
         skill_list: list[int] = DEFAULT_SKILL_LIST
     ):
     await cmd.ensure_accept_quest(quest_id)
+    cmd.add_quest_rewards(quest_id)     # QuestProgression(GetReward: true)
     
     if cmd.can_turnin_quest(quest_id):
         await cmd.ensure_turn_in_quest(quest_id)

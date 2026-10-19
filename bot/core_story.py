@@ -137,6 +137,10 @@ async def map_item_quest(cmd: Command, quest_id: int, map_name: str,
                   for entry in entries]
 
     await cmd.ensure_accept_quest(quest_id)
+    # ``QuestProgression(GetReward: true)`` whitelists the quest's rewards so the
+    # turn-in's item is picked up; the quest has to be loaded for its payload to
+    # name them, which the accept above does.
+    cmd.add_quest_rewards(quest_id)
     while cmd.is_still_connected() and cmd.is_not_in_map(map_name):
         await cmd.join_map(map_name)
     for item_id, count in wanted:
@@ -169,6 +173,7 @@ async def kill_quest(cmd: Command, quest_id: int, map_name: str,
         return
 
     await cmd.ensure_accept_quest(quest_id)
+    cmd.add_quest_rewards(quest_id)
     quest = cmd.get_loaded_quest(quest_id)
     if quest is None:
         cmd.bot.log(f"[story] quest {quest_id} did not load; nothing farmed.")

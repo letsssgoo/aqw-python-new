@@ -288,6 +288,20 @@ def main() -> None:
     assert len(loc.LIONFANG_2731) == 3
     print("lionfang   : 65 quests 2612-2814, execution order locked")
 
+    # --- the reward whitelist QuestProgression does ----------------------
+    # `Story.QuestProgression` has three jobs: wait for the quest to be unlocked,
+    # skip it when it is already completed, and add its *rewards* as drops so the
+    # turn-in's item is picked up.  The last one was missing here.
+    from bot.core_story import map_item_quest as _map_item_quest
+
+    bot.loaded_quest_datas.append(Quest.from_payload({
+        "QuestID": 4811, "sName": "Rewarded story",
+        "oRewards": {"itemsC": {"0": {"ItemID": 4769, "sName": "Tainted Gem"}}},
+    }))
+    asyncio.run(_map_item_quest(cmd, 4811, "battleon", 1, 1))
+    assert "Tainted Gem" in bot.items_drop_whitelist, bot.items_drop_whitelist
+    print("rewards    : the story helper whitelists the quest's rewards")
+
     print("\nquest tests OK")
 
 
