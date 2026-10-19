@@ -25,7 +25,7 @@ Voucher and merge-item steps).
 """
 from typing import Optional, Union
 
-from bot.core_bots import load_shop_entry, points_to_level
+from bot.core_bots import _find_shop, load_shop_entry, points_to_level
 from bot.core_farms import farm_experience, farm_faction, farm_gold
 from core.command import Command
 

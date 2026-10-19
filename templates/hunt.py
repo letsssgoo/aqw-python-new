@@ -147,7 +147,7 @@ async def _join_for_hunt(cmd: Command, map_name: str, room_number: int = None,
         saying so -- the caller then skips the hunt instead of looping.
     """
     attempts = 0
-    while cmd.is_not_in_map(map_name):
+    while cmd.is_still_connected() and cmd.is_not_in_map(map_name):
         attempts += 1
         if attempts > JOIN_ATTEMPTS:
             cmd.bot.log(f"[hunt] {map_name} could not be reached after "
@@ -160,7 +160,10 @@ async def _join_for_hunt(cmd: Command, map_name: str, room_number: int = None,
                         f"({attempts}/{JOIN_ATTEMPTS})")
         await cmd.join_map(map_name, room_number)
         await cmd.sleep(1000)
-    return True
+    # "Did we get there", not "are we still connected": a client that dropped
+    # while already standing in the map has nothing to join, and the hunt's own
+    # loop ends on the disconnect by itself.
+    return not cmd.is_not_in_map(map_name)
 
 async def hunt_item(
         cmd: Command,
