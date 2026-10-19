@@ -40,10 +40,13 @@ def main() -> int:
     print("merge shop: resep dari payload, bukan ditulis manual")
     print("=" * 74)
 
-    text = (REPO / "core" / "new_things.txt").read_text(encoding="utf-8",
-                                                        errors="replace")
-    payload = json.loads(text.split("outbound: ", 1)[1])
-    shop = Shop(payload["b"]["o"]["shopinfo"])
+    # Payload-nya disimpan sebagai fixture, bukan dibaca dari
+    # core/new_things.txt: berkas itu tempat menaruh capture dan isinya berganti
+    # tiap kali -- begitu diganti capture fishing, tes ini ikut rusak.
+    payload = json.loads((REPO / "tools" / "fixtures" /
+                          "seaview_souvenirs_loadshop.json").read_text(
+                              encoding="utf-8"))
+    shop = Shop(payload)
 
     check("shop id", shop.shop_id, "2273")
     check("shop name", shop.shop_name, "Seaview Souvenirs")

@@ -1,0 +1,99 @@
+{
+ "ShopID": 2273,
+ "sName": "Seaview Souvenirs",
+ "bMerge": true,
+ "Location": "ashray",
+ "FactionID": 1,
+ "iReqRep": 0,
+ "items": [
+  {
+   "ShopItemID": 10490,
+   "iQty": 1,
+   "ItemID": 72843,
+   "sName": "Ashray Villager",
+   "iCost": 0,
+   "iLvl": 1,
+   "bTemp": false,
+   "iStk": 1,
+   "bUpg": false,
+   "bCoins": true,
+   "sFaction": "None",
+   "iReqRep": 0,
+   "sType": "Armor",
+   "sES": "co",
+   "EnhID": 0,
+   "MergeID": 11671,
+   "turnin": [
+    {
+     "ItemID": 57304,
+     "sName": "Gold Voucher 25k",
+     "iQty": 4
+    },
+    {
+     "ItemID": 77882,
+     "sName": "Sur-gion Token",
+     "iQty": 30
+    },
+    {
+     "ItemID": 8940,
+     "sName": "Treasure Chest",
+     "iQty": 30
+    }
+   ]
+  },
+  {
+   "ShopItemID": 10503,
+   "iQty": 1,
+   "ItemID": 72856,
+   "sName": "Ashray Mariner's Hook",
+   "iCost": 0,
+   "iLvl": 1,
+   "bTemp": false,
+   "iStk": 1,
+   "bUpg": false,
+   "bCoins": true,
+   "sFaction": "None",
+   "iReqRep": 0,
+   "sType": "Gauntlet",
+   "sES": "Weapon",
+   "EnhID": 0,
+   "MergeID": 11684,
+   "turnin": [
+    {
+     "ItemID": 57304,
+     "sName": "Gold Voucher 25k",
+     "iQty": 3
+    },
+    {
+     "ItemID": 77882,
+     "sName": "Sur-gion Token",
+     "iQty": 20
+    },
+    {
+     "ItemID": 8940,
+     "sName": "Treasure Chest",
+     "iQty": 20
+    }
+   ]
+  },
+  {
+   "ShopItemID": 10489,
+   "iQty": 1,
+   "ItemID": 57304,
+   "sName": "Gold Voucher 25k",
+   "iCost": 25000,
+   "iLvl": 1,
+   "bTemp": false,
+   "iStk": 300,
+   "bUpg": false,
+   "bCoins": false,
+   "sFaction": "None",
+   "iReqRep": 0,
+   "sType": "Resource",
+   "sES": "None",
+   "EnhID": 0,
+   "MergeID": 7782,
+   "turnin": []
+  }
+ ]
+}
