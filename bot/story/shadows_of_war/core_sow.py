@@ -80,3 +80,79 @@ async def ruined_crown(cmd: Command) -> None:
 
 async def main(cmd: Command):
     await ruined_crown(cmd)
+
+
+TIMEKEEP_LAST = 8813
+TIMEKEEP_MAP = "timekeep"
+
+#: ``Timekeep``'s hand-written quests: ``(quest, [(item, monster, qty)])``.
+TIMEKEEP_HANDS = (
+    (8810, (("Imp Bones", "Distorted Imp", 7),
+            ("Mage Quelled", "Mana-Burdened Mage", 7))),
+    (8811, (("Mumbler Crushed", "Mumbler", 7),
+            ("Locust Smashed", "Decaying Locust", 7))),
+    (8813, (("Gar's Resignation Letter", "Mal-formed Gar", 1),
+            ("Mumbler Drool", "Mumbler", 8),
+            ("Locust Wings", "Decaying Locust", 8))),
+)
+
+
+async def timekeep(cmd: Command) -> None:
+    """``CoreSoW.Timekeep``: quests 8803-8813 in /timekeep.
+
+    The source writes the map as ``"Timekeep"`` in the plain quest calls and
+    ``"timekeep"`` in the hand-written ones; this engine compares map names
+    without case, so one spelling is used throughout.
+    """
+    if await cmd.is_completed_before(TIMEKEEP_LAST):
+        return
+
+    await ruined_crown(cmd)
+
+    await map_item_quest(cmd, 8803, TIMEKEEP_MAP, (10455, 10456, 10457), 1)
+    await kill_quest(cmd, 8804, TIMEKEEP_MAP, "Decaying Locust")
+    await kill_quest(cmd, 8805, TIMEKEEP_MAP, "Distorted Imp")
+    await map_item_quest(cmd, 8806, TIMEKEEP_MAP, 10458, 6)
+    await kill_quest(cmd, 8807, TIMEKEEP_MAP, "Mana-Burdened Mage")
+    await map_item_quest(cmd, 8808, TIMEKEEP_MAP, (10459, 10460), 1)
+    await kill_quest(cmd, 8809, TIMEKEEP_MAP, "Mumbler")
+
+    for quest_id, hunts in TIMEKEEP_HANDS:
+        if await cmd.is_completed_before(quest_id):
+            continue
+        await cmd.ensure_accept_quest(quest_id)
+        for item, monster, qty in hunts:
+            await hunt_item(cmd, item, qty, TIMEKEEP_MAP, monster_name=monster)
+        await cmd.ensure_turn_in_quest(quest_id)
+
+    await kill_quest(cmd, 8812, TIMEKEEP_MAP, "Mal-formed Gar")
+
+
+TIMESTREAM_WAR_LAST = 8819
+TIMESTREAM_WAR_MAP = "streamwar"
+TIMESTREAM_MEDAL_QUEST = 8814
+TIMESTREAM_MEDAL = ("Timestream Medal", "Decaying Locust", 5)
+
+
+async def timestream_war(cmd: Command) -> None:
+    """``CoreSoW.TimestreamWar``: quests 8814-8819 in /streamwar.
+
+    The source guards 8814 with ``Bot.Quests.IsUnlocked(8816)`` -- a client-side
+    slot value this engine has no way to read.  The same question is asked the
+    server's way instead: if 8816 is already done, 8814's medals are not needed.
+    """
+    if await cmd.is_completed_before(TIMESTREAM_WAR_LAST):
+        return
+
+    await timekeep(cmd)
+
+    if not await cmd.is_completed_before(8816):
+        await cmd.ensure_accept_quest(TIMESTREAM_MEDAL_QUEST)
+        await hunt_item(cmd, TIMESTREAM_MEDAL[0], TIMESTREAM_MEDAL[2],
+                        TIMESTREAM_WAR_MAP, monster_name=TIMESTREAM_MEDAL[1])
+        await cmd.ensure_turn_in_quest(TIMESTREAM_MEDAL_QUEST)
+
+    await kill_quest(cmd, 8816, TIMESTREAM_WAR_MAP, "Mumbler")
+    await kill_quest(cmd, 8817, TIMESTREAM_WAR_MAP, "Decaying Locust")
+    await kill_quest(cmd, 8818, TIMESTREAM_WAR_MAP, "False Wyvern")
+    await kill_quest(cmd, TIMESTREAM_WAR_LAST, TIMESTREAM_WAR_MAP, "Second Speaker")

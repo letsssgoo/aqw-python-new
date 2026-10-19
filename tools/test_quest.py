@@ -292,7 +292,7 @@ def main() -> None:
     from bot.story.shadows_of_war import core_sow
 
     body = pathlib.Path(core_sow.__file__).read_text(encoding="utf-8")
-    body = body[body.index("async def ruined_crown("):]
+    body = body[body.index("async def ruined_crown("):body.index("TIMEKEEP_LAST")]
     # Yang literal di badan fungsi: map/kill quests, plus urutannya.
     literals = [m.group(1) for m in _re.finditer(
         r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", body)]
@@ -303,6 +303,25 @@ def main() -> None:
     assert core_sow.RUINED_CROWN_LAST == 8787
     assert core_sow.RUINED_CROWN_MERGE_QUEST == 8788
     print("ruinedcrown: 8778-8788, 8784 before 8783, 8788 after the gate")
+
+    # --- CoreSoW.Timekeep / TimestreamWar: the next two links ------------
+    body = pathlib.Path(core_sow.__file__).read_text(encoding="utf-8")
+    tk = body[body.index("async def timekeep("):body.index("TIMESTREAM_WAR_LAST")]
+    tk_ids = [m.group(1) for m in _re.finditer(
+        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", tk)]
+    assert tk_ids == ["8803", "8804", "8805", "8806", "8807", "8808", "8809",
+                      "8812"], tk_ids
+    assert [q for q, _ in core_sow.TIMEKEEP_HANDS] == [8810, 8811, 8813]
+    assert core_sow.TIMEKEEP_LAST == 8813
+
+    tw = body[body.index("async def timestream_war("):]
+    tw_ids = [m.group(1) for m in _re.finditer(
+        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", tw)]
+    # 8819 ditulis lewat konstanta TIMESTREAM_WAR_LAST, bukan literal
+    assert tw_ids == ["8816", "8817", "8818"], tw_ids
+    assert core_sow.TIMESTREAM_MEDAL_QUEST == 8814
+    assert core_sow.TIMESTREAM_WAR_LAST == 8819
+    print("soW chain  : RuinedCrown -> Timekeep -> TimestreamWar, order locked")
 
     # --- the reward whitelist QuestProgression does ----------------------
     # `Story.QuestProgression` has three jobs: wait for the quest to be unlocked,
