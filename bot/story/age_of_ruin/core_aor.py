@@ -12,7 +12,7 @@ and ``Story.PreLoad`` (the guards do its work).
 """
 from core.command import Command
 from bot.core_bots import equip_class
-from bot.core_story import map_item_quest
+from bot.core_story import kill_quest, map_item_quest
 from bot.story.shadows_of_war.core_sow import mana_cradle
 from templates.hunt import hunt_item
 
@@ -121,3 +121,44 @@ async def termina_temple(cmd: Command, sea_voice: bool = False,
 
 async def main(cmd: Command):
     await termina_temple(cmd)
+
+
+ASHRAY_LAST = 9234
+ASHRAY_MAP = "ashray"
+
+#: ``AshrayVillage``'s hand-written quests: ``(quest, [(map item, qty)], hunts)``.
+ASHRAY_HANDS = (
+    (9226, ((11663, 1), (11664, 1)),
+     (("Fisherman's Trident", "Ashray Fisherman", 4),)),
+    (9228, ((11665, 1),), (("Elemental Cleared", "Stagnant Water", 8),)),
+    (9229, ((11666, 1),), (("Fisherman Repelled", "Ashray Fisherman", 8),)),
+    (9231, ((11667, 1),), (("Excorsized Eel", "Ghostly Eel", 8),)),
+    (9232, ((11668, 1),), (("Water Samples", "Stagnant Water", 3),)),
+)
+
+
+async def ashray_village(cmd: Command, sea_voice: bool = False,
+                         cold_thunder: bool = False) -> None:
+    """``CoreAOR.AshrayVillage``: quests 9225-9234 in /ashray."""
+    if await cmd.is_completed_before(ASHRAY_LAST):
+        return
+
+    await termina_temple(cmd, sea_voice, cold_thunder)
+
+    await kill_quest(cmd, 9225, ASHRAY_MAP, "Kitefin Shark Bait")
+
+    for quest_id, map_items, hunts in ASHRAY_HANDS:
+        if await cmd.is_completed_before(quest_id):
+            continue
+        await cmd.ensure_accept_quest(quest_id)
+        await cmd.join_map(ASHRAY_MAP)
+        for item_id, qty in map_items:
+            await cmd.get_map_item(item_id, qty)
+        for item, monster, qty in hunts:
+            await hunt_item(cmd, item, qty, ASHRAY_MAP, monster_name=monster)
+        await cmd.ensure_turn_in_quest(quest_id)
+
+    await kill_quest(cmd, 9227, ASHRAY_MAP, "Ghostly Eel")
+    await kill_quest(cmd, 9230, ASHRAY_MAP, "Kitefin Shark Bait")
+    await map_item_quest(cmd, 9233, ASHRAY_MAP, (11669, 11670), 1)
+    await kill_quest(cmd, ASHRAY_LAST, ASHRAY_MAP, "Seafoam Elemental")
