@@ -254,3 +254,98 @@ async def twilight_zone(cmd: Command, sea_voice: bool = False,
     await kill_quest(cmd, 9264, TWILIGHT_MAP, "Ice Guardian")
     await map_item_quest(cmd, 9265, TWILIGHT_MAP, (11753, 11754, 11755), 1)
     await map_item_quest(cmd, TWILIGHT_LAST, TWILIGHT_MAP, 11756, 1)
+
+
+YULGAR_ARIA_LAST = 9274
+
+#: ``YulgarAria``'s hand-written quests: ``(quest, map, hunts, solo)``.
+YULGAR_HANDS = (
+    (9272, "sunlightzone", (("Infernal Dispersed", "Infernal Illusion", 4),
+                            ("Astravian Dispersed", "Astravian Illusion", 4)),
+     False),
+    (9274, "twilightzone", (("Leviathan's Tendril", "Leviathan", 3),), True),
+)
+
+
+async def yulgar_aria(cmd: Command, sea_voice: bool = False,
+                      cold_thunder: bool = False) -> None:
+    """``CoreAOR.YulgarAria``: quests 9270-9274 across two zones.
+
+    Its quests hop between /twilightzone and /sunlightzone; the map is per step,
+    as the source has it.  9274 is fought in the solo class, which the source
+    sets *before* accepting the quest.
+    """
+    if await cmd.is_completed_before(YULGAR_ARIA_LAST):
+        return
+
+    await twilight_zone(cmd, sea_voice, cold_thunder)
+
+    await kill_quest(cmd, 9270, "twilightzone", "Polymelia Lamprey")
+    await kill_quest(cmd, 9271, "sunlightzone", "Blighted Water")
+
+    for quest_id, map_name, hunts, solo in YULGAR_HANDS:
+        if await cmd.is_completed_before(quest_id):
+            continue
+        if solo:
+            await equip_class(cmd, solo=True)
+        await cmd.ensure_accept_quest(quest_id)
+        for item, monster, qty in hunts:
+            await hunt_item(cmd, item, qty, map_name, monster_name=monster)
+        await cmd.ensure_turn_in_quest(quest_id)
+
+    await kill_quest(cmd, 9273, "sunlightzone", "Marine Snow")
+
+
+MIDNIGHT_LAST = 9301
+MIDNIGHT_MAP = "midnightzone"
+
+#: ``MidnightZone``'s hand-written quests: ``(quest, [(map item, qty)], hunts)``.
+MIDNIGHT_HANDS = (
+    (9293, ((11845, 1),), (("Lamprey Limb", "Polymelia Lamprey", 8),)),
+    (9294, (), (("Slayer Subdued", "Vowed Shadowslayer", 8),
+                ("Key Card", "Vowed Shadowslayer", 1))),
+    (9295, ((11846, 1),), (("Prisoner Subdued", "Undead Prisoner", 10),)),
+    (9296, ((11847, 1),), (("Bone Sample", "Undead Prisoner", 6),
+                           ("Slayer's Written Vow", "Vowed Shadowslayer", 6))),
+    (9297, ((11848, 3),), (("Viscera Sample", "Shadow Viscera", 6),)),
+    (9299, (), (("Shadow Captured", "Shadow Viscera", 7),
+                ("Wraith Appeased", "Venerated Wraith", 7))),
+)
+#: The boss the source fights in its solo class.
+MIDNIGHT_BOSS = ("Sparagmos A.I. Defeated", "Sparagmos")
+
+
+async def midnight_zone(cmd: Command, sea_voice: bool = False,
+                        cold_thunder: bool = False) -> None:
+    """``CoreAOR.MidnightZone``: quests 9292-9301 in /midnightzone.
+
+    The source's lead-in is ``TwilightZone`` -- not ``YulgarAria``, the region
+    before it -- so that is what this calls too.
+    """
+    if await cmd.is_completed_before(MIDNIGHT_LAST):
+        return
+
+    await twilight_zone(cmd, sea_voice, cold_thunder)
+
+    await map_item_quest(cmd, 9292, MIDNIGHT_MAP, (11842, 11843, 11844), 1)
+
+    for quest_id, map_items, hunts in MIDNIGHT_HANDS:
+        if await cmd.is_completed_before(quest_id):
+            continue
+        await cmd.ensure_accept_quest(quest_id)
+        await cmd.join_map(MIDNIGHT_MAP)
+        for item_id, qty in map_items:
+            await cmd.get_map_item(item_id, qty)
+        for item, monster, qty in hunts:
+            await hunt_item(cmd, item, qty, MIDNIGHT_MAP, monster_name=monster)
+        await cmd.ensure_turn_in_quest(quest_id)
+
+    await kill_quest(cmd, 9298, MIDNIGHT_MAP, "Venerated Wraith")
+    await map_item_quest(cmd, 9300, MIDNIGHT_MAP, 11849, 4)
+    await map_item_quest(cmd, 9300, MIDNIGHT_MAP, 11850, 1)
+
+    await equip_class(cmd, solo=True)
+    await cmd.ensure_accept_quest(MIDNIGHT_LAST)
+    await hunt_item(cmd, MIDNIGHT_BOSS[0], 1, MIDNIGHT_MAP,
+                    monster_name=MIDNIGHT_BOSS[1])
+    await cmd.ensure_turn_in_quest(MIDNIGHT_LAST)

@@ -380,7 +380,7 @@ def main() -> None:
                                                           9248, 9249, 9250]
     assert core_aor.SUNLIGHT_LAST == 9251
 
-    tw2 = aor_body[aor_body.index("async def twilight_zone("):]
+    tw2 = aor_body[aor_body.index("async def twilight_zone("):aor_body.index("YULGAR_ARIA_LAST")]
     tw2_ids = [m.group(1) for m in _re.finditer(
         r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", tw2)]
     assert tw2_ids == ["9258", "9259", "9260", "9260", "9262", "9263", "9264",
@@ -388,6 +388,20 @@ def main() -> None:
     assert [q for q, _, _ in core_aor.TWILIGHT_HANDS] == [9261, 9266, 9267]
     assert core_aor.TWILIGHT_LAST == 9268
     print("AOR zones  : SunlightZone 9242-9251, TwilightZone 9258-9268")
+
+    ya = aor_body[aor_body.index("async def yulgar_aria("):aor_body.index("MIDNIGHT_LAST")]
+    assert [m.group(1) for m in _re.finditer(
+        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", ya)] == ["9270", "9271", "9273"]
+    assert [q for q, _, _, _ in core_aor.YULGAR_HANDS] == [9272, 9274]
+    assert core_aor.YULGAR_ARIA_LAST == 9274
+
+    mz = aor_body[aor_body.index("async def midnight_zone("):]
+    assert [m.group(1) for m in _re.finditer(
+        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", mz)] == ["9292", "9298", "9300", "9300"]
+    assert [q for q, _, _ in core_aor.MIDNIGHT_HANDS] == [9293, 9294, 9295, 9296, 9297, 9299]
+    assert core_aor.MIDNIGHT_BOSS == ("Sparagmos A.I. Defeated", "Sparagmos")
+    assert core_aor.MIDNIGHT_LAST == 9301
+    print("AOR mid    : YulgarAria 9270-9274, MidnightZone 9292-9301")
 
     # Dua daftar drop itu variabel biasa di sumber: diport, bukan dilewati.
     assert core_sow.MAINYU_DROPS == ("Mainyu Rune", "Mainyu Tail", "Mainyu Wings")
