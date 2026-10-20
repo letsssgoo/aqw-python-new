@@ -1187,6 +1187,10 @@ class Bot:
                 elif data["bSuccess"] == 0:
                     if quest_id and quest_id not in self.failed_get_quest_datas:
                         self.failed_get_quest_datas.append(quest_id)
+                    reason = str(data.get("msg") or "").strip()
+                    if reason and reason.lower() != "success":
+                        print(Fore.YELLOW + f"[accept] quest {quest_id}: "
+                              f"{reason}" + Fore.RESET)
             elif cmd == "addFaction":
                 # {"t":"xt","b":{"r":-1,"o":{"cmd":"addFaction","faction":{"FactionID":"75","bitSuccess":"1","CharFactionID":"48707365","sName":"Yew Mountains","iRep":"0"}}}}
                 self.player.addFaction(Faction(data["faction"]))

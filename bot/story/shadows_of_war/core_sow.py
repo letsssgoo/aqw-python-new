@@ -262,6 +262,10 @@ MALGOR_DROPS = ("Shadow DragonMaster",
                 "Shadowflame Vanguard Spear")
 
 MANACRADLE_LAST = 9126
+#: The last quest the port actually turns in.  9126/9127 are commented out in
+#: the source, so ``MANACRADLE_LAST`` can never be completed here and the whole
+#: region would be walked again on every run; either id means "region done".
+MANACRADLE_DONE = 9125
 MANACRADLE_MAP = "manacradle"
 
 #: ``ManaCradle``'s hand-written quests, same shape as above.
@@ -288,7 +292,8 @@ async def mana_cradle(cmd: Command) -> None:
     :data:`MAINYU_DROPS` and :data:`MALGOR_DROPS`.  The last two quests
     (9126/9127) are commented out in the source and stay out.
     """
-    if await cmd.is_completed_before(MANACRADLE_LAST):
+    if (await cmd.is_completed_before(MANACRADLE_LAST)
+            or await cmd.is_completed_before(MANACRADLE_DONE)):
         return
 
     await shadow_flame(cmd)

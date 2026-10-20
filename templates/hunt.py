@@ -333,7 +333,10 @@ async def kill_quest(
         hunt: bool = False,
         skill_list: list[int] = DEFAULT_SKILL_LIST
     ):
-    await cmd.ensure_accept_quest(quest_id)
+    if not await cmd.ensure_accept_quest(quest_id):
+        cmd.bot.log(f"[quest] {quest_id} could not be accepted; nothing is "
+                    f"hunted for it.")
+        return
     cmd.add_quest_rewards(quest_id)     # QuestProgression(GetReward: true)
     
     if cmd.can_turnin_quest(quest_id):

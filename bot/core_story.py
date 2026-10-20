@@ -136,7 +136,10 @@ async def map_item_quest(cmd: Command, quest_id: int, map_name: str,
         wanted = [tuple(entry) if isinstance(entry, (tuple, list)) else (entry, qty)
                   for entry in entries]
 
-    await cmd.ensure_accept_quest(quest_id)
+    if not await cmd.ensure_accept_quest(quest_id):
+        cmd.bot.log(f"[story] quest {quest_id} could not be accepted; nothing "
+                    f"is farmed for it.")
+        return
     # ``QuestProgression(GetReward: true)`` whitelists the quest's rewards so the
     # turn-in's item is picked up; the quest has to be loaded for its payload to
     # name them, which the accept above does.
@@ -172,7 +175,10 @@ async def kill_quest(cmd: Command, quest_id: int, map_name: str,
                               skill_list=list(skill_list))
         return
 
-    await cmd.ensure_accept_quest(quest_id)
+    if not await cmd.ensure_accept_quest(quest_id):
+        cmd.bot.log(f"[story] quest {quest_id} could not be accepted; nothing "
+                    f"is hunted for it.")
+        return
     cmd.add_quest_rewards(quest_id)
     quest = cmd.get_loaded_quest(quest_id)
     if quest is None:

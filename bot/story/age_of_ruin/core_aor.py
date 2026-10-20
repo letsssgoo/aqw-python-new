@@ -23,6 +23,11 @@ TERMINA_TEMPLE_MAP = "terminatemple"
 TERMINA_TEMPLE_LAST_DEFAULT = 10438
 TERMINA_TEMPLE_LAST_SEAVOICE = 9351
 TERMINA_TEMPLE_LAST_COLDTHUNDER = 9851
+#: The last quest the default branch actually turns in.  10438 is the
+#: reference's sentinel but it is not one of the quests this function completes,
+#: so on an account that only finished 9213/9214 the region would be walked
+#: again on every run; either id means "region done".
+TERMINA_TEMPLE_DONE_DEFAULT = 9214
 
 #: ``(quest, [(map item id, qty)], (item, monster, qty))`` for the two quests the
 #: source writes out by hand.
@@ -66,6 +71,9 @@ async def termina_temple(cmd: Command, sea_voice: bool = False,
     become unattackable.
     """
     if await cmd.is_completed_before(termina_temple_last(sea_voice, cold_thunder)):
+        return
+    if not sea_voice and not cold_thunder and \
+            await cmd.is_completed_before(TERMINA_TEMPLE_DONE_DEFAULT):
         return
 
     await mana_cradle(cmd)
