@@ -98,6 +98,13 @@ class Command:
     #: which no bail-out consults.
     ENSURE_MAX_ATTEMPTS: int = 60
 
+    #: Pause after each quest check.  A story guard walks its dependency chain
+    #: one quest at a time (Ashray -> Termina Temple -> Mana Cradle -> ...), and
+    #: back to back those probes read as a burst of ``ccqr`` lines rather than
+    #: as steps.  This is pacing for the log's sake only, so set it to 0 when
+    #: speed matters more than reading the run.
+    QUEST_GAP_MS: int = 1500
+
     #: How long ``join_map`` waits for the client to report the new map before
     #: giving up and letting the caller's own loop retry.  A transfer normally
     #: lands in about two seconds; the bound only covers a server that never
@@ -148,6 +155,20 @@ class Command:
         attempts = 0
         while self.quest_not_in_progress(quest_id) and self.is_still_connected():
             if quest_id in self.bot.failed_get_quest_datas:
+                # The refusal has two very different causes and the reply does
+                # not say which: the quest is already in progress (accepted in
+                # an earlier session -- the login packet never lists those, so
+                # the bot cannot know) or this account may not take it at all.
+                # Ask for the quest data: the server only sends a quest back
+                # once it is in progress.
+                self.bot.write_message(
+                    f"%xt%zm%getQuests%{self.bot.areaId}%{quest_id}%")
+                await self.sleep(1000)
+                if self.quest_in_progress(quest_id):
+                    self.bot.failed_get_quest_datas.remove(quest_id)
+                    self.bot.log(f"[accept] quest {quest_id} was already in "
+                                 f"progress; carrying on.")
+                    return True
                 print(Fore.YELLOW + f"[accept] quest {quest_id} was refused by "
                       f"the server; stopping." + Fore.RESET)
                 return False
@@ -344,13 +365,16 @@ class Command:
         while(self.is_still_connected()):
             if hasattr(self.bot, "one_time_questid") and int(quest_id) in self.bot.one_time_questid:
                 self.is_completed_before_var = None
+                await self.sleep(self.QUEST_GAP_MS)
                 return True
             if self.is_completed_before_var is not None:
                 output = self.is_completed_before_var
                 self.is_completed_before_var = None
+                await self.sleep(self.QUEST_GAP_MS)
                 return output
             if time.time() - start_time > timeout_sec:
                 self.is_completed_before_var = None
+                await self.sleep(self.QUEST_GAP_MS)
                 return False
             await self.sleep(100)
         return False
@@ -621,7 +645,14 @@ class Command:
             None: The coroutine issues transfer packets for each item.
         """
         await self.leave_combat()
-        itemNames = itemNames if isinstance(itemNames, list) else [itemNames]
+        # A tuple used to be wrapped into ``[tuple]`` and handed to
+        # ``get_item_inventory``, which calls ``.lower()`` on what it is given:
+        # that killed the script with "'tuple' object has no attribute
+        # 'lower'".  Only a bare string is a single name.
+        if isinstance(itemNames, str):
+            itemNames = [itemNames]
+        else:
+            itemNames = list(itemNames)
         for item in itemNames:
             if not self.is_still_connected():
                 return

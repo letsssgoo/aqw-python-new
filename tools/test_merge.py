@@ -75,6 +75,29 @@ def main() -> int:
     check("bukan merge -> tanpa resep", voucher.merge_requirements, [])
     check("bukan merge -> punya harga", voucher.cost, 25000)
 
+    # Hook merge: farmer milik script merge dipanggil dengan cmd lebih dulu.
+    # Waktu call site-nya cuma mengirim tiga argumen, tiap merge shop mati
+    # dengan "_find_ingredients() missing 1 required positional argument:
+    # 'quant'" tepat setelah log "asking the merge script for x50".
+    src = (REPO / "bot" / "core_advanced.py").read_text(encoding="utf-8")
+    check("call site mengirim cmd",
+          "await find_ingredients(cmd, item_id, name, need)" in src, True)
+
+    import importlib
+    import inspect
+    for mod_name in ("abyssal_zone_merge", "midnight_zone_merge",
+                     "seaview_souvenirs_merge", "sea_voice_merge",
+                     "trench_observe_merge", "twilight_zone_merge",
+                     "undine_commissary_merge"):
+        mod = importlib.import_module(f"bot.other.merge_shops.{mod_name}")
+        try:
+            inspect.signature(mod._find_ingredients).bind(
+                object(), "77882", "Sur-gion Token", 50)
+            ok = True
+        except TypeError:
+            ok = False
+        check(f"{mod_name} hook (cmd, item_id, name, quant)", ok, True)
+
     print()
     print("=" * 74)
     print(f"passed {PASS}   failed {FAIL}")

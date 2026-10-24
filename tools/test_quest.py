@@ -179,6 +179,39 @@ def main() -> None:
     assert accepts == [], accepts
     print("ensure    : accept caps at max_attempts, refused id stops at once")
 
+    # --- a refused accept may just mean "already in progress" -----------
+    # The login packet never lists in-progress quests, so a quest accepted in
+    # an earlier session looks exactly like one this account may not take: the
+    # accept is refused either way.  The refusal path asks for the quest data,
+    # which the server only sends back for a quest that is in progress.
+    sent = []
+    saved_write, saved_sleep = bot.write_message, cmd.sleep
+    bot.write_message = lambda message: sent.append(message)
+    bot.failed_get_quest_datas = [7717]
+
+    async def _answer_get_quests(ms):
+        if any("getQuests" in message for message in sent):
+            bot.loaded_quest_datas.append(_quest(7717))
+
+    cmd.sleep = _answer_get_quests
+    assert asyncio.run(cmd.ensure_accept_quest(7717)) is True
+    assert any("getQuests" in m and "7717" in m for m in sent), sent
+    assert bot.failed_get_quest_datas == [], bot.failed_get_quest_datas
+
+    # refused and genuinely unavailable: asked once, reported, not retried
+    sent.clear()
+    bot.failed_get_quest_datas = [7718]
+
+    async def _no_answer(ms):
+        pass
+
+    cmd.sleep = _no_answer
+    assert asyncio.run(cmd.ensure_accept_quest(7718)) is False
+    assert any("getQuests" in m and "7718" in m for m in sent), sent
+    assert accepts == [], accepts          # no second accept was sent
+    bot.write_message, cmd.sleep = saved_write, saved_sleep
+    print("refused   : asked for the quest first; in progress -> carried on")
+
     # not in progress -> nothing to do, and that counts as success
     assert asyncio.run(cmd.ensure_turn_in_quest(99999)) is True
     # in progress but the requirements are not held: refuse to send anything
@@ -196,6 +229,26 @@ def main() -> None:
     assert asyncio.run(cmd.ensure_turn_in_quest(4750, max_attempts=3)) is False
     assert turnins == [4750, 4750, 4750], turnins
     print("ensure    : turn-in caps at max_attempts ->", turnins)
+
+    # --- inv_to_bank reads a tuple as names, not as one name -----------
+    # ``MALGOR_DROPS + MAINYU_DROPS`` is a tuple; wrapping it as ``[tuple]``
+    # handed it to ``get_item_inventory`` -> "'tuple' object has no attribute
+    # 'lower'" and the whole script died at the end of ManaCradle.
+    asked = []
+
+    async def _noop_leave():
+        pass
+
+    cmd.leave_combat = _noop_leave
+    original_lookup = bot.player.get_item_inventory
+    bot.player.get_item_inventory = lambda name: asked.append(name) or None
+    asyncio.run(cmd.inv_to_bank(("Mainyu Rune", "Malgor Blade")))
+    assert asked == ["Mainyu Rune", "Malgor Blade"], asked
+    asked.clear()
+    asyncio.run(cmd.inv_to_bank("Mainyu Rune"))
+    bot.player.get_item_inventory = original_lookup
+    assert asked == ["Mainyu Rune"], asked
+    print("bank      : a tuple of names is read one by one, not as a tuple")
     bot.is_client_connected = False
 
     # --- quest requirements: names from oItems, temp from the temp bag ---
@@ -347,6 +400,7 @@ def main() -> None:
     assert [q for q, _, _ in core_sow.MANACRADLE_HANDS] == [9119, 9123]
     assert core_sow.MANACRADLE_BOSSES == ((9124, "Malgor"), (9125, "The Mainyu"))
     assert core_sow.MANACRADLE_LAST == 9126
+    assert core_sow.MANACRADLE_DONE == 9125
     print("SoW done   : ShadowFlame -> ManaCradle, chain closed at 9126")
 
     # --- CoreAOR.TerminaTemple: the gate depends on the option flags -----
@@ -356,6 +410,7 @@ def main() -> None:
     assert core_aor.termina_temple_last(True, False) == 9351
     assert core_aor.termina_temple_last(False, True) == 9851
     assert [q for q, _, _ in core_aor.TERMINA_TEMPLE_HANDS] == [9213, 9214]
+    assert core_aor.TERMINA_TEMPLE_DONE_DEFAULT == 9214
     assert core_aor.TERMINA_TEMPLE_HANDS[0][1] == ((11625, 1), (11626, 1), (11627, 1))
     assert [q for q, _, _ in core_aor.TERMINA_TEMPLE_STEPS] == [9351, 9851]
     assert core_aor.SEAVOICE_GATE == 9348
@@ -364,41 +419,45 @@ def main() -> None:
     assert "whitemap" in aor_body, "the source's own map reset for 9213"
     print("AOR        : TerminaTemple, gate 10438/9351/9851 by option")
 
+    def _order(body: str) -> list:
+        return [m.group(1) or m.group(2) or m.group(3) for m in _re.finditer(
+            r"hand\((\d+)\)|kill_quest\(cmd,\s*(\d+)|map_item_quest\(cmd,\s*(\d+)",
+            body)]
+
     av = aor_body[aor_body.index("async def ashray_village("):aor_body.index("SUNLIGHT_LAST")]
-    av_ids = [m.group(1) for m in _re.finditer(
-        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", av)]
-    assert av_ids == ["9225", "9227", "9230", "9233"], av_ids
-    assert [q for q, _, _ in core_aor.ASHRAY_HANDS] == [9226, 9228, 9229, 9231, 9232]
+    # Urutan eksekusi, bukan cuma isi tabel: sumber menyelipkan 9227 di antara
+    # 9226 dan 9228, dan 9230 di antara 9229 dan 9231.  Waktu tabelnya masih
+    # dijalankan sebagai satu blok, 9228 dijalankan sebelum 9227 -- quest-nya
+    # belum terbuka, map item 11665 ditolak, dan turn-in menjawab "Missing Quest
+    # Progress" untuk quest yang memang belum pernah diterima.
+    assert _order(av) == ["9225", "9226", "9227", "9228", "9229", "9230",
+                          "9231", "9232", "9233"], av
+    assert list(core_aor.ASHRAY_HANDS) == [9226, 9228, 9229, 9231, 9232]
     assert core_aor.ASHRAY_LAST == 9234
-    print("AOR ashray : 9225-9234, five hand blocks with their map items")
+    print("AOR ashray : 9225-9234 in source order, five hand blocks")
 
     sl = aor_body[aor_body.index("async def sunlight_zone("):aor_body.index("TWILIGHT_LAST")]
-    sl_ids = [m.group(1) for m in _re.finditer(
-        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", sl)]
-    assert sl_ids == ["9242", "9243", "9247"], sl_ids
-    assert [q for q, _, _ in core_aor.SUNLIGHT_HANDS] == [9244, 9245, 9246,
-                                                          9248, 9249, 9250]
+    assert _order(sl) == ["9242", "9243", "9244", "9245", "9246", "9247",
+                          "9248", "9249", "9250"], sl
+    assert list(core_aor.SUNLIGHT_HANDS) == [9244, 9245, 9246, 9248, 9249, 9250]
     assert core_aor.SUNLIGHT_LAST == 9251
 
     tw2 = aor_body[aor_body.index("async def twilight_zone("):aor_body.index("YULGAR_ARIA_LAST")]
-    tw2_ids = [m.group(1) for m in _re.finditer(
-        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", tw2)]
-    assert tw2_ids == ["9258", "9259", "9260", "9260", "9262", "9263", "9264",
-                       "9265"], tw2_ids
-    assert [q for q, _, _ in core_aor.TWILIGHT_HANDS] == [9261, 9266, 9267]
+    assert _order(tw2) == ["9258", "9259", "9260", "9260", "9261", "9262",
+                           "9263", "9264", "9265", "9266", "9267"], tw2
+    assert list(core_aor.TWILIGHT_HANDS) == [9261, 9266, 9267]
     assert core_aor.TWILIGHT_LAST == 9268
     print("AOR zones  : SunlightZone 9242-9251, TwilightZone 9258-9268")
 
     ya = aor_body[aor_body.index("async def yulgar_aria("):aor_body.index("MIDNIGHT_LAST")]
-    assert [m.group(1) for m in _re.finditer(
-        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", ya)] == ["9270", "9271", "9273"]
-    assert [q for q, _, _, _ in core_aor.YULGAR_HANDS] == [9272, 9274]
+    assert _order(ya) == ["9270", "9271", "9272", "9273", "9274"], ya
+    assert list(core_aor.YULGAR_HANDS) == [9272, 9274]
     assert core_aor.YULGAR_ARIA_LAST == 9274
 
     mz = aor_body[aor_body.index("async def midnight_zone("):aor_body.index("ABYSSAL_LAST")]
-    assert [m.group(1) for m in _re.finditer(
-        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", mz)] == ["9292", "9298", "9300", "9300"]
-    assert [q for q, _, _ in core_aor.MIDNIGHT_HANDS] == [9293, 9294, 9295, 9296, 9297, 9299]
+    assert _order(mz) == ["9292", "9293", "9294", "9295", "9296", "9297",
+                          "9298", "9299", "9300", "9300"], mz
+    assert list(core_aor.MIDNIGHT_HANDS) == [9293, 9294, 9295, 9296, 9297, 9299]
     assert core_aor.MIDNIGHT_BOSS == ("Sparagmos A.I. Defeated", "Sparagmos")
     assert core_aor.MIDNIGHT_LAST == 9301
     print("AOR mid    : YulgarAria 9270-9274, MidnightZone 9292-9301")
@@ -457,6 +516,28 @@ def main() -> None:
     asyncio.run(_map_item_quest(cmd, 4811, "battleon", 1, 1))
     assert "Tainted Gem" in bot.items_drop_whitelist, bot.items_drop_whitelist
     print("rewards    : the story helper whitelists the quest's rewards")
+
+    # --- turn-in yang gagal menghentikan rantai, bukan dilewati ----------
+    # Dulu hasil `ensure_turn_in_quest` dibuang: quest 9228 gagal di-turn in,
+    # itemnya tidak pernah didapat, dan semua langkah sesudahnya ikut gagal
+    # tanpa satu baris pun yang menyebut quest itu.
+    from core.bot import CustomError
+
+    bot.loaded_quest_datas.append(_quest(4812))
+    saved_turn_in = cmd.ensure_turn_in_quest
+
+    async def _refuse_turn_in(quest_id, item_id=-1, amount=1):
+        return False
+
+    cmd.ensure_turn_in_quest = _refuse_turn_in
+    stopped = False
+    try:
+        asyncio.run(_map_item_quest(cmd, 4812, "battleon", 1, 1))
+    except CustomError:
+        stopped = True
+    cmd.ensure_turn_in_quest = saved_turn_in
+    assert stopped, "a failed turn-in has to stop the run"
+    print("turn-in   : a failed turn-in stops the story instead of being ignored")
 
     # --- paket %...% tidak boleh menyentuh `cmd` (UnboundLocalError) -----
     # `castWait`/`CatchResult` sempat ditaruh di cabang persen, tempat `cmd`

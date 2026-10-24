@@ -11,6 +11,7 @@ not, and are reported rather than skipped quietly: the ``seaVoice`` and
 and ``Story.PreLoad`` (the guards do its work).
 """
 from core.command import Command
+from core.bot import CustomError
 from bot.core_advanced import buy_item
 from bot.core_bots import equip_class
 from bot.core_story import kill_quest, map_item_quest
@@ -23,6 +24,11 @@ TERMINA_TEMPLE_MAP = "terminatemple"
 TERMINA_TEMPLE_LAST_DEFAULT = 10438
 TERMINA_TEMPLE_LAST_SEAVOICE = 9351
 TERMINA_TEMPLE_LAST_COLDTHUNDER = 9851
+#: The last quest the default branch actually turns in.  10438 is the
+#: reference's sentinel but it is not one of the quests this function completes,
+#: so on an account that only finished 9213/9214 the region would be walked
+#: again on every run; either id means "region done".
+TERMINA_TEMPLE_DONE_DEFAULT = 9214
 
 #: ``(quest, [(map item id, qty)], (item, monster, qty))`` for the two quests the
 #: source writes out by hand.
@@ -67,12 +73,16 @@ async def termina_temple(cmd: Command, sea_voice: bool = False,
     """
     if await cmd.is_completed_before(termina_temple_last(sea_voice, cold_thunder)):
         return
+    if not sea_voice and not cold_thunder and \
+            await cmd.is_completed_before(TERMINA_TEMPLE_DONE_DEFAULT):
+        return
 
     await mana_cradle(cmd)
 
     # Familiar Faces (9213)
     if not await cmd.is_completed_before(9213):
-        await cmd.ensure_accept_quest(9213)
+        if await cmd.ensure_accept_quest(9213) is False:
+            raise CustomError("quest 9213 could not be accepted")
         await cmd.join_map(TERMINA_TEMPLE_MAP)
         for item_id, qty in TERMINA_TEMPLE_HANDS[0][1]:
             await cmd.get_map_item(item_id, qty)
@@ -82,17 +92,20 @@ async def termina_temple(cmd: Command, sea_voice: bool = False,
         await cmd.join_map(TERMINA_TEMPLE_MAP)
         item, monster, qty = TERMINA_TEMPLE_HANDS[0][2]
         await hunt_item(cmd, item, qty, TERMINA_TEMPLE_MAP, monster_name=monster)
-        await cmd.ensure_turn_in_quest(9213)
+        if await cmd.ensure_turn_in_quest(9213) is False:
+            raise CustomError("quest 9213 could not be turned in")
 
     # Loaded Resume (9214)
     if not await cmd.is_completed_before(9214):
-        await cmd.ensure_accept_quest(9214)
+        if await cmd.ensure_accept_quest(9214) is False:
+            raise CustomError("quest 9214 could not be accepted")
         await cmd.join_map(TERMINA_TEMPLE_MAP)
         for item_id, qty in TERMINA_TEMPLE_HANDS[1][1]:
             await cmd.get_map_item(item_id, qty)
         item, monster, qty = TERMINA_TEMPLE_HANDS[1][2]
         await hunt_item(cmd, item, qty, TERMINA_TEMPLE_MAP, monster_name=monster)
-        await cmd.ensure_turn_in_quest(9214)
+        if await cmd.ensure_turn_in_quest(9214) is False:
+            raise CustomError("quest 9214 could not be turned in")
 
     if not sea_voice and not cold_thunder:
         return
@@ -127,15 +140,15 @@ async def main(cmd: Command):
 ASHRAY_LAST = 9234
 ASHRAY_MAP = "ashray"
 
-#: ``AshrayVillage``'s hand-written quests: ``(quest, [(map item, qty)], hunts)``.
-ASHRAY_HANDS = (
-    (9226, ((11663, 1), (11664, 1)),
-     (("Fisherman's Trident", "Ashray Fisherman", 4),)),
-    (9228, ((11665, 1),), (("Elemental Cleared", "Stagnant Water", 8),)),
-    (9229, ((11666, 1),), (("Fisherman Repelled", "Ashray Fisherman", 8),)),
-    (9231, ((11667, 1),), (("Excorsized Eel", "Ghostly Eel", 8),)),
-    (9232, ((11668, 1),), (("Water Samples", "Stagnant Water", 3),)),
-)
+#: ``AshrayVillage``'s hand-written quests: ``{quest: ([(map item, qty)], hunts)}``.
+ASHRAY_HANDS = {
+    9226: (((11663, 1), (11664, 1)),
+           (("Fisherman's Trident", "Ashray Fisherman", 4),)),
+    9228: (((11665, 1),), (("Elemental Cleared", "Stagnant Water", 8),)),
+    9229: (((11666, 1),), (("Fisherman Repelled", "Ashray Fisherman", 8),)),
+    9231: (((11667, 1),), (("Excorsized Eel", "Ghostly Eel", 8),)),
+    9232: (((11668, 1),), (("Water Samples", "Stagnant Water", 3),)),
+}
 
 
 async def ashray_village(cmd: Command, sea_voice: bool = False,
@@ -146,21 +159,28 @@ async def ashray_village(cmd: Command, sea_voice: bool = False,
 
     await termina_temple(cmd, sea_voice, cold_thunder)
 
-    await kill_quest(cmd, 9225, ASHRAY_MAP, "Kitefin Shark Bait")
-
-    for quest_id, map_items, hunts in ASHRAY_HANDS:
+    async def hand(quest_id: int) -> None:
         if await cmd.is_completed_before(quest_id):
-            continue
-        await cmd.ensure_accept_quest(quest_id)
+            return
+        map_items, hunts = ASHRAY_HANDS[quest_id]
+        if await cmd.ensure_accept_quest(quest_id) is False:
+            raise CustomError(f"quest {quest_id} could not be accepted")
         await cmd.join_map(ASHRAY_MAP)
         for item_id, qty in map_items:
             await cmd.get_map_item(item_id, qty)
         for item, monster, qty in hunts:
             await hunt_item(cmd, item, qty, ASHRAY_MAP, monster_name=monster)
-        await cmd.ensure_turn_in_quest(quest_id)
+        if await cmd.ensure_turn_in_quest(quest_id) is False:
+            raise CustomError(f"quest {quest_id} could not be turned in")
 
+    await kill_quest(cmd, 9225, ASHRAY_MAP, "Kitefin Shark Bait")
+    await hand(9226)
     await kill_quest(cmd, 9227, ASHRAY_MAP, "Ghostly Eel")
+    await hand(9228)
+    await hand(9229)
     await kill_quest(cmd, 9230, ASHRAY_MAP, "Kitefin Shark Bait")
+    await hand(9231)
+    await hand(9232)
     await map_item_quest(cmd, 9233, ASHRAY_MAP, (11669, 11670), 1)
     await kill_quest(cmd, ASHRAY_LAST, ASHRAY_MAP, "Seafoam Elemental")
 
@@ -168,16 +188,16 @@ async def ashray_village(cmd: Command, sea_voice: bool = False,
 SUNLIGHT_LAST = 9251
 SUNLIGHT_MAP = "sunlightzone"
 
-#: ``SunlightZone``'s hand-written quests: ``(quest, [(map item, qty)], hunts)``.
-SUNLIGHT_HANDS = (
-    (9244, ((11705, 1), (11706, 1)), (("Mopped Water", "Blighted Water", 6),)),
-    (9245, ((11707, 3),), (("Jelly Filling", "Spectral Jellyfish", 6),)),
-    (9246, (), (("Stinging Tentacles", "Spectral Jellyfish", 6),
-                ("Grainy Water", "Blighted Water", 6))),
-    (9248, ((11711, 1),), (("Astravian Dispelled", "Astravian Illusion", 10),)),
-    (9249, ((11712, 5),), (("Infernal Dispelled", "Infernal Illusion", 10),)),
-    (9250, ((11713, 1),), (("Seraph Dispelled", "Seraphic Illusion", 10),)),
-)
+#: ``SunlightZone``'s hand-written quests: ``{quest: ([(map item, qty)], hunts)}``.
+SUNLIGHT_HANDS = {
+    9244: (((11705, 1), (11706, 1)), (("Mopped Water", "Blighted Water", 6),)),
+    9245: (((11707, 3),), (("Jelly Filling", "Spectral Jellyfish", 6),)),
+    9246: ((), (("Stinging Tentacles", "Spectral Jellyfish", 6),
+               ("Grainy Water", "Blighted Water", 6))),
+    9248: (((11711, 1),), (("Astravian Dispelled", "Astravian Illusion", 10),)),
+    9249: (((11712, 5),), (("Infernal Dispelled", "Infernal Illusion", 10),)),
+    9250: (((11713, 1),), (("Seraph Dispelled", "Seraphic Illusion", 10),)),
+}
 
 
 async def sunlight_zone(cmd: Command, sea_voice: bool = False,
@@ -188,35 +208,43 @@ async def sunlight_zone(cmd: Command, sea_voice: bool = False,
 
     await ashray_village(cmd, sea_voice, cold_thunder)
 
-    await kill_quest(cmd, 9242, SUNLIGHT_MAP, "Blighted Water")
-    await kill_quest(cmd, 9243, SUNLIGHT_MAP, "Spectral Jellyfish")
-
-    for quest_id, map_items, hunts in SUNLIGHT_HANDS:
+    async def hand(quest_id: int) -> None:
         if await cmd.is_completed_before(quest_id):
-            continue
-        await cmd.ensure_accept_quest(quest_id)
+            return
+        map_items, hunts = SUNLIGHT_HANDS[quest_id]
+        if await cmd.ensure_accept_quest(quest_id) is False:
+            raise CustomError(f"quest {quest_id} could not be accepted")
         await cmd.join_map(SUNLIGHT_MAP)
         for item_id, qty in map_items:
             await cmd.get_map_item(item_id, qty)
         for item, monster, qty in hunts:
             await hunt_item(cmd, item, qty, SUNLIGHT_MAP, monster_name=monster)
-        await cmd.ensure_turn_in_quest(quest_id)
+        if await cmd.ensure_turn_in_quest(quest_id) is False:
+            raise CustomError(f"quest {quest_id} could not be turned in")
 
+    await kill_quest(cmd, 9242, SUNLIGHT_MAP, "Blighted Water")
+    await kill_quest(cmd, 9243, SUNLIGHT_MAP, "Spectral Jellyfish")
+    await hand(9244)
+    await hand(9245)
+    await hand(9246)
     await map_item_quest(cmd, 9247, SUNLIGHT_MAP, (11708, 11709, 11710), 1)
+    await hand(9248)
+    await hand(9249)
+    await hand(9250)
     await kill_quest(cmd, SUNLIGHT_LAST, SUNLIGHT_MAP, "Marine Snow")
 
 
 TWILIGHT_LAST = 9268
 TWILIGHT_MAP = "twilightzone"
 
-#: ``TwilightZone``'s hand-written quests.
-TWILIGHT_HANDS = (
-    (9261, (), (("Louse Antennae", "Whale Louse", 6),
-                ("Lamprey Tooth", "Polymelia Lamprey", 6))),
-    (9266, (), (("Spirit Restrained", "Decay Spirit", 7),
-                ("Guardian Restrained", "Ice Guardian", 7))),
-    (9267, (), (("Leviathan Fought", "Leviathan", 1),)),
-)
+#: ``TwilightZone``'s hand-written quests: ``{quest: ([(map item, qty)], hunts)}``.
+TWILIGHT_HANDS = {
+    9261: ((), (("Louse Antennae", "Whale Louse", 6),
+               ("Lamprey Tooth", "Polymelia Lamprey", 6))),
+    9266: ((), (("Spirit Restrained", "Decay Spirit", 7),
+               ("Guardian Restrained", "Ice Guardian", 7))),
+    9267: ((), (("Leviathan Fought", "Leviathan", 1),)),
+}
 
 
 async def twilight_zone(cmd: Command, sea_voice: bool = False,
@@ -232,40 +260,45 @@ async def twilight_zone(cmd: Command, sea_voice: bool = False,
 
     await sunlight_zone(cmd, sea_voice, cold_thunder)
 
-    await kill_quest(cmd, 9258, TWILIGHT_MAP, "Whale Louse")
-    await kill_quest(cmd, 9259, TWILIGHT_MAP, "Polymelia Lamprey")
-    await map_item_quest(cmd, 9260, TWILIGHT_MAP, 11749, 1)
-    await map_item_quest(cmd, 9260, TWILIGHT_MAP, 11750, 4)
-
-    for quest_id, map_items, hunts in TWILIGHT_HANDS:
+    async def hand(quest_id: int) -> None:
         if await cmd.is_completed_before(quest_id):
-            continue
-        await cmd.ensure_accept_quest(quest_id)
+            return
+        map_items, hunts = TWILIGHT_HANDS[quest_id]
         if quest_id == 9267:
             await equip_class(cmd, solo=True)
+        if await cmd.ensure_accept_quest(quest_id) is False:
+            raise CustomError(f"quest {quest_id} could not be accepted")
         await cmd.join_map(TWILIGHT_MAP)
         for item_id, qty in map_items:
             await cmd.get_map_item(item_id, qty)
         for item, monster, qty in hunts:
             await hunt_item(cmd, item, qty, TWILIGHT_MAP, monster_name=monster)
-        await cmd.ensure_turn_in_quest(quest_id)
+        if await cmd.ensure_turn_in_quest(quest_id) is False:
+            raise CustomError(f"quest {quest_id} could not be turned in")
 
+    await kill_quest(cmd, 9258, TWILIGHT_MAP, "Whale Louse")
+    await kill_quest(cmd, 9259, TWILIGHT_MAP, "Polymelia Lamprey")
+    await map_item_quest(cmd, 9260, TWILIGHT_MAP, 11749, 1)
+    await map_item_quest(cmd, 9260, TWILIGHT_MAP, 11750, 4)
+    await hand(9261)
     await map_item_quest(cmd, 9262, TWILIGHT_MAP, (11751, 11752), 1)
     await kill_quest(cmd, 9263, TWILIGHT_MAP, "Decay Spirit")
     await kill_quest(cmd, 9264, TWILIGHT_MAP, "Ice Guardian")
     await map_item_quest(cmd, 9265, TWILIGHT_MAP, (11753, 11754, 11755), 1)
+    await hand(9266)
+    await hand(9267)
     await map_item_quest(cmd, TWILIGHT_LAST, TWILIGHT_MAP, 11756, 1)
 
 
 YULGAR_ARIA_LAST = 9274
 
-#: ``YulgarAria``'s hand-written quests: ``(quest, map, hunts, solo)``.
-YULGAR_HANDS = (
-    (9272, "sunlightzone", (("Infernal Dispersed", "Infernal Illusion", 4),
-                            ("Astravian Dispersed", "Astravian Illusion", 4)),
-     False),
-    (9274, "twilightzone", (("Leviathan's Tendril", "Leviathan", 3),), True),
-)
+#: ``YulgarAria``'s hand-written quests: ``{quest: (map, hunts, solo)}``.
+YULGAR_HANDS = {
+    9272: ("sunlightzone", (("Infernal Dispersed", "Infernal Illusion", 4),
+                           ("Astravian Dispersed", "Astravian Illusion", 4)),
+           False),
+    9274: ("twilightzone", (("Leviathan's Tendril", "Leviathan", 3),), True),
+}
 
 
 async def yulgar_aria(cmd: Command, sea_voice: bool = False,
@@ -281,37 +314,41 @@ async def yulgar_aria(cmd: Command, sea_voice: bool = False,
 
     await twilight_zone(cmd, sea_voice, cold_thunder)
 
-    await kill_quest(cmd, 9270, "twilightzone", "Polymelia Lamprey")
-    await kill_quest(cmd, 9271, "sunlightzone", "Blighted Water")
-
-    for quest_id, map_name, hunts, solo in YULGAR_HANDS:
+    async def hand(quest_id: int) -> None:
         if await cmd.is_completed_before(quest_id):
-            continue
+            return
+        map_name, hunts, solo = YULGAR_HANDS[quest_id]
         if solo:
             await equip_class(cmd, solo=True)
-        await cmd.ensure_accept_quest(quest_id)
+        if await cmd.ensure_accept_quest(quest_id) is False:
+            raise CustomError(f"quest {quest_id} could not be accepted")
         for item, monster, qty in hunts:
             await hunt_item(cmd, item, qty, map_name, monster_name=monster)
-        await cmd.ensure_turn_in_quest(quest_id)
+        if await cmd.ensure_turn_in_quest(quest_id) is False:
+            raise CustomError(f"quest {quest_id} could not be turned in")
 
+    await kill_quest(cmd, 9270, "twilightzone", "Polymelia Lamprey")
+    await kill_quest(cmd, 9271, "sunlightzone", "Blighted Water")
+    await hand(9272)
     await kill_quest(cmd, 9273, "sunlightzone", "Marine Snow")
+    await hand(9274)
 
 
 MIDNIGHT_LAST = 9301
 MIDNIGHT_MAP = "midnightzone"
 
-#: ``MidnightZone``'s hand-written quests: ``(quest, [(map item, qty)], hunts)``.
-MIDNIGHT_HANDS = (
-    (9293, ((11845, 1),), (("Lamprey Limb", "Polymelia Lamprey", 8),)),
-    (9294, (), (("Slayer Subdued", "Vowed Shadowslayer", 8),
-                ("Key Card", "Vowed Shadowslayer", 1))),
-    (9295, ((11846, 1),), (("Prisoner Subdued", "Undead Prisoner", 10),)),
-    (9296, ((11847, 1),), (("Bone Sample", "Undead Prisoner", 6),
-                           ("Slayer's Written Vow", "Vowed Shadowslayer", 6))),
-    (9297, ((11848, 3),), (("Viscera Sample", "Shadow Viscera", 6),)),
-    (9299, (), (("Shadow Captured", "Shadow Viscera", 7),
-                ("Wraith Appeased", "Venerated Wraith", 7))),
-)
+#: ``MidnightZone``'s hand-written quests: ``{quest: ([(map item, qty)], hunts)}``.
+MIDNIGHT_HANDS = {
+    9293: (((11845, 1),), (("Lamprey Limb", "Polymelia Lamprey", 8),)),
+    9294: ((), (("Slayer Subdued", "Vowed Shadowslayer", 8),
+               ("Key Card", "Vowed Shadowslayer", 1))),
+    9295: (((11846, 1),), (("Prisoner Subdued", "Undead Prisoner", 10),)),
+    9296: (((11847, 1),), (("Bone Sample", "Undead Prisoner", 6),
+                          ("Slayer's Written Vow", "Vowed Shadowslayer", 6))),
+    9297: (((11848, 3),), (("Viscera Sample", "Shadow Viscera", 6),)),
+    9299: ((), (("Shadow Captured", "Shadow Viscera", 7),
+               ("Wraith Appeased", "Venerated Wraith", 7))),
+}
 #: The boss the source fights in its solo class.
 MIDNIGHT_BOSS = ("Sparagmos A.I. Defeated", "Sparagmos")
 
@@ -328,28 +365,38 @@ async def midnight_zone(cmd: Command, sea_voice: bool = False,
 
     await twilight_zone(cmd, sea_voice, cold_thunder)
 
-    await map_item_quest(cmd, 9292, MIDNIGHT_MAP, (11842, 11843, 11844), 1)
-
-    for quest_id, map_items, hunts in MIDNIGHT_HANDS:
+    async def hand(quest_id: int) -> None:
         if await cmd.is_completed_before(quest_id):
-            continue
-        await cmd.ensure_accept_quest(quest_id)
+            return
+        map_items, hunts = MIDNIGHT_HANDS[quest_id]
+        if await cmd.ensure_accept_quest(quest_id) is False:
+            raise CustomError(f"quest {quest_id} could not be accepted")
         await cmd.join_map(MIDNIGHT_MAP)
         for item_id, qty in map_items:
             await cmd.get_map_item(item_id, qty)
         for item, monster, qty in hunts:
             await hunt_item(cmd, item, qty, MIDNIGHT_MAP, monster_name=monster)
-        await cmd.ensure_turn_in_quest(quest_id)
+        if await cmd.ensure_turn_in_quest(quest_id) is False:
+            raise CustomError(f"quest {quest_id} could not be turned in")
 
+    await map_item_quest(cmd, 9292, MIDNIGHT_MAP, (11842, 11843, 11844), 1)
+    await hand(9293)
+    await hand(9294)
+    await hand(9295)
+    await hand(9296)
+    await hand(9297)
     await kill_quest(cmd, 9298, MIDNIGHT_MAP, "Venerated Wraith")
+    await hand(9299)
     await map_item_quest(cmd, 9300, MIDNIGHT_MAP, 11849, 4)
     await map_item_quest(cmd, 9300, MIDNIGHT_MAP, 11850, 1)
 
     await equip_class(cmd, solo=True)
-    await cmd.ensure_accept_quest(MIDNIGHT_LAST)
+    if await cmd.ensure_accept_quest(MIDNIGHT_LAST) is False:
+        raise CustomError(f"quest {MIDNIGHT_LAST} could not be accepted")
     await hunt_item(cmd, MIDNIGHT_BOSS[0], 1, MIDNIGHT_MAP,
                     monster_name=MIDNIGHT_BOSS[1])
-    await cmd.ensure_turn_in_quest(MIDNIGHT_LAST)
+    if await cmd.ensure_turn_in_quest(MIDNIGHT_LAST) is False:
+        raise CustomError(f"quest {MIDNIGHT_LAST} could not be turned in")
 
 
 ABYSSAL_LAST = 9315
@@ -389,13 +436,15 @@ async def abyssal_zone(cmd: Command, sea_voice: bool = False,
         map_items, hunts, solo = ABYSSAL_HANDS[quest_id]
         if solo:
             await equip_class(cmd, solo=True)
-        await cmd.ensure_accept_quest(quest_id)
+        if await cmd.ensure_accept_quest(quest_id) is False:
+            raise CustomError(f"quest {quest_id} could not be accepted")
         await cmd.join_map(ABYSSAL_MAP)
         for item_id, qty in map_items:
             await cmd.get_map_item(item_id, qty)
         for item, monster, qty in hunts:
             await hunt_item(cmd, item, qty, ABYSSAL_MAP, monster_name=monster)
-        await cmd.ensure_turn_in_quest(quest_id)
+        if await cmd.ensure_turn_in_quest(quest_id) is False:
+            raise CustomError(f"quest {quest_id} could not be turned in")
 
     await hand(9306)
     await map_item_quest(cmd, 9307, ABYSSAL_MAP, 11893, 6)
@@ -452,13 +501,15 @@ async def deep_water(cmd: Command, panopticon_merge: bool = False,
         map_items, hunts, solo = DEEPWATER_HANDS[quest_id]
         if solo:
             await equip_class(cmd, solo=True)
-        await cmd.ensure_accept_quest(quest_id)
+        if await cmd.ensure_accept_quest(quest_id) is False:
+            raise CustomError(f"quest {quest_id} could not be accepted")
         await cmd.join_map(DEEPWATER_MAP)
         for item_id, qty in map_items:
             await cmd.get_map_item(item_id, qty)
         for item, monster, qty in hunts:
             await hunt_item(cmd, item, qty, DEEPWATER_MAP, monster_name=monster)
-        await cmd.ensure_turn_in_quest(quest_id)
+        if await cmd.ensure_turn_in_quest(quest_id) is False:
+            raise CustomError(f"quest {quest_id} could not be turned in")
 
     await hand(9329)
     await hand(9330)
@@ -573,7 +624,9 @@ async def sea_voice(cmd: Command) -> None:
     await mana_cradle(cmd)
     await deep_water(cmd)
 
-    await cmd.ensure_accept_quest(SEAVOICE_LAST)
+    if await cmd.ensure_accept_quest(SEAVOICE_LAST) is False:
+        raise CustomError(f"quest {SEAVOICE_LAST} could not be accepted")
     await kill_thing(cmd, SEAVOICE_MAP, KILL_THING_ITEM, VIGIL, is_temp=True)
-    await cmd.ensure_turn_in_quest(SEAVOICE_LAST)
+    if await cmd.ensure_turn_in_quest(SEAVOICE_LAST) is False:
+        raise CustomError(f"quest {SEAVOICE_LAST} could not be turned in")
     await cmd.sell_item(VIGIL, VIGIL_QTY)
