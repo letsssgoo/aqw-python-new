@@ -153,10 +153,11 @@ async def start_buy_all_merge(cmd: Command, map_name: str, shop_id: int,
         cmd (Command): Facade to act through.
         map_name (str): Map the shop lives in.
         shop_id (int): Shop to empty.
-        find_ingredients (Callable | None): ``async (item_id, name, qty)``,
-            the merge script's own farmer for items the shop does not sell.
-            The reference reaches it through its ``externalItem`` fields; the
-            three values are handed over as arguments instead.
+        find_ingredients (Callable | None): ``async (cmd, item_id, name,
+            qty)``, the merge script's own farmer for items the shop does not
+            sell.  The reference reaches it through its ``externalItem``
+            fields; the same values are handed over as arguments instead, with
+            the command facade first so the farmer can act.
         buy_only_this (str | None): The reference's ``buyOnlyThis``.
         item_blacklist (Sequence[str]): Names to skip.
         shop_item_id (int): Which entry to take when a name repeats.
@@ -184,6 +185,12 @@ async def start_buy_all_merge(cmd: Command, map_name: str, shop_id: int,
         if _held_by_id(cmd, entry.item_id) >= 1:
             cmd.bot.log(f'[merge] "{name}" is already owned.')
             continue
+        if entry.merge_requirements:
+            # The recipe comes from the live ``loadShop`` payload, never from
+            # this file: printing it makes a shop's own numbers (30 vs 50) show
+            # up in the run instead of only in the merge walk.
+            cmd.bot.log(f'[merge] "{name}" recipe: ' + ", ".join(
+                f"{n} x{q}" for _, n, q in entry.merge_requirements))
         cmd.bot.log(f'[merge] farming for "{name}"')
         await _merge_item(cmd, map_name, shop_id, entry, 1, find_ingredients, 0)
         await _open_shop(cmd, map_name, shop_id)
@@ -233,7 +240,7 @@ async def _merge_item(cmd: Command, map_name: str, shop_id: int, entry,
             cmd.bot.log(f'[merge] "{name}" is not in shop {shop_id}; asking '
                         f'the merge script for x{need}')
             cmd.add_drop(name)
-            await find_ingredients(item_id, name, need)
+            await find_ingredients(cmd, item_id, name, need)
         else:
             cmd.bot.log(f'[merge] "{name}" is not in shop {shop_id} and no '
                         f'merge script was given; skipping it.')

@@ -419,41 +419,45 @@ def main() -> None:
     assert "whitemap" in aor_body, "the source's own map reset for 9213"
     print("AOR        : TerminaTemple, gate 10438/9351/9851 by option")
 
+    def _order(body: str) -> list:
+        return [m.group(1) or m.group(2) or m.group(3) for m in _re.finditer(
+            r"hand\((\d+)\)|kill_quest\(cmd,\s*(\d+)|map_item_quest\(cmd,\s*(\d+)",
+            body)]
+
     av = aor_body[aor_body.index("async def ashray_village("):aor_body.index("SUNLIGHT_LAST")]
-    av_ids = [m.group(1) for m in _re.finditer(
-        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", av)]
-    assert av_ids == ["9225", "9227", "9230", "9233"], av_ids
-    assert [q for q, _, _ in core_aor.ASHRAY_HANDS] == [9226, 9228, 9229, 9231, 9232]
+    # Urutan eksekusi, bukan cuma isi tabel: sumber menyelipkan 9227 di antara
+    # 9226 dan 9228, dan 9230 di antara 9229 dan 9231.  Waktu tabelnya masih
+    # dijalankan sebagai satu blok, 9228 dijalankan sebelum 9227 -- quest-nya
+    # belum terbuka, map item 11665 ditolak, dan turn-in menjawab "Missing Quest
+    # Progress" untuk quest yang memang belum pernah diterima.
+    assert _order(av) == ["9225", "9226", "9227", "9228", "9229", "9230",
+                          "9231", "9232", "9233"], av
+    assert list(core_aor.ASHRAY_HANDS) == [9226, 9228, 9229, 9231, 9232]
     assert core_aor.ASHRAY_LAST == 9234
-    print("AOR ashray : 9225-9234, five hand blocks with their map items")
+    print("AOR ashray : 9225-9234 in source order, five hand blocks")
 
     sl = aor_body[aor_body.index("async def sunlight_zone("):aor_body.index("TWILIGHT_LAST")]
-    sl_ids = [m.group(1) for m in _re.finditer(
-        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", sl)]
-    assert sl_ids == ["9242", "9243", "9247"], sl_ids
-    assert [q for q, _, _ in core_aor.SUNLIGHT_HANDS] == [9244, 9245, 9246,
-                                                          9248, 9249, 9250]
+    assert _order(sl) == ["9242", "9243", "9244", "9245", "9246", "9247",
+                          "9248", "9249", "9250"], sl
+    assert list(core_aor.SUNLIGHT_HANDS) == [9244, 9245, 9246, 9248, 9249, 9250]
     assert core_aor.SUNLIGHT_LAST == 9251
 
     tw2 = aor_body[aor_body.index("async def twilight_zone("):aor_body.index("YULGAR_ARIA_LAST")]
-    tw2_ids = [m.group(1) for m in _re.finditer(
-        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", tw2)]
-    assert tw2_ids == ["9258", "9259", "9260", "9260", "9262", "9263", "9264",
-                       "9265"], tw2_ids
-    assert [q for q, _, _ in core_aor.TWILIGHT_HANDS] == [9261, 9266, 9267]
+    assert _order(tw2) == ["9258", "9259", "9260", "9260", "9261", "9262",
+                           "9263", "9264", "9265", "9266", "9267"], tw2
+    assert list(core_aor.TWILIGHT_HANDS) == [9261, 9266, 9267]
     assert core_aor.TWILIGHT_LAST == 9268
     print("AOR zones  : SunlightZone 9242-9251, TwilightZone 9258-9268")
 
     ya = aor_body[aor_body.index("async def yulgar_aria("):aor_body.index("MIDNIGHT_LAST")]
-    assert [m.group(1) for m in _re.finditer(
-        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", ya)] == ["9270", "9271", "9273"]
-    assert [q for q, _, _, _ in core_aor.YULGAR_HANDS] == [9272, 9274]
+    assert _order(ya) == ["9270", "9271", "9272", "9273", "9274"], ya
+    assert list(core_aor.YULGAR_HANDS) == [9272, 9274]
     assert core_aor.YULGAR_ARIA_LAST == 9274
 
     mz = aor_body[aor_body.index("async def midnight_zone("):aor_body.index("ABYSSAL_LAST")]
-    assert [m.group(1) for m in _re.finditer(
-        r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", mz)] == ["9292", "9298", "9300", "9300"]
-    assert [q for q, _, _ in core_aor.MIDNIGHT_HANDS] == [9293, 9294, 9295, 9296, 9297, 9299]
+    assert _order(mz) == ["9292", "9293", "9294", "9295", "9296", "9297",
+                          "9298", "9299", "9300", "9300"], mz
+    assert list(core_aor.MIDNIGHT_HANDS) == [9293, 9294, 9295, 9296, 9297, 9299]
     assert core_aor.MIDNIGHT_BOSS == ("Sparagmos A.I. Defeated", "Sparagmos")
     assert core_aor.MIDNIGHT_LAST == 9301
     print("AOR mid    : YulgarAria 9270-9274, MidnightZone 9292-9301")
@@ -512,6 +516,28 @@ def main() -> None:
     asyncio.run(_map_item_quest(cmd, 4811, "battleon", 1, 1))
     assert "Tainted Gem" in bot.items_drop_whitelist, bot.items_drop_whitelist
     print("rewards    : the story helper whitelists the quest's rewards")
+
+    # --- turn-in yang gagal menghentikan rantai, bukan dilewati ----------
+    # Dulu hasil `ensure_turn_in_quest` dibuang: quest 9228 gagal di-turn in,
+    # itemnya tidak pernah didapat, dan semua langkah sesudahnya ikut gagal
+    # tanpa satu baris pun yang menyebut quest itu.
+    from core.bot import CustomError
+
+    bot.loaded_quest_datas.append(_quest(4812))
+    saved_turn_in = cmd.ensure_turn_in_quest
+
+    async def _refuse_turn_in(quest_id, item_id=-1, amount=1):
+        return False
+
+    cmd.ensure_turn_in_quest = _refuse_turn_in
+    stopped = False
+    try:
+        asyncio.run(_map_item_quest(cmd, 4812, "battleon", 1, 1))
+    except CustomError:
+        stopped = True
+    cmd.ensure_turn_in_quest = saved_turn_in
+    assert stopped, "a failed turn-in has to stop the run"
+    print("turn-in   : a failed turn-in stops the story instead of being ignored")
 
     # --- paket %...% tidak boleh menyentuh `cmd` (UnboundLocalError) -----
     # `castWait`/`CatchResult` sempat ditaruh di cabang persen, tempat `cmd`

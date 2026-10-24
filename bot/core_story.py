@@ -26,6 +26,7 @@ Not portable, and not reproduced:
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 from core.command import Command
+from core.bot import CustomError
 from templates.hunt import (DEFAULT_SKILL_LIST, hunt_item,
                             kill_quest as _kill_quest, move_to_cell)
 
@@ -136,10 +137,10 @@ async def map_item_quest(cmd: Command, quest_id: int, map_name: str,
         wanted = [tuple(entry) if isinstance(entry, (tuple, list)) else (entry, qty)
                   for entry in entries]
 
-    if not await cmd.ensure_accept_quest(quest_id):
+    if await cmd.ensure_accept_quest(quest_id) is False:
         cmd.bot.log(f"[story] quest {quest_id} could not be accepted; nothing "
                     f"is farmed for it.")
-        return
+        raise CustomError(f"quest {quest_id} could not be accepted")
     # ``QuestProgression(GetReward: true)`` whitelists the quest's rewards so the
     # turn-in's item is picked up; the quest has to be loaded for its payload to
     # name them, which the accept above does.
@@ -149,7 +150,8 @@ async def map_item_quest(cmd: Command, quest_id: int, map_name: str,
     for item_id, count in wanted:
         for _ in range(count):
             await cmd.get_map_item(item_id)
-    await cmd.ensure_turn_in_quest(quest_id)
+    if await cmd.ensure_turn_in_quest(quest_id) is False:
+        raise CustomError(f"quest {quest_id} could not be turned in")
 
 
 async def kill_quest(cmd: Command, quest_id: int, map_name: str,
@@ -175,10 +177,10 @@ async def kill_quest(cmd: Command, quest_id: int, map_name: str,
                               skill_list=list(skill_list))
         return
 
-    if not await cmd.ensure_accept_quest(quest_id):
+    if await cmd.ensure_accept_quest(quest_id) is False:
         cmd.bot.log(f"[story] quest {quest_id} could not be accepted; nothing "
                     f"is hunted for it.")
-        return
+        raise CustomError(f"quest {quest_id} could not be accepted")
     cmd.add_quest_rewards(quest_id)
     quest = cmd.get_loaded_quest(quest_id)
     if quest is None:
@@ -190,4 +192,5 @@ async def kill_quest(cmd: Command, quest_id: int, map_name: str,
         await hunt_item(cmd, item, qty, map_name, monster_name=monster,
                         is_temp=is_temp,
                         skill_list=skill_list or DEFAULT_SKILL_LIST)
-    await cmd.ensure_turn_in_quest(quest_id)
+    if await cmd.ensure_turn_in_quest(quest_id) is False:
+        raise CustomError(f"quest {quest_id} could not be turned in")

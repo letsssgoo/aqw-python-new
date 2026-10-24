@@ -98,6 +98,13 @@ class Command:
     #: which no bail-out consults.
     ENSURE_MAX_ATTEMPTS: int = 60
 
+    #: Pause after each quest check.  A story guard walks its dependency chain
+    #: one quest at a time (Ashray -> Termina Temple -> Mana Cradle -> ...), and
+    #: back to back those probes read as a burst of ``ccqr`` lines rather than
+    #: as steps.  This is pacing for the log's sake only, so set it to 0 when
+    #: speed matters more than reading the run.
+    QUEST_GAP_MS: int = 1500
+
     #: How long ``join_map`` waits for the client to report the new map before
     #: giving up and letting the caller's own loop retry.  A transfer normally
     #: lands in about two seconds; the bound only covers a server that never
@@ -358,13 +365,16 @@ class Command:
         while(self.is_still_connected()):
             if hasattr(self.bot, "one_time_questid") and int(quest_id) in self.bot.one_time_questid:
                 self.is_completed_before_var = None
+                await self.sleep(self.QUEST_GAP_MS)
                 return True
             if self.is_completed_before_var is not None:
                 output = self.is_completed_before_var
                 self.is_completed_before_var = None
+                await self.sleep(self.QUEST_GAP_MS)
                 return output
             if time.time() - start_time > timeout_sec:
                 self.is_completed_before_var = None
+                await self.sleep(self.QUEST_GAP_MS)
                 return False
             await self.sleep(100)
         return False

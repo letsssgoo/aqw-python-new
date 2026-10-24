@@ -1,6 +1,6 @@
 import time
 
-from core.bot import Bot
+from core.bot import Bot, CustomError
 import commands as cmd
 from core.command import Command
 
@@ -333,14 +333,15 @@ async def kill_quest(
         hunt: bool = False,
         skill_list: list[int] = DEFAULT_SKILL_LIST
     ):
-    if not await cmd.ensure_accept_quest(quest_id):
+    if await cmd.ensure_accept_quest(quest_id) is False:
         cmd.bot.log(f"[quest] {quest_id} could not be accepted; nothing is "
                     f"hunted for it.")
-        return
+        raise CustomError(f"quest {quest_id} could not be accepted")
     cmd.add_quest_rewards(quest_id)     # QuestProgression(GetReward: true)
     
     if cmd.can_turnin_quest(quest_id):
-        await cmd.ensure_turn_in_quest(quest_id)
+        if await cmd.ensure_turn_in_quest(quest_id) is False:
+            raise CustomError(f"quest {quest_id} could not be turned in")
         return
     
     if cmd.is_not_in_map(map_name):
@@ -351,7 +352,8 @@ async def kill_quest(
     while cmd.is_still_connected():
         if cmd.can_turnin_quest(quest_id):
             await cmd.leave_combat()
-            await cmd.ensure_turn_in_quest(quest_id)
+            if await cmd.ensure_turn_in_quest(quest_id) is False:
+                raise CustomError(f"quest {quest_id} could not be turned in")
             return
         
         await attack_script(cmd, monster_name, hunt, skill_list)
