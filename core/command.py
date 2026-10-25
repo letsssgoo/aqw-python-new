@@ -183,6 +183,10 @@ class Command:
         from core.bot import Bot
         self.bot: Bot = bot
         self.last_skill_cast_ms: int = 0
+        #: Set by ``ensure_accept_quest`` when the accept was refused only
+        #: because the quest was already in progress from an earlier session --
+        #: the case whose server-side progress the client cannot see.
+        self.accept_was_resumed: bool = False
 
         if init_handler:
             self.bot.subscribe(self._message_handler)
@@ -217,6 +221,7 @@ class Command:
         """
         quest_id = normalize_quest_id(quest_id)
         attempts = 0
+        self.accept_was_resumed = False
         while self.quest_not_in_progress(quest_id) and self.is_still_connected():
             if quest_id in self.bot.failed_get_quest_datas:
                 # The refusal has two very different causes and the reply does
@@ -230,6 +235,7 @@ class Command:
                 await self.sleep(1000)
                 if self.quest_in_progress(quest_id):
                     self.bot.failed_get_quest_datas.remove(quest_id)
+                    self.accept_was_resumed = True
                     self.bot.log(f"[accept] quest {quest_id} was already in "
                                  f"progress; carrying on.")
                     return True
@@ -273,8 +279,17 @@ class Command:
                       f"the server; stopping." + Fore.RESET)
                 return False
             if not self.can_turnin_quest(quest_id):
+                # The client's view can lag the server's: a quest picked up
+                # again after a relog keeps its progress on the server while the
+                # temp items are gone from the client, and the server then
+                # refuses further map-item pickups.  One packet settles it --
+                # the reply either completes the quest or refuses the item.
+                await self.turn_in_quest(quest_id, item_id, amount)
+                await self.sleep(1000)
+                if not self.quest_in_progress(quest_id):
+                    return True
                 print(Fore.YELLOW + f"[turn-in] quest {quest_id} is in progress "
-                      f"but its requirements are not met; stopping." + Fore.RESET)
+                      f"but its requirements are not met." + Fore.RESET)
                 return False
             attempts += 1
             if attempts > max_attempts:
@@ -459,15 +474,22 @@ class Command:
                 await self.accept_quest(quest_id + i)
 
     @check_alive
-    async def register_quest(self, questId: int):
+    async def register_quest(self, questId: int) -> bool:
         """Register a quest for auto accept and complete system.
 
         Args:
-            questId (int): Identifier of the quest to register."""
+            questId (int): Identifier of the quest to register.
+
+        Returns:
+            bool: True when the quest is registered *and* in progress.  False
+            only when the accept was refused, which the caller has to report --
+            a registered quest that never got accepted never drops its reward.
+        """
         questId = normalize_quest_id(questId)
         if questId not in self.bot.registered_auto_quest_ids:
             self.bot.registered_auto_quest_ids.append(questId)
-            await self.ensure_accept_quest(questId)
+            return await self.ensure_accept_quest(questId)
+        return True
 
     def unregister_quest(self, quest_id: int) -> None:
         """Stop auto-accepting and auto-completing a registered quest (sync).
@@ -1277,7 +1299,10 @@ class Command:
             if detected_item_name and self.is_in_inventory(detected_item_name, qty, isTemp=True):
                 break
 
-            if attempts >= qty and not detected_item_name:
+            # One send per item is not enough: qty=1 used to give up after a
+            # single packet, so a reply slower than the 1.2 s sleep lost the
+            # pickup and the quest turned in short.
+            if attempts >= max(3, qty) and not detected_item_name:
                 break
 
     @check_alive

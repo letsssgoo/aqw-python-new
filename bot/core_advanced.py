@@ -164,7 +164,14 @@ async def farm_quest_reward(cmd: Command, quest_id: int, item_name: str,
     Returns:
         bool: True when the item is held.
     """
-    await cmd.register_quest(quest_id)
+    if (await cmd.register_quest(quest_id)) is False and not await cmd.has_item(
+            item_name, qty, isTemp=is_temp):
+        # A registered quest that never got accepted drops nothing, and the
+        # farm would spin its quiet passes before saying only "not acquired".
+        cmd.bot.log(f'[farm] quest {quest_id} could not be accepted; '
+                    f'"{item_name}" x{qty} is not farmable from it.')
+        cmd.unregister_quest(quest_id)
+        return False
     guard = cmd.pass_guard(f'"{item_name}" x{qty} (quest {quest_id})',
                            max_quiet_passes)
     while (cmd.is_still_connected()

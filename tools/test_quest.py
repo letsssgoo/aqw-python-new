@@ -148,8 +148,8 @@ def main() -> None:
     # --- ensure_* give up instead of hanging ------------------------
     # Both loops used to be unbounded: a quest the server never accepts (or
     # never lets you turn in) hung the bot with no message at all.  They now
-    # stop after ``max_attempts`` and return False, and they must not send a
-    # turn-in the server would only refuse again.
+    # stop after ``max_attempts`` and return False, and a turn-in the server
+    # would refuse is sent at most once (see the resumed-quest check below).
     bot.is_client_connected = True
     bot.player.ISDEAD = False
     accepts, turnins = [], []
@@ -214,16 +214,17 @@ def main() -> None:
 
     # not in progress -> nothing to do, and that counts as success
     assert asyncio.run(cmd.ensure_turn_in_quest(99999)) is True
-    # in progress but the requirements are not held: refuse to send anything
+    # in progress but the requirements are not held: one packet, then stop
     bot.loaded_quest_datas.append(
         _quest(4750, [{"ItemID": "22332", "iQty": "2"}]))
     bot.player.INVENTORY[0].qty = 1              # one short of the two needed
     assert cmd.can_turnin_quest(4750) is False
     assert asyncio.run(cmd.ensure_turn_in_quest(4750, max_attempts=3)) is False
-    assert turnins == [], turnins
-    print("ensure    : turn-in with unmet requirements sends nothing")
+    assert turnins == [4750], turnins
+    print("ensure    : unmet requirements -> one probe packet, then stop")
 
     # requirements met but the quest never leaves: capped, then reported
+    turnins.clear()
     bot.player.INVENTORY[0].qty = 2
     assert cmd.can_turnin_quest(4750) is True
     assert asyncio.run(cmd.ensure_turn_in_quest(4750, max_attempts=3)) is False
