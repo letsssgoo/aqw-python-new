@@ -63,6 +63,7 @@ class Player:
         self.BANK = []
         self.is_member = True
         self.LEVEL = 80
+        self.GOLD = 0
         self.temp = {}
 
     def get_item_inventory(self, name):
@@ -171,6 +172,9 @@ class Cand:
 
     async def join_map(self, name, room=None):
         self.calls.append(("join", name, room))
+
+    async def jump_cell(self, cell, pad="Left"):
+        self.calls.append(("cell", cell, pad))
 
     async def sleep(self, milliseconds):
         self.calls.append(("sleep", milliseconds))
@@ -1501,6 +1505,193 @@ try:
           ("cancel_quests",) in cmd.calls, True)
 finally:
     restore(dss, leaf)
+
+# ============================================================================
+# 19. XansLair and ArchPaladin
+# ============================================================================
+from bot.story import xans_lair as xl  # noqa: E402
+from bot.other.classes import arch_paladin as ap  # noqa: E402
+from bot.other.classes import paladin as pal  # noqa: E402
+
+xl_order = []
+
+
+async def xl_kill(cmd, quest, map_name, monster):
+    xl_order.append(f"kill{quest}")
+
+
+async def xl_map(cmd, quest, map_name, item_ids, qty=1):
+    xl_order.append(f"map{quest}")
+
+
+async def xl_hunt(cmd, item, qty, map_name, **kwargs):
+    xl_order.append(f"hunt:{item}")
+
+
+async def xl_prog(cmd, quest, *args, **kwargs):
+    return False
+
+
+leaf = patch(xl, kill_quest=xl_kill, map_item_quest=xl_map,
+             hunt_item=xl_hunt, quest_progression=xl_prog)
+try:
+    cmd = Cand()
+    cmd.completed = {1261, 1739, 1740, 2157}
+    xl_order.clear()
+    run(xl.do_all(cmd))
+    check("xanslair: a done story does nothing", xl_order, [])
+
+    cmd = Cand()
+    xl_order.clear()
+    run(xl.do_all(cmd))
+    check("xanslair: volcano starts at 1242", xl_order[0], "kill1242")
+    check("xanslair: the four regions run in order",
+          [c[1] for c in cmd.calls if c[0] == "accept"][:1], [1243])
+    check("xanslair: xantown jumps to the safe cell",
+          ("cell", "r12", "Left") in cmd.calls, True)
+    check("xanslair: Warlic's cave is last",
+          [entry for entry in xl_order if entry.startswith("map")][-1], "map2157")
+finally:
+    restore(xl, leaf)
+
+ap_order = []
+
+
+async def ap_good(cmd, rank=10):
+    ap_order.append("good_rep")
+
+
+async def ap_quest(cmd, quest_id, body):
+    ap_order.append(f"quest{quest_id}")
+    await body()
+
+
+async def ap_hunt(cmd, item, qty, map_name, **kwargs):
+    ap_order.append(f"hunt:{item}")
+
+
+async def ap_buy(cmd, shop, item, qty=1, map_name=None, shop_item_id=0):
+    ap_order.append(("buy", shop, item if isinstance(item, str) else "id"))
+
+
+async def ap_rank(cmd, name="", item_id=0, gear_restore=True):
+    ap_order.append(f"rank:{name}")
+
+
+async def ap_gear(cmd, restore=False, enh_after=False):
+    ap_order.append(f"gear{int(restore)}")
+
+
+async def ap_paladin(cmd, *args, **kwargs):
+    ap_order.append("paladin")
+
+
+async def ap_member(cmd):
+    return False
+
+
+async def ap_equip(cmd, solo=False):
+    ap_order.append(f"equip{int(solo)}")
+
+
+async def ap_chain(cmd, quest, item_id=-1):
+    ap_order.append(f"chain{quest}")
+    return True
+
+
+async def _ap_gold(cmd, quant=0):
+    ap_order.append("farm_gold")
+
+
+async def _ap_bu(cmd, *args, **kwargs):
+    ap_order.append("battle_under_b")
+
+
+async def _ap_blod(cmd, *args, **kwargs):
+    ap_order.append("unlock_mine_crafting")
+
+
+async def _ap_kitten(cmd, *args, **kwargs):
+    ap_order.append("doom_kitten")
+
+
+async def _ap_xan(cmd, *args, **kwargs):
+    ap_order.append("xans_lair")
+
+
+async def _ap_sc(cmd, rank=10):
+    ap_order.append("spellcrafting_rep")
+
+
+leaf = patch(ap, good_rep=ap_good, _quest=ap_quest, hunt_item=ap_hunt,
+             buy_item=ap_buy, advance_class=ap_rank, gear_store=ap_gear,
+             get_paladin=ap_paladin, equip_class=ap_equip,
+             chain_complete=ap_chain, farm_gold=_ap_gold,
+             battle_under_b=_ap_bu, unlock_mine_crafting=_ap_blod,
+             kill_doom_kitten=_ap_kitten, xans_lair_do_all=_ap_xan,
+             spellcrafting_rep=_ap_sc)
+try:
+    cmd = Cand([ItemInventory({"sName": "ArchPaladin", "ItemID": 36920,
+                               "iQty": 1})])
+    ap_order.clear()
+    run(ap.get_ap(cmd))
+    check("archpaladin: owned -> ranked", ap_order, ["rank:ArchPaladin"])
+
+    cmd = Cand()
+    cmd.bot.player.is_member = False
+    ap_order.clear()
+    run(ap.get_ap(cmd, rank_up_class=False))
+    check("archpaladin: Good rep first", ap_order[0], "good_rep")
+    check("archpaladin: the quests in the source's order",
+          [entry for entry in ap_order
+           if isinstance(entry, str) and entry.startswith("quest")],
+          ["quest5463", "quest5464", "quest5465", "quest5466", "quest5467",
+           "quest5468", "quest5469", "quest5470"])
+    check("archpaladin: bought at darkthronehub 1303",
+          ap_order[-1], ("buy", 1303, "id"))
+
+    cmd = Cand()                       # member by default in the stub
+    ap_order.clear()
+    run(ap.get_ap(cmd, rank_up_class=False))
+    check("archpaladin: the member path uses Paladin + the oaths",
+          [entry for entry in ap_order
+           if isinstance(entry, str) and entry.startswith("chain54")],
+          ["chain5471", "chain5472", "chain5473"])
+    check("archpaladin: the member aptitude is 5474",
+          "quest5474" in ap_order, True)
+finally:
+    restore(ap, leaf)
+
+pal_order = []
+
+
+async def pal_buy(cmd, shop, item, qty=1, map_name=None, shop_item_id=0):
+    pal_order.append(item)
+
+
+async def pal_rank(cmd, name="", item_id=0, gear_restore=True):
+    pal_order.append(f"rank:{name}")
+
+
+async def pal_rep(cmd, rank=10):
+    pal_order.append(f"good{rank}")
+
+
+leaf = patch(pal, buy_item=pal_buy, advance_class=pal_rank, good_rep=pal_rep)
+try:
+    cmd = Cand()
+    run(pal.get_paladin(cmd))
+    check("paladin: Warrior, Healer, rank both, rep, then the class", pal_order,
+          ["Warrior", "Healer", "rank:Warrior", "rank:Healer", "good5",
+           "Paladin", "rank:Paladin"])
+
+    cmd = Cand()
+    cmd.bot.player.is_member = False
+    pal_order.clear()
+    run(pal.get_paladin(cmd))
+    check("paladin: members only", pal_order, [])
+finally:
+    restore(pal, leaf)
 
 print(f"passed {passed}   failed {len(failures)}")
 if failures:

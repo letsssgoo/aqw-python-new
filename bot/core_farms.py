@@ -26,7 +26,7 @@ import time
 from typing import Awaitable, Callable, Optional, Sequence, Tuple
 
 from bot.core_bots import (Alignment, REP_THRESHOLDS, buy_item, can_we_aggro,
-                           change_alignment, check_save_state,
+                           chain_complete, change_alignment, check_save_state,
                            equip_class, execute_save_state, kill_once,
                            saved_state, wait_for_item)
 from core.command import Command
@@ -1057,6 +1057,80 @@ async def glacera_rep(cmd: Command, rank: int = 10) -> None:
     saved_state(cmd, False)
 
 
+# ---------------------------------------------------------------------------
+# SpellCrafting
+# ---------------------------------------------------------------------------
+SPELLCRAFTING = "SpellCrafting"
+SPELLCRAFTING_START_QUEST = 2260
+SPELLCRAFTING_QUILL_QUEST = 2299
+SPELLCRAFTING_INK_QUEST = 2322
+SPELLCRAFTING_SHOP = 549
+SPELLCRAFTING_SHOP_MAP = "dragonrune"
+SPELLCRAFTING_INK = "Ember Ink"
+SPELLCRAFTING_HALLOW_INK = "Hallow Ink"
+
+
+async def spellcrafting_rep(cmd: Command, rank: int = 10) -> None:
+    """``CoreFarms.SpellCraftingREP``: quests 2260/2299/2322.
+
+    The rank-4 band runs in /mobius, whose SWF the reference loads client-side;
+    :func:`bot.nation.core_nation.join_swf` is the port's equivalent (join + the
+    cell), which is all this engine can do with a retired map asset.
+    """
+    from bot.nation.core_nation import join_swf
+
+    if cmd.get_faction_rank(SPELLCRAFTING) >= rank:
+        return
+
+    cmd.add_drop(["Mystic Quills", "Mystic Parchment"])
+    await equip_class(cmd)
+    cmd.bot.log(f"Farming rank {rank}")
+
+    if cmd.get_faction_rank(SPELLCRAFTING) == 0:
+        if check_save_state(cmd):
+            await execute_save_state(cmd)
+        if await cmd.ensure_accept_quest(SPELLCRAFTING_START_QUEST) is False:
+            cmd.bot.log(f"[farm] quest {SPELLCRAFTING_START_QUEST} could not be "
+                        f"accepted; SpellCrafting stops here.")
+            return
+        await cmd.join_map(SPELLCRAFTING_SHOP_MAP)
+        await cmd.get_map_item(1920, 1)
+        await hunt_item(cmd, "Arcane Parchment", 13, "castleundead",
+                        monster_name="Skeletal Warrior")
+        await cmd.ensure_turn_in_quest(SPELLCRAFTING_START_QUEST)
+
+    if cmd.get_faction_rank(SPELLCRAFTING) < 4:
+        await join_swf(cmd, "mobius", "Slugfit", "Bottom")
+        await hunt_item(cmd, "Mystic Quills", 10, "mobius",
+                        monster_name="Slugfit")
+        await buy_item(cmd, SPELLCRAFTING_SHOP, SPELLCRAFTING_INK, 50,
+                       map_name=SPELLCRAFTING_SHOP_MAP)
+        while (cmd.is_still_connected()
+               and await cmd.has_item(SPELLCRAFTING_INK)
+               and cmd.get_faction_rank(SPELLCRAFTING) < 4):
+            await chain_complete(cmd, SPELLCRAFTING_QUILL_QUEST)
+
+    saved_state(cmd, True, "underworld")
+    while (cmd.is_still_connected()
+           and cmd.get_faction_rank(SPELLCRAFTING) < rank):
+        if check_save_state(cmd):
+            await execute_save_state(cmd)
+        await hunt_item(cmd, "Mystic Parchment", 10, "underworld",
+                        monster_name="Skull Warrior")
+        await buy_item(cmd, SPELLCRAFTING_SHOP, SPELLCRAFTING_HALLOW_INK, 50,
+                       map_name=SPELLCRAFTING_SHOP_MAP)
+        while (cmd.is_still_connected()
+               and await cmd.has_item(SPELLCRAFTING_HALLOW_INK)
+               and cmd.get_faction_rank(SPELLCRAFTING) < rank):
+            await chain_complete(cmd, SPELLCRAFTING_INK_QUEST)
+    saved_state(cmd, False)
+
+    for ink in (SPELLCRAFTING_INK, SPELLCRAFTING_HALLOW_INK):
+        held = cmd.get_quant_item(ink)
+        if held:
+            await cmd.sell_item(ink, held)
+
+
 #: Faction name -> the ported method, mirroring ``CoreFarms.<Name>REP``.
 FACTION_FARMS = {
     "Good": good_rep,
@@ -1068,6 +1142,7 @@ FACTION_FARMS = {
     "ChronoSpan": chronospan_rep,
     "CraggleRock": craggle_rock_rep,
     "Glacera": glacera_rep,
+    "SpellCrafting": spellcrafting_rep,
 }
 
 async def farm_faction(cmd: Command, faction: str, rank: int = 10) -> bool:

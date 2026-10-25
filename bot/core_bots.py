@@ -784,3 +784,61 @@ async def kill_once(cmd: Command, map_name: str = "", cell: str = "",
     cmd.bot.log(f"[core] nothing died in {map_name or 'this map'} "
                 f"({monster}); carrying on.")
     return False
+
+
+# ---------------------------------------------------------------------------
+# DoomKitten
+# ---------------------------------------------------------------------------
+#: ``KillDoomKitten``'s recommended classes, in the reference's order.
+DOT_CLASSES = (
+    "Dragon of Time", "Blaze Binder", "FireLord Summoner",
+    "ShadowStalker of Time", "ShadowWeaver of Time", "ShadowWalker of Time",
+    "Infinity Knight", "Interstellar Knight", "Timeless Dark Caster",
+    "Frostval Barbarian", "DeathKnight", "DragonSoul Shinobi",
+    "Shadow Dragon Shinobi", "Legion Revenant", "Void Highlord",
+)
+DOOM_KITTEN_MAP = "doomkitten"
+
+
+async def kill_doom_kitten(cmd: Command, item: str = None, quant: int = 1,
+                           is_temp: bool = False, log: bool = True) -> None:
+    """``CoreBots.KillDoomKitten``: fight DoomKitten until its drop lands.
+
+    The reference equips the first owned class from its DoT list, then runs one
+    of three class-specific skill rotations (Shinobi, BlazeBinder, generic).  The
+    class pick and the map are reproduced here; the rotations are not -- this
+    engine casts the caller's normal rotation -- so the fight is slower on those
+    two classes, never wrong about what it is doing.
+
+    Args:
+        cmd (Command): Facade to act through.
+        item (str): Drop to wait for; ``None`` kills once.
+        quant (int): How many.
+        is_temp (bool): Whether the drop lands in the temporary bag.
+        log (bool): Kept for signature parity; the class pick always reports.
+    """
+    if item is not None and await cmd.has_item(item, quant, isTemp=is_temp):
+        return
+
+    owned = None
+    for class_name in DOT_CLASSES:
+        if await cmd.has_item(class_name):
+            owned = class_name
+            break
+    if owned is not None:
+        await cmd.equip_item(owned)
+    else:
+        cmd.bot.log("No recommended DoT class found - using the equipped class.")
+        cmd.bot.log("Suggested Classes: " + ", ".join(DOT_CLASSES))
+
+    await cmd.join_map(DOOM_KITTEN_MAP)
+
+    if item is None:
+        await kill_once(cmd, DOOM_KITTEN_MAP, monster="*")
+        await cmd.sleep(500)
+        return
+
+    if await cmd.has_item(item, quant, isTemp=is_temp):
+        return
+    await kill_once(cmd, DOOM_KITTEN_MAP, monster="*")
+    await wait_for_item(cmd, item, quant)

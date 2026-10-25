@@ -353,7 +353,7 @@ def main() -> None:
                      "smart_enhance", "vim", "pneuma", "examen", "anima",
                      "get_ds_general", "get_burning_blade", "blade_of_awe_rep",
                      "get_ssorc", "get_blaze_binder", "get_dragonslayer",
-                     "get_cryomancer", "get_gb", "get_dss")}
+                     "get_cryomancer", "get_gb", "get_dss", "get_ap")}
 
     async def fake_exp(cmd, level=100, rank_up_class=False):
         levels.append(level)
@@ -489,7 +489,7 @@ def main() -> None:
                shops=[_Shop(308, ["Horc Evader"])])
     forged = []
     real_porters = {name: getattr(joe, name) for name in
-                    ("smite", "vim", "pneuma", "examen", "anima")}
+                    ("smite", "vim", "pneuma", "examen", "anima", "get_ap")}
 
     async def spy_porter(cmd, *args, **kwargs):
         forged.append("ran")
@@ -502,11 +502,13 @@ def main() -> None:
         for name, fn in real_porters.items():
             setattr(joe, name, fn)
     assert ("buy_item", 308, "horc evader", 1, 0) in h70.calls, h70.calls
-    assert forged == ["ran"] * 5, forged
+    assert forged == ["ran"] * 6, forged
     assert "unlocking the easy lvl 70 forge enhs" in h70.bot.logs, h70.bot.logs
     assert any(line.startswith("Geting Horc Evader")
                for line in h70.bot.logs), h70.bot.logs
-    print("bracket70  : buys the Horc Evader, runs Smite + the four helm quests")
+    assert any(line.startswith("Level 70: Acquiring ArchPaladin")
+               for line in h70.bot.logs), h70.bot.logs
+    print("bracket70  : Horc Evader, Smite + four helm quests, then ArchPaladin")
 
     # --- bracket 50: the two ported pieces, Scarlet still reported --------
     h50 = Stub(solo="King's Echo", classes_held=["King's Echo"])

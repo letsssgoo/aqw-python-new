@@ -44,6 +44,7 @@ from bot.enhancements.examen import examen
 from bot.enhancements.vim import vim
 from bot.nation.afdl.enough_doom_for_an_archfiend import afdl
 from bot.nation.vhl.core_vhl import get_vhl
+from bot.other.classes.arch_paladin import get_ap
 from bot.other.classes.blaze_binder import get_class as get_blaze_binder
 from bot.other.classes.cryomancer import get_cryomancer
 from bot.other.classes.dragon_shinobi import get_dss
@@ -654,7 +655,7 @@ async def _handle_level_70(cmd: Command) -> None:
             and any_rank10(cmd, ["ArchPaladin"])):
         cmd.bot.log("Level 70: Acquiring ArchPaladin")
         await set_class(cmd)
-        report_once(cmd, "archpaladin", "ArchPaladin.GetAP is not ported.")
+        await get_ap(cmd)
 
 
 async def _handle_level_75(cmd: Command) -> None:
