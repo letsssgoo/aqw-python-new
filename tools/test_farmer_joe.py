@@ -335,7 +335,7 @@ def main() -> None:
     real_vhl = joe.get_vhl
     real_porters = {name: getattr(joe, name) for name in
                     ("forge_helm_enhancement", "lacerate", "smite", "afdl",
-                     "smart_enhance")}
+                     "smart_enhance", "vim", "pneuma", "examen", "anima")}
 
     async def fake_exp(cmd, level=100, rank_up_class=False):
         levels.append(level)
@@ -470,24 +470,25 @@ def main() -> None:
     h70 = Stub(solo="King's Echo", classes_held=["King's Echo"],
                shops=[_Shop(308, ["Horc Evader"])])
     forged = []
-    real_smite = joe.smite
+    real_porters = {name: getattr(joe, name) for name in
+                    ("smite", "vim", "pneuma", "examen", "anima")}
 
-    async def spy_smite(cmd):
-        forged.append("smite")
+    async def spy_porter(cmd, *args, **kwargs):
+        forged.append("ran")
 
-    joe.smite = spy_smite
+    for name in real_porters:
+        setattr(joe, name, spy_porter)
     try:
         asyncio.run(joe._handle_level_70(h70))
     finally:
-        joe.smite = real_smite
+        for name, fn in real_porters.items():
+            setattr(joe, name, fn)
     assert ("buy_item", 308, "horc evader", 1, 0) in h70.calls, h70.calls
-    assert forged == ["smite"], forged
+    assert forged == ["ran"] * 5, forged
     assert "unlocking the easy lvl 70 forge enhs" in h70.bot.logs, h70.bot.logs
     assert any(line.startswith("Geting Horc Evader")
                for line in h70.bot.logs), h70.bot.logs
-    assert any("Vim/Pneuma/Examen/Anima are not ported" in line
-               for line in h70.bot.logs), h70.bot.logs
-    print("bracket70  : buys the Horc Evader, runs Smite, reports the other four")
+    print("bracket70  : buys the Horc Evader, runs Smite + the four helm quests")
 
     h30 = Stub(solo="King's Echo", classes_held=["King's Echo"],
                inventory={"Venom Head": 1},

@@ -154,6 +154,9 @@ class Cand:
     async def has_item(self, name, qty=1, isTemp=False):
         return self.bot.player.get_item_inventory(name) is not None
 
+    async def sell_item(self, name, qty=1):
+        self.calls.append(("sell", name, qty))
+
     async def jump_cell(self, cell, pad="Left"):
         self.calls.append(("cell", cell, pad))
 
@@ -597,6 +600,102 @@ try:
     check("quest_complete: accepted first", cmd.calls[0], ("accept", 915))
 finally:
     restore(story, saved)
+
+# ============================================================================
+# 11. Vim / Examen / Anima / Pneuma -- the chain, its order and its guards
+# ============================================================================
+from bot.enhancements import vim as vim_mod  # noqa: E402
+from bot.enhancements import anima as anima_mod  # noqa: E402
+from bot.enhancements import examen as examen_mod  # noqa: E402
+from bot.enhancements import pneuma as pneuma_mod  # noqa: E402
+
+order = []
+
+
+async def rec_forge(cmd, use_gold=False):
+    order.append("forge_helm")
+
+
+async def rec_rep(cmd, rank=10, use_gold=False, bulk=False):
+    order.append(f"rep{rank}")
+
+
+async def rec_gear(cmd, restore=False, enh_after=False):
+    order.append(f"gear{int(restore)}")
+
+
+async def rec_buy(cmd, shop, item, qty=1, map_name=None, shop_item_id=0):
+    order.append(f"buy:{item}")
+
+
+async def rec_rank(cmd, name="", item_id=0, gear_restore=True):
+    order.append(f"rank:{name}")
+
+
+async def rec_equip(cmd, solo=False):
+    order.append("equip")
+
+
+async def rec_hunt(cmd, item, qty, map_name, **kwargs):
+    order.append(f"hunt:{item}x{qty}")
+
+
+leaf = patch(vim_mod, forge_helm_enhancement=rec_forge,
+             blacksmithing_rep=rec_rep, gear_store=rec_gear, buy_item=rec_buy,
+             rank_up_class=rec_rank, equip_class=rec_equip, hunt_item=rec_hunt)
+try:
+    cmd = Cand()
+    cmd.completed = {8824}
+    order.clear()
+    run(vim_mod.vim(cmd))
+    check("vim: a done quest does nothing", order, [])
+    check("vim: nothing was accepted",
+          [c for c in cmd.calls if c[0] == "accept"], [])
+
+    cmd = Cand()
+    order.clear()
+    run(vim_mod.vim(cmd))
+    check("vim: the source's order", order, [
+        "forge_helm", "rep7", "gear0", "buy:Rogue", "rank:Rogue", "gear1",
+        "equip", "hunt:Ethereal Essencex250"])
+    check("vim: accepted then turned in",
+          [c[0] for c in cmd.calls if c[0] in ("accept", "turnin")],
+          ["accept", "turnin"])
+    check("vim: the turn-in is for 8824", cmd.calls[-1], ("turnin", 8824, -1))
+
+    cmd = Cand()
+    order.clear()
+    run(vim_mod.vim(cmd, sell_quest_class=True))
+    check("vim: sells the class when asked", cmd.calls[-1], ("sell", "Rogue", 1))
+
+    # The chain: Pneuma pulls Anima -> Examen -> Vim, in that order.
+    cmd = Cand()
+    order.clear()
+    run(pneuma_mod.pneuma(cmd))
+    accepted = [c[1] for c in cmd.calls if c[0] == "accept"]
+    check("chain: every quest in order", accepted, [8824, 8825, 8826, 8827])
+    check("chain: each class is ranked",
+          [entry for entry in order if entry.startswith("rank:")],
+          ["rank:Rogue", "rank:Healer", "rank:Warrior", "rank:Mage"])
+    check("chain: essence amounts",
+          [entry for entry in order if entry.startswith("hunt:")],
+          ["hunt:Ethereal Essencex250", "hunt:Ethereal Essencex250",
+           "hunt:Ethereal Essencex650", "hunt:Ethereal Essencex650"])
+    check("chain: Blacksmithing is farmed once",
+          [entry for entry in order if entry.startswith("rep")], ["rep7"])
+
+    cmd = Cand()
+    cmd.completed = {8825, 8826, 8827}
+    order.clear()
+    run(examen_mod.examen(cmd))
+    check("examen: a done quest does nothing", order, [])
+    cmd = Cand()
+    cmd.completed = {8827}
+    order.clear()
+    run(anima_mod.anima(cmd))
+    check("anima: pulls examen only", order.count("rep7"), 1)
+finally:
+    restore(vim_mod, leaf)
 
 print(f"passed {passed}   failed {len(failures)}")
 if failures:

@@ -34,9 +34,13 @@ from bot.core_advanced import gear_store, rank_up_class, smart_enhance
 from bot.core_bots import buy_item, equip_class, farming_logger
 from bot.core_dailies import elders_blood
 from bot.core_farms import farm_experience
+from bot.enhancements.anima import anima
 from bot.enhancements.forge_helm import forge_helm_enhancement
 from bot.enhancements.lacerate import lacerate
+from bot.enhancements.pneuma import pneuma
 from bot.enhancements.smite import smite
+from bot.enhancements.examen import examen
+from bot.enhancements.vim import vim
 from bot.nation.afdl.enough_doom_for_an_archfiend import afdl
 from bot.nation.vhl.core_vhl import get_vhl
 from bot.other.classes.rep_based.master_ranger import get_mr
@@ -591,7 +595,10 @@ async def _handle_level_55(cmd: Command) -> None:
             and any_rank10(cmd, ["Cryomancer"])):
         cmd.bot.log("Level 55: Acquiring Cryomancer")
         await set_class(cmd)
-        report_once(cmd, "cryomancer", "Cryomancer.DoCryomancer is not ported.")
+        report_once(
+            cmd, "cryomancer",
+            "Cryomancer.DoCrymancer needs Glac.DoAll (the Glacera story) before "
+            "the Cryomancer daily; that story is not ported.")
 
 
 async def _handle_level_60(cmd: Command) -> None:
@@ -627,9 +634,10 @@ async def _handle_level_70(cmd: Command) -> None:
 
     cmd.bot.log("unlocking the easy lvl 70 forge enhs")
     await smite(cmd)
-    report_once(cmd, "forge_easy_missing",
-                "UnlockForgeEnhancements Vim/Pneuma/Examen/Anima are not ported; "
-                "Smite is, and ran.")
+    await vim(cmd)
+    await pneuma(cmd)
+    await examen(cmd)
+    await anima(cmd)
 
     if not (await cmd.has_item("ArchPaladin")
             and any_rank10(cmd, ["ArchPaladin"])):
