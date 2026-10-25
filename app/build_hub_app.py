@@ -434,11 +434,12 @@ class BotThread(threading.Thread):
             self.loop.close()
 
 class SlaveBotThread(threading.Thread):
-    def __init__(self, username, password, char_class, config, callback, skills="1,2,3,4", hp_operator="<", hp_threshold=0, hp_skills="", mp_operator="<", mp_threshold=0, mp_skills="", taunter=False, taunt_coordinator=None, follow_player=None):
+    def __init__(self, username, password, char_class, config, callback, skills="1,2,3,4", hp_operator="<", hp_threshold=0, hp_skills="", mp_operator="<", mp_threshold=0, mp_skills="", taunter=False, taunt_coordinator=None):
         super().__init__()
         self.username = username
         self.password = password
         self.char_class = char_class
+        #: Global settings with this account's overrides already applied.
         self.config = config
         self.callback = callback
         self.skills = skills
@@ -450,10 +451,6 @@ class SlaveBotThread(threading.Thread):
         self.mp_skills = mp_skills
         self.taunter = taunter
         self.taunt_coordinator = taunt_coordinator
-        #: Master this account follows, already resolved by the caller: its own
-        #: entry, else the global setting.
-        self.follow_player = (follow_player if follow_player is not None
-                              else config.get("follow_player", ""))
         self.bot_instance = None
         self.loop = None
         self.daemon = True
@@ -473,7 +470,7 @@ class SlaveBotThread(threading.Thread):
                 showDebug=False,
                 showChat=True,
                 isScriptable=True,
-                followPlayer=self.follow_player,
+                followPlayer=self.config.get("follow_player", ""),
                 farmClass=self.char_class,
                 autoRelogin=True,
                 muteSpamWarning=True,
@@ -1206,18 +1203,55 @@ class AqwSoloApi:
             return {"running": False, "error": str(e),
                     "inventory": [], "bank": [], "temp": []}
 
-def resolve_master(slave, config):
-    """The master an account follows: its own entry, else the global setting.
+#: Global settings an account may replace with its own value.  Everything else
+#: (accounts, theme, ...) stays global.
+OVERRIDABLE_SETTINGS = ("server", "room_number", "follow_player", "copy_walk",
+                        "auto_zone", "targets_priority", "whitelist",
+                        "locked_zones")
+
+
+def resolve_setting(slave, config, key, default=None):
+    """One setting for one account: its own override, else the global value.
+
+    An override is absent (not empty) unless the user filled it in, so ``False``
+    -- a real choice for ``copy_walk`` -- is kept; ``""``, ``None`` and empty
+    lists mean "inherit", which is what an emptied form field sends.
 
     Args:
         slave (dict | None): The account's entry in the config's ``slaves``.
-        config (dict): Global settings, whose ``follow_player`` is the default.
+        config (dict): Global settings.
+        key (str): Setting name, one of :data:`OVERRIDABLE_SETTINGS`.
+        default: Used when neither the account nor the global settings set it.
 
     Returns:
-        str: Character name to follow, '' when neither is set.
+        The value the account runs with.
     """
-    return ((slave or {}).get("follow_player") or
-            config.get("follow_player", "") or "")
+    overrides = (slave or {}).get("overrides") or {}
+    if key in overrides:
+        value = overrides[key]
+        if value is not None and value != "" and value != []:
+            return value
+    return config.get(key, default)
+
+
+def slave_config_for(slave, config):
+    """The global config with one account's overrides layered on top.
+
+    The thread reads its settings from a plain dict, so handing it this instead
+    of the shared config is enough: it keeps reading ``config["room_number"]``
+    and gets the account's own value when there is one.
+
+    Args:
+        slave (dict | None): The account's entry in the config's ``slaves``.
+        config (dict): Global settings, unchanged.
+
+    Returns:
+        dict: A copy of ``config`` with the account's overrides applied.
+    """
+    resolved = dict(config)
+    for key in OVERRIDABLE_SETTINGS:
+        resolved[key] = resolve_setting(slave, config, key)
+    return resolved
 
 
 class SlaveryApi:
@@ -1271,6 +1305,12 @@ class SlaveryApi:
                     default_config.update(user_config)
             except Exception as e:
                 print(f"Failed to load slavery config: {e}")
+        # The master used to be a field of its own on the account; it is one of
+        # the overrides now, so bring an existing config across.
+        for slave in default_config.get("slaves", []):
+            own_master = slave.pop("follow_player", "")
+            if own_master:
+                slave.setdefault("overrides", {})["follow_player"] = own_master
         return default_config
 
     def save_config(self, config):
@@ -1282,21 +1322,22 @@ class SlaveryApi:
 
             for username, thread in self.active_threads.items():
                 if thread.bot_instance:
-                    thread.bot_instance.default_room_number = int(config.get("room_number", 9099))
-                    thread.bot_instance.targets_priority = config.get("targets_priority", "")
-                    thread.bot_instance.copy_walk = config.get("copy_walk", True)
-                    thread.bot_instance.auto_zone = config.get("auto_zone", "none")
-                    thread.bot_instance.locked_zones = config.get("locked_zones", [])
-                    thread.bot_instance.itemsDropWhiteList = config.get("whitelist", [])
-
-                    slave_config = next((s for s in config.get("slaves", []) if s.get("username") == username), None)
-                    # Its own master wins; empty means "follow the global one",
-                    # so editing the global setting must not overwrite a slave
-                    # that was given a master of its own.
-                    thread.bot_instance.follow_player = resolve_master(
-                        slave_config, config)
+                    slave_config = next((s for s in config.get("slaves", [])
+                                         if s.get("username") == username), None)
+                    # Every account runs with its own overrides on top of the
+                    # global settings, so saving the globals must not overwrite
+                    # an account that set one of them for itself.
+                    own = slave_config_for(slave_config, config)
+                    bot = thread.bot_instance
+                    bot.default_room_number = int(own.get("room_number", 9099))
+                    bot.follow_player = own.get("follow_player", "")
+                    bot.targets_priority = own.get("targets_priority", "")
+                    bot.copy_walk = own.get("copy_walk", True)
+                    bot.auto_zone = own.get("auto_zone", "none")
+                    bot.locked_zones = own.get("locked_zones", [])
+                    bot.itemsDropWhiteList = own.get("whitelist", [])
                     if slave_config:
-                        thread.bot_instance.taunter = slave_config.get("taunter", False)
+                        bot.taunter = slave_config.get("taunter", False)
             return {"success": True}
         except Exception as e:
             print(f"Failed to save config: {e}")
@@ -1325,14 +1366,12 @@ class SlaveryApi:
                 mp_threshold = slave.get("mp_threshold", 0)
                 mp_skills = slave.get("mp_skills", "")
                 taunter = slave.get("taunter", False)
-                # The account's own master, or the global one when it has none.
-                master = resolve_master(slave, config)
 
                 thread = SlaveBotThread(
                     username=username,
                     password=password,
                     char_class=char_class,
-                    config=config,
+                    config=slave_config_for(slave, config),
                     callback=self.handle_slave_log,
                     skills=skills,
                     hp_operator=hp_operator,
@@ -1342,7 +1381,6 @@ class SlaveryApi:
                     mp_threshold=mp_threshold,
                     mp_skills=mp_skills,
                     taunter=taunter,
-                    follow_player=master,
                     taunt_coordinator=self.taunt_coordinator
                 )
                 self.active_threads[username] = thread

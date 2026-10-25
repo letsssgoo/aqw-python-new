@@ -283,12 +283,56 @@
                     </div>
                 </div>
 
-                <!-- Section 2b: Master this account follows -->
-                <div class="form-group">
-                    <label for="slave-master">Master to follow (optional)</label>
-                    <input type="text" id="slave-master" placeholder="Empty = use the global master" style="width: 100%;">
-                    <span class="help-text" style="margin-top: 4px;">Leave empty to follow the master set in Global Settings. Fill it in to give this account its own master.</span>
-                </div>
+                <!-- Section 2b: Settings this account replaces (empty = global) -->
+                <details class="override-box" id="slave-overrides">
+                    <summary>
+                        Per-account settings
+                        <span class="override-hint">leave empty to use the global setting</span>
+                    </summary>
+                    <div class="override-grid">
+                        <div class="form-group">
+                            <label for="slave-master">Master to follow</label>
+                            <input type="text" id="slave-master" placeholder="" style="width: 100%;">
+                        </div>
+                        <div class="form-group">
+                            <label for="slave-server">Server</label>
+                            <select id="slave-server" style="width: 100%;">
+                                <option value="">Use the global server</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="slave-room">Room number</label>
+                            <input type="number" id="slave-room" placeholder="" style="width: 100%;">
+                        </div>
+                        <div class="form-group">
+                            <label for="slave-copy-walk">Copy walk</label>
+                            <select id="slave-copy-walk" style="width: 100%;">
+                                <option value="">Use the global setting</option>
+                                <option value="true">On</option>
+                                <option value="false">Off</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="slave-auto-zone">Auto zone boss</label>
+                            <select id="slave-auto-zone" style="width: 100%;">
+                                <option value="">Use the global setting</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="slave-targets">Combat priority list</label>
+                            <input type="text" id="slave-targets" placeholder="" style="width: 100%;">
+                        </div>
+                        <div class="form-group override-wide">
+                            <label for="slave-locked-zones">Locked zones</label>
+                            <input type="text" id="slave-locked-zones" placeholder="" style="width: 100%;">
+                        </div>
+                        <div class="form-group override-wide">
+                            <label for="slave-whitelist">Item drop whitelist</label>
+                            <input type="text" id="slave-whitelist" placeholder="" style="width: 100%;">
+                        </div>
+                    </div>
+                    <span class="help-text" id="slave-globals-hint"></span>
+                </details>
 
                 <!-- Section 3: Extra Logic / Switch -->
                 <div class="form-group" style="margin-bottom: 0; position: relative;">

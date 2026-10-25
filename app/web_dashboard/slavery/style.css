@@ -682,6 +682,44 @@ body {
     white-space: nowrap;
 }
 
+/* Per-account overrides: a collapsible block in the account form */
+.override-box {
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 10px 14px;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.override-box > summary {
+    cursor: pointer;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #e2e8f0;
+    padding: 2px 0;
+    user-select: none;
+}
+
+.override-box[open] > summary {
+    margin-bottom: 10px;
+}
+
+.override-hint {
+    font-weight: 400;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    margin-left: 6px;
+}
+
+.override-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+}
+
+.override-grid .override-wide {
+    grid-column: 1 / -1;
+}
+
 /* Master Badge (the account this slave follows) */
 .master-badge {
     display: inline-flex;

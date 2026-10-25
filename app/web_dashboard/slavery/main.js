@@ -65,6 +65,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const slaveClassInput = document.getElementById('slave-class');
     const slaveSkillsInput = document.getElementById('slave-skills');
     const slaveMasterInput = document.getElementById('slave-master');
+    const slaveServerSelect = document.getElementById('slave-server');
+    const slaveRoomInput = document.getElementById('slave-room');
+    const slaveCopyWalkSelect = document.getElementById('slave-copy-walk');
+    const slaveAutoZoneSelect = document.getElementById('slave-auto-zone');
+    const slaveTargetsInput = document.getElementById('slave-targets');
+    const slaveLockedZonesInput = document.getElementById('slave-locked-zones');
+    const slaveWhitelistInput = document.getElementById('slave-whitelist');
+    const slaveGlobalsHint = document.getElementById('slave-globals-hint');
+    const slaveOverridesBox = document.getElementById('slave-overrides');
     const slaveTaunterInput = document.getElementById('slave-taunter');
     const slaveHpOperatorSelect = document.getElementById('slave-hp-operator');
     const slaveHpThresholdInput = document.getElementById('slave-hp-threshold');
@@ -229,8 +238,79 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // 2. Toggle Forms
+    // Every global setting can be pinned for one account; an empty field means
+    // "use whatever the global settings say", which is also what the form shows
+    // as its placeholder, so nothing has to be repeated per account.
+    function fillOverrideOptions() {
+        const addMissing = (target, source) => {
+            if (!target || !source) return;
+            Array.from(source.options).forEach(o => {
+                if (target.querySelector(`option[value="${o.value}"]`)) return;
+                const opt = document.createElement('option');
+                opt.value = o.value;
+                opt.textContent = o.text;
+                target.appendChild(opt);
+            });
+        };
+        addMissing(slaveServerSelect, serverSelect);
+        addMissing(slaveAutoZoneSelect, autoZoneSelect);
+    }
+
+    function showGlobalHints() {
+        const g = globalConfig || {};
+        const list = a => (a && a.length) ? a.join(', ') : '(empty)';
+        slaveMasterInput.placeholder = g.follow_player ? `Global: ${g.follow_player}` : 'No global master';
+        slaveRoomInput.placeholder = `Global: ${g.room_number || 9099}`;
+        slaveTargetsInput.placeholder = g.targets_priority || '(empty)';
+        slaveLockedZonesInput.placeholder = list(g.locked_zones);
+        slaveWhitelistInput.placeholder = list(g.whitelist);
+        if (slaveGlobalsHint) {
+            slaveGlobalsHint.textContent =
+                `Global now: ${g.server || 'Artix'} / room ${g.room_number || 9099} / ` +
+                `master ${g.follow_player || '-'} / copy walk ${g.copy_walk ? 'on' : 'off'} / ` +
+                `zone ${g.auto_zone || 'none'}`;
+        }
+    }
+
+    function fillOverrideInputs(overrides) {
+        const ov = overrides || {};
+        if (slaveOverridesBox) slaveOverridesBox.open = Object.keys(ov).length > 0;
+        slaveMasterInput.value = ov.follow_player || '';
+        slaveServerSelect.value = ov.server || '';
+        slaveRoomInput.value = (ov.room_number === 0 || ov.room_number) ? ov.room_number : '';
+        slaveCopyWalkSelect.value = ov.copy_walk === true ? 'true'
+            : ov.copy_walk === false ? 'false' : '';
+        slaveAutoZoneSelect.value = ov.auto_zone || '';
+        slaveTargetsInput.value = ov.targets_priority || '';
+        slaveLockedZonesInput.value = (ov.locked_zones || []).join(', ');
+        slaveWhitelistInput.value = (ov.whitelist || []).join(', ');
+    }
+
+    function readOverrides() {
+        const ov = {};
+        const splitList = v => v.split(',').map(x => x.trim()).filter(Boolean);
+        const master = slaveMasterInput.value.trim();
+        if (master) ov.follow_player = master;
+        if (slaveServerSelect.value) ov.server = slaveServerSelect.value;
+        const room = slaveRoomInput.value.trim();
+        if (room) ov.room_number = parseInt(room, 10);
+        if (slaveCopyWalkSelect.value !== '') {
+            ov.copy_walk = slaveCopyWalkSelect.value === 'true';
+        }
+        if (slaveAutoZoneSelect.value) ov.auto_zone = slaveAutoZoneSelect.value;
+        const targets = slaveTargetsInput.value.trim();
+        if (targets) ov.targets_priority = targets;
+        const zones = splitList(slaveLockedZonesInput.value);
+        if (zones.length) ov.locked_zones = zones;
+        const whitelist = splitList(slaveWhitelistInput.value);
+        if (whitelist.length) ov.whitelist = whitelist;
+        return ov;
+    }
+
     btnToggleAddForm.addEventListener('click', () => {
         addSlaveForm.classList.remove('hidden');
+        fillOverrideOptions();
+        showGlobalHints();
     });
 
     btnCancelAddSlave.addEventListener('click', () => {
@@ -262,7 +342,7 @@ document.addEventListener('DOMContentLoaded', () => {
         slavePasswordInput.value = '';
         slaveClassInput.value = '';
         slaveSkillsInput.value = '1,2,3,4';
-        slaveMasterInput.value = '';
+        fillOverrideInputs({});
         slaveTaunterInput.checked = false;
         slaveHpThresholdInput.value = '';
         slaveHpSkillsInput.value = '';
@@ -393,7 +473,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     password: pass,
                     char_class: cls,
                     skills: slaveSkillsInput.value.trim() || '1,2,3,4',
-                    follow_player: slaveMasterInput.value.trim(),
+                    overrides: readOverrides(),
                     taunter: slaveTaunterInput.checked,
                     hp_operator: slaveHpOperatorSelect.value,
                     hp_threshold: parseInt(slaveHpThresholdInput.value) || 0,
@@ -433,7 +513,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 password: pass,
                 char_class: cls,
                 skills: slaveSkillsInput.value.trim() || '1,2,3,4',
-                follow_player: slaveMasterInput.value.trim(),
+                overrides: readOverrides(),
                 taunter: slaveTaunterInput.checked,
                 hp_operator: slaveHpOperatorSelect.value,
                 hp_threshold: parseInt(slaveHpThresholdInput.value) || 0,
@@ -509,11 +589,22 @@ document.addEventListener('DOMContentLoaded', () => {
             renderPatrolPatches();
             renderSlavesTable();
             renderConsoleTabs();
+            fillOverrideOptions();
+            showGlobalHints();
+        });
+    }
+
+    function ownOverrides(s) {
+        const ov = (s && s.overrides) || {};
+        return Object.keys(ov).filter(k => {
+            const v = ov[k];
+            return v !== null && v !== '' && !(Array.isArray(v) && v.length === 0);
         });
     }
 
     function masterCell(s) {
-        const own = (s.follow_player || '').trim();
+        const ov = (s && s.overrides) || {};
+        const own = (ov.follow_player || '').trim();
         const globalMaster = (globalConfig.follow_player || '').trim();
         if (own) {
             return `<span class="master-badge" title="This account has its own master">${own}</span>`;
@@ -549,6 +640,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         <div class="account-meta">
                             <span class="account-name">${s.username}</span>
                             <span class="account-sub">Skills: ${s.skills || '1,2,3,4'}</span>
+                            ${ownOverrides(s).length
+                                ? `<span class="account-sub" title="${ownOverrides(s).join(', ')}">${ownOverrides(s).length} own setting(s)</span>`
+                                : ''}
                         </div>
                     </div>
                 </td>
@@ -703,12 +797,15 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (action === 'edit') {
                 // Open and set form in edit mode
                 editingId = id;
+                // The option lists must exist before the saved values go in.
+                fillOverrideOptions();
+                showGlobalHints();
 
                 slaveUsernameInput.value = slave.username;
                 slavePasswordInput.value = slave.password;
                 slaveClassInput.value = slave.char_class;
                 slaveSkillsInput.value = slave.skills || '1,2,3,4';
-                slaveMasterInput.value = slave.follow_player || '';
+                fillOverrideInputs(slave.overrides);
                 slaveTaunterInput.checked = slave.taunter || false;
                 slaveHpOperatorSelect.value = slave.hp_operator || '<';
                 slaveHpThresholdInput.value = slave.hp_threshold !== undefined ? slave.hp_threshold : '';
@@ -866,17 +963,24 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        if (!globalConfig.follow_player) {
-            alert('Master Player Name is required to start the follow bots!');
+        const selected = Array.from(checkedChks)
+            .map(c => c.value)
+            .map(id => globalConfig.slaves.find(s => s.id === id))
+            .filter(Boolean);
+
+        // The global master is still the one every account without its own
+        // follows, so a start needs a master for each account it launches.
+        const noMaster = selected.filter(s =>
+            !(((s.overrides || {}).follow_player) || globalConfig.follow_player));
+        if (noMaster.length) {
+            alert('No master to follow for: ' +
+                noMaster.map(s => s.username).join(', ') +
+                '\nSet one in Global Settings, or per account.');
             followPlayerInput.focus();
             return;
         }
 
-        const selectedIds = Array.from(checkedChks).map(c => c.value);
-        const selectedUsernames = selectedIds.map(id => {
-            const s = globalConfig.slaves.find(s => s.id === id);
-            return s ? s.username : null;
-        }).filter(u => u !== null);
+        const selectedUsernames = selected.map(s => s.username);
 
         btnStart.disabled = true;
         btnStart.textContent = 'Launching...';
