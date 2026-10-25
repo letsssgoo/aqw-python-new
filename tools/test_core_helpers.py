@@ -59,6 +59,7 @@ class Quest:
 class Player:
     def __init__(self, inventory=()):
         self.INVENTORY = list(inventory)
+        self.TEMPINVENTORY = []
         self.is_member = True
         self.LEVEL = 80
         self.temp = {}
@@ -105,9 +106,13 @@ class Cand:
         self.bot = Bot(Player(inventory))
         self.quests = quests or {}
         self.rewards = {}
+        self.completed = set()
         self.accept = accept
         self.turn_in = turn_in
         self.calls = []
+
+    async def is_completed_before(self, quest_id, timeout_sec=3.0):
+        return quest_id in self.completed
 
     # --- CoreBots surface ---
     def is_in_inventory(self, name, qty=1, operator=">=", isTemp=False):
@@ -502,6 +507,96 @@ missing_name = run(bots.ensure_complete_choose(cmd, 777, "Nope"))
 check("choose with no matching reward stops", missing_name, False)
 check("choose says why",
       any("offers none" in line for line in cmd.bot.logs), True)
+
+# ============================================================================
+# 10. CoreStory -- the gate, the completion and the three quest shapes
+# ============================================================================
+from bot import core_story as story  # noqa: E402
+
+cmd = Cand()
+cmd.completed = {900}
+check("progression: a done quest needs nothing",
+      run(story.quest_progression(cmd, 900)), True)
+check("progression: says it is already done",
+      any("Already Completed" in line for line in cmd.bot.logs), True)
+check("progression: nothing was farmed",
+      [c for c in cmd.calls if c[0] in ("accept", "drop")], [])
+
+cmd = Cand()
+cmd.bot.player.INVENTORY.append(
+    ItemInventory({"sName": "Shiny", "ItemID": 99, "iQty": 1}))
+check("progression: a held reward skips the quest",
+      run(story.quest_progression(cmd, 901, reward="Shiny")), True)
+check("progression: says the reward is owned",
+      any("Already have reward" in line for line in cmd.bot.logs), True)
+
+cmd = Cand()
+cmd.rewards = {902: ["A", "B"]}
+check("progression: a quest that needs doing", run(
+    story.quest_progression(cmd, 902)), False)
+check("progression: whitelists the rewards",
+      ("drop", ["A", "B"]) in cmd.calls, True)
+
+ore = ModelQuest.from_payload({
+    "QuestID": "910", "sName": "Ore Quest",
+    "turnin": [{"ItemID": "10", "iQty": "2"}],
+    "oItems": [{"ItemID": "10", "sName": "Ore", "iQty": "2"}],
+})
+cmd = Cand(quests={910: ore})
+check("complete: missing requirement stops", run(
+    story.try_complete(cmd, ore)), False)
+check("complete: names what is missing",
+      any("Missing items" in line and "Ore x2" in line
+          for line in cmd.bot.logs), True)
+
+cmd = Cand([ItemInventory({"sName": "Ore", "ItemID": 10, "iQty": 2})],
+           quests={910: ore})
+check("complete: held requirement turns in",
+      run(story.try_complete(cmd, ore)), True)
+check("complete: turn-in went out", cmd.calls[-1], ("turnin", 910, -1))
+
+completed_calls = []
+
+
+async def fake_try(cmd, quest, auto_complete=True):
+    completed_calls.append((quest, auto_complete))
+    return True
+
+
+async def fake_buy(cmd, shop_id, item, qty=1, map_name=None, shop_item_id=0):
+    completed_calls.append(("buy", shop_id, item, qty, map_name))
+
+
+saved = patch(story, try_complete=fake_try, buy_item=fake_buy)
+try:
+    cmd = Cand()
+    cmd.completed = {912}
+    run(story.chain_quest(cmd, 912))
+    check("chain: a done quest is not accepted",
+          [c for c in cmd.calls if c[0] == "accept"], [])
+
+    completed_calls.clear()
+    cmd = Cand(quests={913: ore})
+    run(story.chain_quest(cmd, 913, auto_complete=False))
+    check("chain: accepted", ("accept", 913) in cmd.calls, True)
+    check("chain: then completed", len(completed_calls), 1)
+    check("chain: auto_complete is forwarded",
+          completed_calls[0][1], False)
+
+    completed_calls.clear()
+    cmd = Cand(quests={914: ore})
+    run(story.buy_quest(cmd, 914, "mapx", 77, "Thing", 3))
+    check("buy: accepted", ("accept", 914) in cmd.calls, True)
+    check("buy: the shop call carries the map",
+          completed_calls[0], ("buy", 77, "Thing", 3, "mapx"))
+    check("buy: then completed", completed_calls[1], (ore, True))
+
+    completed_calls.clear()
+    cmd = Cand(quests={915: ore})
+    check("quest_complete: turns in", run(story.quest_complete(cmd, 915)), True)
+    check("quest_complete: accepted first", cmd.calls[0], ("accept", 915))
+finally:
+    restore(story, saved)
 
 print(f"passed {passed}   failed {len(failures)}")
 if failures:
