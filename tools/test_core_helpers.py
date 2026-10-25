@@ -1693,6 +1693,123 @@ try:
 finally:
     restore(pal, leaf)
 
+# ============================================================================
+# 20. Mazumi, Tutorial badges, and the free boosts
+# ============================================================================
+from bot.story import mazumi as mz  # noqa: E402
+from bot.story import tutorial as tut  # noqa: E402
+from bot.core_farms import get_boost  # noqa: E402
+from bot import core_farms as cf  # noqa: E402
+from bot.other import free_boosts as fb  # noqa: E402
+
+mz_order = []
+
+
+async def mz_kill(cmd, quest, map_name, monster):
+    mz_order.append(f"kill{quest}")
+
+
+async def mz_hunt(cmd, item, qty, map_name, **kwargs):
+    mz_order.append((item, kwargs.get("cell")))
+
+
+async def mz_prog(cmd, quest, *args, **kwargs):
+    return False
+
+
+async def mz_equip(cmd, solo=False):
+    mz_order.append(f"equip{int(solo)}")
+
+
+leaf = patch(mz, kill_quest=mz_kill, hunt_item=mz_hunt,
+             quest_progression=mz_prog, equip_class=mz_equip)
+try:
+    cmd = Cand()
+    cmd.completed = {92}
+    mz_order.clear()
+    run(mz.mazumi_quests(cmd))
+    check("mazumi: a done chain does nothing", mz_order, [])
+
+    cmd = Cand()
+    mz_order.clear()
+    run(mz.mazumi_quests(cmd))
+    check("mazumi: quest 90 first", mz_order[0], "kill90")
+    check("mazumi: quest 91 keeps the Frogzard in West3",
+          ("Frogzard's Lint Hoard", "West3") in mz_order, True)
+    check("mazumi: quest 92 is fought as solo", "equip1" in mz_order, True)
+finally:
+    restore(mz, leaf)
+
+tut_sent = []
+
+
+async def tut_set(cmd, achievement_id, ia="ia0"):
+    tut_sent.append(achievement_id)
+
+
+leaf = patch(tut, set_achievement=tut_set)
+try:
+    cmd = Cand()
+    run(tut.badges(cmd))
+    check("tutorial: badges 22-31 in order", tut_sent, list(range(22, 32)))
+    check("tutorial: goes to oaklore", ("join", "oaklore", None) in cmd.calls,
+          True)
+finally:
+    restore(tut, leaf)
+
+try:
+    cmd = Cand([ItemInventory({"sName": "XP Boost! (10 min)", "iQty": 1})])
+    run(get_boost(cmd, "XP", 1))
+    check("boost: a stocked stack returns at once", cmd.calls, [])
+    check("boost: and logs nothing", cmd.bot.logs, [])
+
+    fished, hunted = [], []
+
+    async def boost_fish(cmd, item_id, quant, quest):
+        fished.append((item_id, quest))
+        cmd.bot.player.INVENTORY.append(
+            ItemInventory({"sName": "XP Boost! (10 min)", "iQty": quant}))
+
+    async def boost_hunt(cmd, item, qty, map_name, **kwargs):
+        hunted.append(item)
+
+    async def boost_equip(cmd, solo=False):
+        return None
+
+    leaf = patch(cf, get_fish=boost_fish, hunt_item=boost_hunt,
+                 equip_class=boost_equip)
+    try:
+        cmd = Cand()
+        cmd.completed = {1615}
+        cmd.ranks["fishing"] = 2
+        run(get_boost(cmd, "XP", 1))
+        check("boost: quest 1614 is the XP one", fished, [(10850, 1614)])
+        check("boost: slime sauce is the quest's other drop", hunted,
+              ["Slime Sauce"])
+    finally:
+        restore(cf, leaf)
+
+    # the reference's stale `allQuantitiesMet` is recomputed: three stacks and
+    # the loop is over on the first look
+    cmd = Cand([ItemInventory({"sName": fb.GOLD_BOOST, "iQty": 10}),
+                ItemInventory({"sName": fb.CLASS_BOOST, "iQty": 10})])
+    hunted = []
+
+    async def fb_hunt(cmd, quest, *targets, log=True):
+        hunted.append(quest)
+
+    async def fb_equip(cmd, solo=False):
+        return None
+
+    leaf = patch(fb, hunt_monster_quest=fb_hunt, equip_class=fb_equip)
+    try:
+        run(fb.get_boosts_select(cmd, 10, 10, 0))
+        check("boosts: 0 rep boosts needs nothing", hunted, [])
+    finally:
+        restore(fb, leaf)
+finally:
+    pass
+
 print(f"passed {passed}   failed {len(failures)}")
 if failures:
     for line in failures:

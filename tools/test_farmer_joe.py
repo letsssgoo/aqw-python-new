@@ -425,10 +425,20 @@ def main() -> None:
         seen.append(level)
 
     joe.farm_experience = spy_exp
+    real_badges_low = joe.tutorial_badges
+    real_mazumi_low = joe.mazumi_quests
+
+    async def noop(cmd):
+        return None
+
+    joe.tutorial_badges = noop
+    joe.mazumi_quests = noop
     try:
         asyncio.run(joe.beginner_items(low))
     finally:
         joe.farm_experience = real_exp
+        joe.tutorial_badges = real_badges_low
+        joe.mazumi_quests = real_mazumi_low
     assert seen == [10], seen
     print("beginner   : beginner classes at rank 10 skip it from level 30 only")
 
@@ -438,6 +448,7 @@ def main() -> None:
         shops=[_Shop(299, ["Battle Oracle Hood", "Battle Oracle Wings",
                            "Battle Oracle Battlestaff"]),
                _Shop(172, ["Rogue"]),
+               _Shop(178, ["Ninja"]),
                _Shop(174, [_ShopItem("Mage", 15653, 9845)])])
     fresh_run()
     levels = []
@@ -453,14 +464,29 @@ def main() -> None:
         ranked_up.append(args)
 
     joe.rank_up_class = spy_rank
+    badges, mazumi = [], []
+    real_badges, real_mazumi = joe.tutorial_badges, joe.mazumi_quests
+
+    async def spy_badges(cmd):
+        badges.append(1)
+
+    async def spy_mazumi(cmd):
+        mazumi.append(1)
+
+    joe.tutorial_badges = spy_badges
+    joe.mazumi_quests = spy_mazumi
     try:
         asyncio.run(joe.beginner_items(fresh))
     finally:
         joe.farm_experience = real_exp
         joe.rank_up_class = real_rank
+        joe.tutorial_badges = real_badges
+        joe.mazumi_quests = real_mazumi
 
     assert levels == [10, 25], levels
     assert ranked_up == [("Rogue",)], ranked_up
+    assert badges == [1], badges
+    assert mazumi == [1], mazumi
     assert ("buy_item", 299, "battle oracle hood", 1, 0) in fresh.calls, \
         fresh.calls
     assert ("buy_item", 299, "battle oracle wings", 1, 0) in fresh.calls, \
@@ -471,8 +497,8 @@ def main() -> None:
         fresh.calls
     assert ("sell_item", "Default Sword") in fresh.calls, fresh.calls
     assert ("buy_item", 172, "rogue", 1, 0) in fresh.calls, fresh.calls
-    # the Ninja shop needs Mazumi's quests, which are not ported: not bought
-    assert not any(c[0] == "buy_item" and c[1] == 178 for c in fresh.calls), \
+    # Mazumi's chain unlocks the Ninja shop, so the class is bought after it
+    assert ("buy_item", 178, "ninja", 1, 0) in fresh.calls, \
         [c for c in fresh.calls if c[0] == "buy_item"]
     assert ("buy_item", 174, "mage", 1, 9845) in fresh.calls, fresh.calls
     for line in ('As the Acc is still "new", we\'re going todo the tutorial badges',

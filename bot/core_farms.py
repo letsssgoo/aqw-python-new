@@ -978,6 +978,113 @@ async def _fishing_reply(cmd: Command, flag: str) -> bool:
     return False
 
 
+# ---------------------------------------------------------------------------
+# Boosts
+# ---------------------------------------------------------------------------
+#: ``GetBoost``'s two quests: (quest, reward item id, boost name).
+BOOST_XP = (1614, 10850, "XP Boost! (10 min)")
+BOOST_REP = (1615, 10997, "REPUTATION Boost! (10 min)")
+BOOST_REP_RANK = 2
+
+
+async def get_fish(cmd: Command, item_id: int, quant: int,
+                   quest: int) -> None:
+    """``CoreFarms.GetFish``: dynamite-cast in /fishing until the drop lands.
+
+    The fish themselves are turned in by the server under whichever quest is
+    accepted, so this only drives the same three-packet exchange as
+    :func:`fishing_rep` and waits for the count.
+    """
+    if await cmd.has_item_id(item_id, quant):
+        return
+
+    while (cmd.is_still_connected()
+           and not await cmd.has_item_id(item_id, quant)):
+        if not await cmd.has_item(FISHING_DYNAMITE):
+            await get_bait_and_dynamite(cmd, 0, 20)
+        if cmd.is_not_in_map(FISHING_MAP):
+            await cmd.join_map(FISHING_MAP)
+
+        while (cmd.is_still_connected()
+               and await cmd.has_item(FISHING_DYNAMITE)
+               and not await cmd.has_item_id(item_id, quant)):
+            cmd.bot.fishing_cast_wait = False
+            cmd.bot.fishing_caught = False
+            await cmd.send_packet("%xt%zm%FishCast%1%Dynamite%30%")
+            if not await _fishing_reply(cmd, "fishing_cast_wait"):
+                cmd.bot.log("Timed out waiting for castWait packet.")
+                continue
+            wait_ms = cmd.bot.fishing_wait_ms or FISHING_WAIT_MS
+            await cmd.sleep(wait_ms)
+            await cmd.send_packet("%xt%zm%getFish%1%false%")
+            await _fishing_reply(cmd, "fishing_caught")
+
+
+async def get_boost(cmd: Command, boost_type: str = "XP", quantity: int = 1,
+                    do_once: bool = False) -> None:
+    """``CoreFarms.GetBoost``: quests 1614 (XP) and 1615 (reputation).
+
+    Deviation, reported: the reference's loop condition is
+    ``!CheckInventory(name, quantity) || doOnce``, which never ends once
+    ``doOnce`` is set.  Here ``do_once`` means "run at least one pass even when
+    the stack is already full" and the loop still stops at ``quantity``.
+
+    ``TrashCan`` on the leftover bait is skipped: this engine has no discard
+    action (sell it instead).
+
+    Args:
+        cmd (Command): Facade to act through.
+        boost_type (str): ``"XP"`` for 1614, anything else for 1615.
+        quantity (int): How many boosts to end up with.
+        do_once (bool): Farm one pass even when already stocked.
+    """
+    quest, item_id, boost_name = (BOOST_XP if boost_type.upper() == "XP"
+                                  else BOOST_REP)
+
+    if not do_once and await cmd.has_item(boost_name, quantity):
+        return
+
+    cmd.farming_logger(boost_name, quantity)
+    cmd.add_drop([FISHING_DYNAMITE, boost_name])
+    await equip_class(cmd)
+
+    if cmd.get_faction_rank("Fishing") < BOOST_REP_RANK:
+        cmd.bot.log("Fishing Rank 2 required for Boost farm quest.")
+        await fishing_rep(cmd, BOOST_REP_RANK)
+
+    if not await cmd.is_completed_before(1615):
+        if await cmd.ensure_accept_quest(BOOST_XP[0]) is False:
+            cmd.bot.log("[farm] quest 1614 could not be accepted; boost farm "
+                        "stops here.")
+            return
+        await get_fish(cmd, BOOST_XP[1], 30, BOOST_XP[0])
+        await hunt_item(cmd, "Slime Sauce", 1, "greenguardwest",
+                        monster_name="Slime")
+        if await cmd.ensure_turn_in_quest(BOOST_XP[0]) is False:
+            return
+
+    passes = 0
+    while cmd.is_still_connected():
+        if passes and await cmd.has_item(boost_name, quantity):
+            break
+        passes += 1
+
+        if await cmd.ensure_accept_quest(quest) is False:
+            cmd.bot.log(f"[farm] quest {quest} could not be accepted; boost "
+                        f"farm stops here.")
+            break
+        await get_fish(cmd, item_id, 30 if quest == BOOST_XP[0] else 5, quest)
+        if quest == BOOST_XP[0]:
+            # ``KillMonster("greenguardwest", "West4", "Right", "Slime", ...)``
+            await hunt_item(cmd, "Slime Sauce", 1, "greenguardwest",
+                            cell="West4", pad="Right", monster_name="Slime")
+        else:
+            await hunt_item(cmd, "Greenguard Seal", 1, "greenguardwest",
+                            monster_name="Frogzard")
+        if await cmd.ensure_turn_in_quest(quest) is False:
+            break
+
+
 #: ``CoreFarms.SomniaREP``: the three quests of /somnia, one pass per item set.
 SOMNIA_MAP = "somnia"
 SOMNIA_QUESTS = (7665, 7666, 7669)

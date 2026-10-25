@@ -7,8 +7,8 @@ Port of ``Other/FarmJoeKits/CoreFarmerJoe.cs``.  The kit is what
   stage, then the outfit and the two pets;
 * ``set_class`` -- the configured farm/solo class resolved against the pools the
   reference keeps, then equipped;
-* ``beginner_items`` -- step 2: the starter slots at Class Halla, Rogue, Ninja
-  and Mage, with the tutorial badges reported;
+* ``beginner_items`` -- step 2: the tutorial badges, the starter slots at Class
+  Halla, Rogue, Ninja (Mazumi's chain) and Mage;
 * ``level_30_to_75`` -- the level ladder (30, 50, 55, 60, 65, 70, 75, 80), the
   one-a-day Elders' Blood, and banking the classes that are not in use;
 * the eight bracket handlers -- step 3 -- with their own log lines, each one
@@ -34,7 +34,7 @@ from bot.core_advanced import gear_store, rank_up_class, smart_enhance
 from bot.core_bots import (buy_item, check_class_rank, equip_class,
                            farming_logger)
 from bot.core_dailies import elders_blood
-from bot.core_farms import blade_of_awe_rep, farm_experience
+from bot.core_farms import blade_of_awe_rep, farm_experience, get_boost
 from bot.enhancements.anima import anima
 from bot.enhancements.forge_helm import forge_helm_enhancement
 from bot.enhancements.lacerate import lacerate
@@ -53,7 +53,10 @@ from bot.other.classes.glacial_berserker import get_gb
 from bot.other.classes.dragonslayer_general import get_ds_general
 from bot.other.classes.rep_based.master_ranger import get_mr
 from bot.other.classes.scarlet_sorceress import get_ssorc
+from bot.other.free_boosts import get_boosts_select
 from bot.other.weapons.burning_blade import get_burning_blade
+from bot.story.mazumi import mazumi_quests
+from bot.story.tutorial import badges as tutorial_badges
 from core.command import Command
 from model.inventory import ItemType
 from templates.hunt import hunt_item
@@ -426,9 +429,7 @@ async def beginner_items(cmd: Command) -> None:
 
     cmd.bot.log('As the Acc is still "new", we\'re going todo the tutorial badges')
 
-    report_once(cmd, "tutorial_badges",
-                "Tutorial.Badges (Story/Tutorial) is not ported; the starter "
-                "badges are skipped.")
+    await tutorial_badges(cmd)
 
     await _starter_slots(cmd)
 
@@ -448,10 +449,8 @@ async def beginner_items(cmd: Command) -> None:
         await rank_up_class(cmd, "Rogue")
         await farm_experience(cmd, 25)
         await set_class(cmd)
-        report_once(cmd, "mazumi",
-                    f"Mazumi.MazumiQuests is not ported, so the {NINJA_NAME} shop "
-                    f"({CLASSHALLA} {NINJA_SHOP}) would refuse the purchase; it is "
-                    f"skipped.")
+        await mazumi_quests(cmd)
+        await adv_buy_item(cmd, NINJA_SHOP, NINJA_NAME, map_name=CLASSHALLA)
 
     await set_class(cmd)
 
@@ -481,9 +480,15 @@ async def level_30_to_75(cmd: Command) -> None:
         "the next level bracket.")
 
     if GET_BOOSTS:
-        report_once(cmd, "boosts",
-                    "GetBoosts is on, but CoreFarms.GetBoost and "
-                    "FreeBoosts.GetBoostsSelect are not ported.")
+        cmd.bot.log("GetBoosts is TURNED ON - READ THIS MESSAGE\n\nYour "
+                    "character will now start FISHING for many HOURS in order "
+                    "to GET the BOOSTS that you turned on in script options.")
+        # ``Farm.GetBoost("REP", 10, true)`` / ``("XP", level >= 100 ? 0 : 10,
+        # true)`` / ``Boosts.GetBoostsSelect(10, 10, 0)``.
+        await get_boost(cmd, "REP", 10, True)
+        await get_boost(cmd, "XP",
+                        0 if (cmd.get_player().LEVEL or 0) >= 100 else 10, True)
+        await get_boosts_select(cmd, 10, 10, 0)
 
     # ``bool HasEnhancedThisBracket`` -- the source's own field, reset at the end
     # of every bracket.

@@ -842,3 +842,24 @@ async def kill_doom_kitten(cmd: Command, item: str = None, quant: int = 1,
         return
     await kill_once(cmd, DOOM_KITTEN_MAP, monster="*")
     await wait_for_item(cmd, item, quant)
+
+
+# ---------------------------------------------------------------------------
+# Achievements
+# ---------------------------------------------------------------------------
+async def set_achievement(cmd: Command, achievement_id: int,
+                          ia: str = "ia0") -> None:
+    """``CoreBots.SetAchievement``: the badge packet.
+
+    The reference reads the badge first -- ``Core.HasAchievement`` is a client
+    ``world.getAchievement`` call -- and only sends when it is missing.  This
+    engine has no client to ask, so the packet always goes out; the server keeps
+    a badge it already has.
+
+    Args:
+        cmd (Command): Facade to act through.
+        achievement_id (int): Badge id, e.g. ``22`` for Combat.
+        ia (str): The badge page the reference passes as ``ia0``.
+    """
+    await cmd.send_packet(f"%xt%zm%setAchievement%{cmd.bot.areaId}%{ia}%"
+                          f"{achievement_id}%1%")
