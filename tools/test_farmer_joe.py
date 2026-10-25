@@ -353,7 +353,7 @@ def main() -> None:
                      "smart_enhance", "vim", "pneuma", "examen", "anima",
                      "get_ds_general", "get_burning_blade", "blade_of_awe_rep",
                      "get_ssorc", "get_blaze_binder", "get_dragonslayer",
-                     "get_cryomancer")}
+                     "get_cryomancer", "get_gb")}
 
     async def fake_exp(cmd, level=100, rank_up_class=False):
         levels.append(level)
@@ -553,6 +553,24 @@ def main() -> None:
     assert any(line.startswith("Level 55: Acquiring Cryomancer")
                for line in h55.bot.logs), h55.bot.logs
     print("bracket55  : Blaze Binder and Cryomancer both run")
+
+    # --- bracket 65: Glacial Berserker ----------------------------------
+    h65 = Stub(solo="King's Echo", classes_held=["King's Echo"])
+    level65 = []
+    real65 = joe.get_gb
+
+    async def spy65(cmd, *args, **kwargs):
+        level65.append("ran")
+
+    joe.get_gb = spy65
+    try:
+        asyncio.run(joe._handle_level_65(h65))
+    finally:
+        joe.get_gb = real65
+    assert level65 == ["ran"], level65
+    assert any(line.startswith("Level 65: Acquiring Glacial Berserker")
+               for line in h65.bot.logs), h65.bot.logs
+    print("bracket65  : Glacial Berserker runs")
 
     h30 = Stub(solo="King's Echo", classes_held=["King's Echo"],
                inventory={"Venom Head": 1},

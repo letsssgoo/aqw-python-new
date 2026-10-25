@@ -678,7 +678,7 @@ def main() -> None:
     assert unknown.calls == [], unknown.calls          # reported, never farmed
     assert set(FACTION_FARMS) == {"Good", "Vampire", "Yokai", "Evil",
                                   "ChronoSpan", "CraggleRock", "Sandsea",
-                                  "Somnia"}, \
+                                  "Somnia", "Glacera"}, \
         sorted(FACTION_FARMS)
     known = Stub(vampire_rank=10)
     assert asyncio.run(farm_faction(known, "Vampire", 10)) is True

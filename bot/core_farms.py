@@ -1014,6 +1014,49 @@ async def somnia_rep(cmd: Command, rank: int = 10) -> None:
     saved_state(cmd, False)
 
 
+# ---------------------------------------------------------------------------
+# Glacera
+# ---------------------------------------------------------------------------
+GLACERA_FARM_QUESTS = (5597, 5598, 5599, 5600)
+GLACERA_FARM_MAP = "icewindwar"
+GLACERA_FARM_CELL, GLACERA_FARM_PAD = "r5", "Left"
+#: ``IceWindPass``'s last quest: the farm quests only unlock after it.
+GLACERA_UNLOCK_QUEST = 5601
+
+
+async def glacera_rep(cmd: Command, rank: int = 10) -> None:
+    """``CoreFarms.GlaceraREP``: the four war quests in /icewindwar.
+
+    Args:
+        cmd (Command): Facade to act through.
+        rank (int): Reputation rank wanted.
+    """
+    if cmd.get_faction_rank("Glacera") >= rank:
+        return
+
+    if not await cmd.is_completed_before(GLACERA_UNLOCK_QUEST):
+        cmd.bot.log('Farming Quests are not unlocked, Please run: '
+                    '"Story/Glacera.cs"')
+        return
+
+    await equip_class(cmd)
+    saved_state(cmd, True, GLACERA_FARM_MAP)
+    cmd.bot.log(f"Farming rank {rank}")
+
+    for quest_id in GLACERA_FARM_QUESTS:
+        await cmd.register_quest(quest_id)
+
+    while (cmd.is_still_connected()
+           and cmd.get_faction_rank("Glacera") < rank):
+        if check_save_state(cmd):
+            await execute_save_state(cmd)
+        await kill_once(cmd, GLACERA_FARM_MAP, GLACERA_FARM_CELL,
+                        GLACERA_FARM_PAD)
+
+    cmd.cancel_registered_quests()
+    saved_state(cmd, False)
+
+
 #: Faction name -> the ported method, mirroring ``CoreFarms.<Name>REP``.
 FACTION_FARMS = {
     "Good": good_rep,
@@ -1024,6 +1067,7 @@ FACTION_FARMS = {
     "Evil": evil_rep,
     "ChronoSpan": chronospan_rep,
     "CraggleRock": craggle_rock_rep,
+    "Glacera": glacera_rep,
 }
 
 async def farm_faction(cmd: Command, faction: str, rank: int = 10) -> bool:

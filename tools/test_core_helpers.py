@@ -1211,8 +1211,13 @@ async def gla_prog(cmd, quest, *args, **kwargs):
     return False
 
 
+async def gla_equip(cmd, solo=False):
+    gla_order.append("equip")
+
+
 leaf = patch(gla, map_item_quest=gla_map, kill_quest=gla_kill,
-             hunt_item=gla_hunt, quest_progression=gla_prog)
+             hunt_item=gla_hunt, quest_progression=gla_prog,
+             equip_class=gla_equip)
 try:
     cmd = Cand()
     cmd.completed = {3937}
@@ -1234,9 +1239,12 @@ try:
           any("are not ported yet" in line for line in cmd.bot.logs), False)
 
     cmd = Cand()
+    gla_order.clear()
     run(gla.do_all(cmd))
-    check("glacera: the rest are named, not skipped quietly",
-          any("are not ported yet" in line for line in cmd.bot.logs), True)
+    check("glacera: every region runs, none is skipped",
+          any("are not ported" in line for line in cmd.bot.logs), False)
+    check("glacera: the run ends in IceDungeon", gla_order[-1],
+          "hunt:Kyanos' Approval")
 finally:
     restore(gla, leaf)
 
@@ -1270,6 +1278,101 @@ try:
           [("glac", True), "daily"])
 finally:
     restore(cryo, leaf)
+
+# ============================================================================
+# 17. GlaceraREP dan Glacial Berserker
+# ============================================================================
+from bot.other.classes import glacial_berserker as gb  # noqa: E402
+
+gb_order = []
+
+
+async def gb_glac(cmd, cryomancer=False):
+    gb_order.append(("glac", cryomancer))
+
+
+async def gb_rep(cmd, rank=10):
+    gb_order.append(("rep", rank))
+
+
+async def gb_buy(cmd, shop, item, qty=1, map_name=None, shop_item_id=0):
+    gb_order.append(("buy", shop, item, shop_item_id))
+
+
+async def gb_rank(cmd, name="", item_id=0, gear_restore=True):
+    gb_order.append(("rank", name))
+
+
+leaf = patch(gb, glacera_do_all=gb_glac, glacera_rep=gb_rep, buy_item=gb_buy,
+             advance_class=gb_rank)
+try:
+    cmd = Cand([ItemInventory({"sName": "Glacial Berserker", "ItemID": 1,
+                               "iQty": 1})])
+    gb_order.clear()
+    run(gb.get_gb(cmd))
+    check("gberserker: owned -> ranked", gb_order,
+          [("rank", "Glacial Berserker")])
+
+    cmd = Cand()
+    gb_order.clear()
+    run(gb.get_gb(cmd, rank_up_class=False))
+    check("gberserker: story, rep, then the shop", gb_order,
+          [("glac", False), ("rep", 10),
+           ("buy", 1339, "Glacial Berserker", 22266)])
+finally:
+    restore(gb, leaf)
+
+rep_events = []
+real_rep = {name: getattr(farms_mod, name) for name in
+            ("saved_state", "check_save_state", "execute_save_state",
+             "kill_once", "equip_class")}
+
+
+def rep_save(cmd, on=True, previous_map=""):
+    rep_events.append(("save", on, previous_map))
+
+
+def rep_check(cmd):
+    return False
+
+
+async def rep_exec(cmd):
+    rep_events.append(("exec",))
+
+
+async def rep_kill(cmd, *args, **kwargs):
+    rep_events.append(("kill",) + args[1:])
+    cmd.ranks["glacera"] = 10
+
+
+async def rep_equip(cmd, solo=False):
+    rep_events.append(("equip",))
+
+
+farms_mod.saved_state = rep_save
+farms_mod.check_save_state = rep_check
+farms_mod.execute_save_state = rep_exec
+farms_mod.kill_once = rep_kill
+farms_mod.equip_class = rep_equip
+try:
+    cmd = Cand()
+    run(farms_mod.glacera_rep(cmd))
+    check("glacera rep: locked quests are reported", rep_events, [])
+    check("glacera rep: says what to run",
+          any("not unlocked" in line for line in cmd.bot.logs), True)
+
+    cmd = Cand()
+    cmd.completed = {5601}
+    rep_events.clear()
+    run(farms_mod.glacera_rep(cmd))
+    check("glacera rep: armed, one kill, disarmed",
+          [entry[0] for entry in rep_events],
+          ["equip", "save", "kill", "save"])
+    check("glacera rep: the war quests are registered",
+          [c[1] for c in cmd.calls if c[0] == "register"], [5597, 5598, 5599, 5600])
+finally:
+    for name, fn in real_rep.items():
+        setattr(farms_mod, name, fn)
 
 print(f"passed {passed}   failed {len(failures)}")
 if failures:

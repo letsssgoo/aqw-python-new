@@ -47,6 +47,7 @@ from bot.nation.vhl.core_vhl import get_vhl
 from bot.other.classes.blaze_binder import get_class as get_blaze_binder
 from bot.other.classes.cryomancer import get_cryomancer
 from bot.other.classes.dragonslayer import get_dragonslayer
+from bot.other.classes.glacial_berserker import get_gb
 from bot.other.classes.dragonslayer_general import get_ds_general
 from bot.other.classes.rep_based.master_ranger import get_mr
 from bot.other.classes.scarlet_sorceress import get_ssorc
@@ -630,8 +631,7 @@ async def _handle_level_65(cmd: Command) -> None:
             and any_rank10(cmd, ["Glacial Berserker"])):
         cmd.bot.log("Level 65: Acquiring Glacial Berserker")
         await set_class(cmd)
-        report_once(cmd, "glacial_berserker",
-                    "GlacialBerserker.GetGB is not ported.")
+        await get_gb(cmd)
 
 
 async def _handle_level_70(cmd: Command) -> None:
