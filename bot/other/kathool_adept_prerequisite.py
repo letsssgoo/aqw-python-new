@@ -91,6 +91,18 @@ async def main(cmd: Command):
     await cmd.equip_enhancement("Wizard Helm Enhancement",
                                 enhance_if_missing=True)
 
-    await kathool_adept_prerequisite(cmd)
-    await fishing_rep(cmd)
-    await somnia_rep(cmd)
+    # The last merge only.  "Midnight Glaucus Sage" needs ingredients that this
+    # shop does not sell, so the merge script farms them through the SeaVoice
+    # fight (quest 9349) -- and that fight is the one place the Vigil is used: a
+    # thousand bought, one equipped into item slot 5.
+    cmd.add_drop(GLAUCUS_DROP)
+    await sea_voice_merge(cmd, buy_only_this=GLAUCUS)
+
+    # The hub brings a dropped session back by default, but a script that
+    # finished must not be re-run -- without this the bot relogins and runs the
+    # merge again forever.
+    cmd.bot.auto_relogin = False
+
+    # await kathool_adept_prerequisite(cmd)
+    # await fishing_rep(cmd)
+    # await somnia_rep(cmd)
