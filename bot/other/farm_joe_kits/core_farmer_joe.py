@@ -45,6 +45,7 @@ from bot.enhancements.vim import vim
 from bot.nation.afdl.enough_doom_for_an_archfiend import afdl
 from bot.nation.vhl.core_vhl import get_vhl
 from bot.other.classes.blaze_binder import get_class as get_blaze_binder
+from bot.other.classes.cryomancer import get_cryomancer
 from bot.other.classes.dragonslayer import get_dragonslayer
 from bot.other.classes.dragonslayer_general import get_ds_general
 from bot.other.classes.rep_based.master_ranger import get_mr
@@ -608,10 +609,7 @@ async def _handle_level_55(cmd: Command) -> None:
             and any_rank10(cmd, ["Cryomancer"])):
         cmd.bot.log("Level 55: Acquiring Cryomancer")
         await set_class(cmd)
-        report_once(
-            cmd, "cryomancer",
-            "Cryomancer.DoCrymancer needs Glac.DoAll (the Glacera story) before "
-            "the Cryomancer daily; that story is not ported.")
+        await get_cryomancer(cmd)
 
 
 async def _handle_level_60(cmd: Command) -> None:

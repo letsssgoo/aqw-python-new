@@ -1186,6 +1186,91 @@ try:
 finally:
     restore(dsl, leaf)
 
+# ============================================================================
+# 16. Glacera's FrozenTower and Cryomancer
+# ============================================================================
+from bot.story import glacera as gla  # noqa: E402
+from bot.other.classes import cryomancer as cryo  # noqa: E402
+
+gla_order = []
+
+
+async def gla_map(cmd, quest, map_name, item_ids, qty=1):
+    gla_order.append(f"map{quest}")
+
+
+async def gla_kill(cmd, quest, map_name, monster):
+    gla_order.append(f"kill{quest}")
+
+
+async def gla_hunt(cmd, item, qty, map_name, **kwargs):
+    gla_order.append(f"hunt:{item}")
+
+
+async def gla_prog(cmd, quest, *args, **kwargs):
+    return False
+
+
+leaf = patch(gla, map_item_quest=gla_map, kill_quest=gla_kill,
+             hunt_item=gla_hunt, quest_progression=gla_prog)
+try:
+    cmd = Cand()
+    cmd.completed = {3937}
+    gla_order.clear()
+    run(gla.frozen_tower(cmd))
+    check("glacera: a done tower does nothing", gla_order, [])
+
+    cmd = Cand()
+    gla_order.clear()
+    run(gla.do_all(cmd, cryomancer=True))
+    check("glacera: the tower starts at 3907", gla_order[:4],
+          ["map3907", "kill3908", "map3909", "map3910"])
+    check("glacera: the tower ends at 3937", gla_order[-1],
+          "hunt:Fangbeasts defeated")
+    check("glacera: the hand blocks are accepted in order",
+          [c[1] for c in cmd.calls if c[0] == "accept"],
+          [3911, 3919, 3920, 3921, 3925, 3935, 3936, 3937])
+    check("glacera: a cryomancer run stops after the tower",
+          any("are not ported yet" in line for line in cmd.bot.logs), False)
+
+    cmd = Cand()
+    run(gla.do_all(cmd))
+    check("glacera: the rest are named, not skipped quietly",
+          any("are not ported yet" in line for line in cmd.bot.logs), True)
+finally:
+    restore(gla, leaf)
+
+cryo_order = []
+
+
+async def cryo_glac(cmd, cryomancer=False):
+    cryo_order.append(("glac", cryomancer))
+
+
+async def cryo_daily(cmd):
+    cryo_order.append("daily")
+
+
+async def cryo_rank(cmd, name="", item_id=0, gear_restore=True):
+    cryo_order.append(("rank", name))
+
+
+leaf = patch(cryo, glacera_do_all=cryo_glac, daily_cryomancer=cryo_daily,
+             advance_class=cryo_rank)
+try:
+    cmd = Cand([ItemInventory({"sName": "Cryomancer", "ItemID": 1, "iQty": 1})])
+    cryo_order.clear()
+    run(cryo.get_cryomancer(cmd))
+    check("cryomancer: owned -> ranked", cryo_order, [("rank", "Cryomancer")])
+
+    cmd = Cand()
+    cryo_order.clear()
+    run(cryo.get_cryomancer(cmd, rank_up_class=False))
+    check("cryomancer: the tower, then the class daily", cryo_order,
+          [("glac", True), "daily"])
+finally:
+    restore(cryo, leaf)
+
 print(f"passed {passed}   failed {len(failures)}")
 if failures:
     for line in failures:

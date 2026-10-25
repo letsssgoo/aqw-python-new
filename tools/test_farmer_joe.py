@@ -352,7 +352,8 @@ def main() -> None:
                     ("forge_helm_enhancement", "lacerate", "smite", "afdl",
                      "smart_enhance", "vim", "pneuma", "examen", "anima",
                      "get_ds_general", "get_burning_blade", "blade_of_awe_rep",
-                     "get_ssorc", "get_blaze_binder", "get_dragonslayer")}
+                     "get_ssorc", "get_blaze_binder", "get_dragonslayer",
+                     "get_cryomancer")}
 
     async def fake_exp(cmd, level=100, rank_up_class=False):
         levels.append(level)
@@ -530,24 +531,28 @@ def main() -> None:
                for line in h50.bot.logs), h50.bot.logs
     print("bracket50  : Scarlet, Dragonslayer General and Burning Blade all run")
 
-    # --- bracket 55: Blaze Binder runs, Cryomancer still names its story ---
+    # --- bracket 55: Blaze Binder and Cryomancer both run ------------------
     h55 = Stub(solo="King's Echo", classes_held=["King's Echo"])
     level55 = []
-    real55 = joe.get_blaze_binder
+    real55 = {name: getattr(joe, name) for name in
+              ("get_blaze_binder", "get_cryomancer")}
 
     async def spy55(cmd, *args, **kwargs):
         level55.append("ran")
 
-    joe.get_blaze_binder = spy55
+    for name in real55:
+        setattr(joe, name, spy55)
     try:
         asyncio.run(joe._handle_level_55(h55))
     finally:
-        joe.get_blaze_binder = real55
-    assert level55 == ["ran"], level55
+        for name, fn in real55.items():
+            setattr(joe, name, fn)
+    assert level55 == ["ran", "ran"], level55
     assert any(line.startswith("Level 55: Acquiring Blaze Binder")
                for line in h55.bot.logs), h55.bot.logs
-    assert any("Glac.DoAll" in line for line in h55.bot.logs), h55.bot.logs
-    print("bracket55  : Blaze Binder runs, Cryomancer names Glac.DoAll")
+    assert any(line.startswith("Level 55: Acquiring Cryomancer")
+               for line in h55.bot.logs), h55.bot.logs
+    print("bracket55  : Blaze Binder and Cryomancer both run")
 
     h30 = Stub(solo="King's Echo", classes_held=["King's Echo"],
                inventory={"Venom Head": 1},
