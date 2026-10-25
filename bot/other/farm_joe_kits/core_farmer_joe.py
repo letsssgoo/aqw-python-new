@@ -30,9 +30,14 @@ so a run of this can be read next to a run of the reference bot.
 from typing import Optional, Sequence
 
 from bot.core_advanced import buy_item as adv_buy_item
-from bot.core_bots import buy_item, equip_class
+from bot.core_advanced import gear_store, rank_up_class, smart_enhance
+from bot.core_bots import buy_item, equip_class, farming_logger
 from bot.core_dailies import elders_blood
 from bot.core_farms import farm_experience
+from bot.enhancements.forge_helm import forge_helm_enhancement
+from bot.enhancements.lacerate import lacerate
+from bot.enhancements.smite import smite
+from bot.nation.afdl.enough_doom_for_an_archfiend import afdl
 from bot.nation.vhl.core_vhl import get_vhl
 from bot.other.classes.rep_based.master_ranger import get_mr
 from core.command import Command
@@ -129,6 +134,12 @@ def _get_class(cmd: Command, class_name: str):
             break
     _class_cache[class_name] = found
     return found
+
+
+def _current_class_name(cmd: Command) -> str:
+    """``Bot.Player.CurrentClass?.Name``: the worn class, empty when none."""
+    equipped = cmd.get_equipped_class()
+    return getattr(equipped, "item_name", "") or ""
 
 
 def report_once(cmd: Command, key: str, message: str) -> None:
@@ -241,7 +252,7 @@ async def servers_are_down(cmd: Command) -> None:
     if await cmd.has_item("The Server is Down"):
         return
 
-    cmd.farming_logger("The Server is Down", 1)
+    farming_logger(cmd, "The Server is Down", 1)
     await set_class(cmd)
     await hunt_item(cmd, "The Server is Down", 1, "undergroundlabb",
                     monster_name="Rabid Server Hamster", is_temp=False)
@@ -254,11 +265,11 @@ async def shirt_and_hat(cmd: Command) -> None:
     The armor comes out of ``SynderesMerge``, which needs the merge framework and
     is not ported; the hat is a plain purchase from Yulgar.
     """
-    cmd.farming_logger("NO BOTS Armor", 1)
+    farming_logger(cmd, "NO BOTS Armor", 1)
     report_once(cmd, "shirt",
                 "ShirtAndHat's \"NO BOTS Armor\" comes from SynderesMerge "
                 "(the merge framework), which is not ported.")
-    cmd.farming_logger("Scarecrow Hat", 1)
+    farming_logger(cmd, "Scarecrow Hat", 1)
     await adv_buy_item(cmd, 16, "Scarecrow Hat", map_name="yulgar")
 
 
@@ -299,9 +310,7 @@ async def outfit(cmd: Command) -> None:
 
     await shirt_and_hat(cmd)
     await servers_are_down(cmd)
-    report_once(cmd, "smart_enhance",
-                "Adv.SmartEnhance has no counterpart here; enhance the class by "
-                "hand (or through a loadout) after the run.")
+    await smart_enhance(cmd, _current_class_name(cmd))
 
     await pets(cmd, PET_CHOICE)
 
@@ -407,9 +416,7 @@ async def beginner_items(cmd: Command) -> None:
 
     if not await cmd.has_any_item(list(NINJA_NAMES)):
         cmd.bot.log("Getting starter Dodge class (Ninja)")
-        report_once(cmd, "rank_up_rogue",
-                    'Adv.RankUpClass("Rogue") needs the class rank, which this '
-                    'engine cannot read; skipped.')
+        await rank_up_class(cmd, "Rogue")
         await farm_experience(cmd, 25)
         await set_class(cmd)
         report_once(cmd, "mazumi",
@@ -449,10 +456,22 @@ async def level_30_to_75(cmd: Command) -> None:
                     "GetBoosts is on, but CoreFarms.GetBoost and "
                     "FreeBoosts.GetBoostsSelect are not ported.")
 
+    # ``bool HasEnhancedThisBracket`` -- the source's own field, reset at the end
+    # of every bracket.
+    has_enhanced_this_bracket = False
+
     for level in LEVEL_BRACKETS:
-        report_once(cmd, "smart_enhance",
-                    "Adv.SmartEnhance has no counterpart here; enhance the class "
-                    "by hand (or through a loadout) after the run.")
+        if (cmd.get_player().LEVEL or 0) > 75:
+            has_enhanced_this_bracket = True
+
+        # ``Adv.SmartEnhance(Bot.Player.CurrentClass?.Name)`` at the start of a
+        # bracket, when this bracket has not enhanced yet or any worn item is
+        # behind the player's level.
+        if (not has_enhanced_this_bracket
+                or any(item.enh_level < (cmd.get_player().LEVEL or 0)
+                       for item in cmd.bot.player.INVENTORY)):
+            await smart_enhance(cmd, _current_class_name(cmd))
+            has_enhanced_this_bracket = True
 
         await farm_experience(cmd, level)
 
@@ -461,6 +480,8 @@ async def level_30_to_75(cmd: Command) -> None:
             cmd.bot.log(f"Level Handler: {level} bracket")
             await handler(cmd)
             await bank_all_unused_classes(cmd)
+
+        has_enhanced_this_bracket = False
 
 
 async def level_75_to_100(cmd: Command) -> None:
@@ -485,9 +506,7 @@ async def end_game(cmd: Command) -> None:
 
 async def do_all(cmd: Command) -> None:
     """``CoreFarmerJoe.DoAll``: the whole kit, in the reference's order."""
-    report_once(cmd, "gear_store",
-                "Adv.GearStore (the gear snapshot around the run) has no "
-                "counterpart here.")
+    await gear_store(cmd)
 
     await level_1_to_30(cmd)
     await level_30_to_75(cmd)
@@ -497,9 +516,7 @@ async def do_all(cmd: Command) -> None:
     await pets(cmd, PET_HOT_MAMA)
     await pets(cmd, PET_AKRILOTH)
 
-    report_once(cmd, "gear_store_after",
-                "Adv.GearStore(true, EnhAfter: true) at the end of the run is "
-                "skipped for the same reason.")
+    await gear_store(cmd, restore=True, enh_after=True)
 
 
 #: The two purchases inside the bracket handlers that need no other kit.
@@ -536,8 +553,7 @@ async def _handle_level_30(cmd: Command) -> None:
                 "CoreFarms.BladeofAweREP is not ported; the Blade of Awe rep is "
                 "not farmed.")
     await adv_buy_item(cmd, MUSEUM_SHOP, AWETHUR_ITEM, map_name="museum")
-    report_once(cmd, "forge_helm",
-                "UnlockForgeEnhancements.ForgeHelmEnhancement is not ported.")
+    await forge_helm_enhancement(cmd)
 
 
 async def _handle_level_50(cmd: Command) -> None:
@@ -587,8 +603,7 @@ async def _handle_level_60(cmd: Command) -> None:
         report_once(cmd, "dragonsoul_shinobi",
                     "DragonShinobi.GetDSS is not ported.")
 
-    report_once(cmd, "forge_lacerate",
-                "UnlockForgeEnhancements.Lacerate is not ported.")
+    await lacerate(cmd)
 
 
 async def _handle_level_65(cmd: Command) -> None:
@@ -611,9 +626,10 @@ async def _handle_level_70(cmd: Command) -> None:
         await set_class(cmd)
 
     cmd.bot.log("unlocking the easy lvl 70 forge enhs")
-    report_once(cmd, "forge_easy",
-                "UnlockForgeEnhancements Smite/Vim/Pneuma/Examen/Anima are not "
-                "ported.")
+    await smite(cmd)
+    report_once(cmd, "forge_easy_missing",
+                "UnlockForgeEnhancements Vim/Pneuma/Examen/Anima are not ported; "
+                "Smite is, and ran.")
 
     if not (await cmd.has_item("ArchPaladin")
             and any_rank10(cmd, ["ArchPaladin"])):
@@ -630,9 +646,7 @@ async def _handle_level_75(cmd: Command) -> None:
                     "to any monster, and gives 25% more class points, XP, gold, "
                     "and rep when equipped")
         await set_class(cmd)
-        report_once(cmd, "afdl",
-                    "EnoughDOOMforanArchfiend.AFDL is not ported; its gear boost "
-                    "(Adv.HasMinimalBoost) does not exist here either.")
+        await afdl(cmd)
 
     if not (await cmd.has_item("Archfiend")
             and any_rank10(cmd, ["Archfiend"])):

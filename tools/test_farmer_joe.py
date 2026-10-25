@@ -53,6 +53,12 @@ class _Player:
     def get_item_inventory(self, name):
         return self._find(self.INVENTORY, name)
 
+    def get_item_temp_inventory(self, name):
+        return None
+
+    def get_item_bank(self, name):
+        return self._find(self.BANK, name)
+
 
 class _ShopItem:
     """Mirrors ``ItemInventory`` as a shop entry."""
@@ -324,9 +330,12 @@ def main() -> None:
     # to check is the ladder itself: order, the daily, and the handlers
     ladder = Stub(level=30, solo="King's Echo",
                   classes_held=["King's Echo", "Ninja"])
-    levels, dailies, vhl = [], [], []
+    levels, dailies, vhl, porters = [], [], [], []
     real_exp, real_daily = joe.farm_experience, joe.elders_blood
     real_vhl = joe.get_vhl
+    real_porters = {name: getattr(joe, name) for name in
+                    ("forge_helm_enhancement", "lacerate", "smite", "afdl",
+                     "smart_enhance")}
 
     async def fake_exp(cmd, level=100, rank_up_class=False):
         levels.append(level)
@@ -337,17 +346,26 @@ def main() -> None:
     async def fake_vhl(cmd, rank_up_class=True):
         vhl.append("get_vhl")
 
+    async def fake_porter(cmd, *args, **kwargs):
+        porters.append("ran")
+
     joe.farm_experience, joe.elders_blood = fake_exp, fake_daily
     joe.get_vhl = fake_vhl
+    for name in real_porters:
+        setattr(joe, name, fake_porter)
     try:
         asyncio.run(joe.level_30_to_75(ladder))
     finally:
         joe.farm_experience, joe.elders_blood = real_exp, real_daily
         joe.get_vhl = real_vhl
+        for name, fn in real_porters.items():
+            setattr(joe, name, fn)
 
     assert levels == list(joe.LEVEL_BRACKETS), levels
     assert dailies == ["elders"], dailies
     assert vhl == ["get_vhl"], vhl          # bracket 80 is the ported CoreVHL
+    # the ported enhancement/gear helpers each ran for the bracket that asks
+    assert len(porters) >= 3, porters
     assert [c[1] for c in ladder.calls if c[0] == "inv_to_bank"], ladder.calls
     for level in joe.LEVEL_BRACKETS:
         assert f"Level Handler: {level} bracket" in ladder.bot.logs, ladder.bot.logs
@@ -410,12 +428,21 @@ def main() -> None:
         levels.append(level)
 
     joe.farm_experience = spy_exp2
+    ranked_up = []
+    real_rank = joe.rank_up_class
+
+    async def spy_rank(cmd, *args, **kwargs):
+        ranked_up.append(args)
+
+    joe.rank_up_class = spy_rank
     try:
         asyncio.run(joe.beginner_items(fresh))
     finally:
         joe.farm_experience = real_exp
+        joe.rank_up_class = real_rank
 
     assert levels == [10, 25], levels
+    assert ranked_up == [("Rogue",)], ranked_up
     assert ("buy_item", 299, "battle oracle hood", 1, 0) in fresh.calls, \
         fresh.calls
     assert ("buy_item", 299, "battle oracle wings", 1, 0) in fresh.calls, \
@@ -437,28 +464,52 @@ def main() -> None:
                  "Getting starter Dodge class (Ninja)",
                  "Getting Starter Farm class (Mage)"):
         assert line in fresh.bot.logs, fresh.bot.logs
-    print("beginner   : fresh account -> Oracle slots, Rogue, Mage; Ninja reported")
+    print("beginner   : fresh account -> Oracle slots, Rogue, Rogue ranked, Mage")
 
     # --- bracket handlers: what runs, what is reported -------------------
     h70 = Stub(solo="King's Echo", classes_held=["King's Echo"],
                shops=[_Shop(308, ["Horc Evader"])])
-    asyncio.run(joe._handle_level_70(h70))
+    forged = []
+    real_smite = joe.smite
+
+    async def spy_smite(cmd):
+        forged.append("smite")
+
+    joe.smite = spy_smite
+    try:
+        asyncio.run(joe._handle_level_70(h70))
+    finally:
+        joe.smite = real_smite
     assert ("buy_item", 308, "horc evader", 1, 0) in h70.calls, h70.calls
+    assert forged == ["smite"], forged
     assert "unlocking the easy lvl 70 forge enhs" in h70.bot.logs, h70.bot.logs
     assert any(line.startswith("Geting Horc Evader")
                for line in h70.bot.logs), h70.bot.logs
-    print("bracket70  : buys the Horc Evader, reports the forge enhancements")
+    assert any("Vim/Pneuma/Examen/Anima are not ported" in line
+               for line in h70.bot.logs), h70.bot.logs
+    print("bracket70  : buys the Horc Evader, runs Smite, reports the other four")
 
     h30 = Stub(solo="King's Echo", classes_held=["King's Echo"],
                inventory={"Venom Head": 1},
                shops=[_Shop(631, ["Awethur's Accoutrements"])])
-    asyncio.run(joe._handle_level_30(h30))
+    forges = []
+    real_forge_helm = joe.forge_helm_enhancement
+
+    async def spy_forge_helm(cmd):
+        forges.append("helm")
+
+    joe.forge_helm_enhancement = spy_forge_helm
+    try:
+        asyncio.run(joe._handle_level_30(h30))
+    finally:
+        joe.forge_helm_enhancement = real_forge_helm
     assert ("sell_item", "Venom Head") in h30.calls, h30.calls
     assert ("buy_item", 631, "awethur's accoutrements", 1, 0) in h30.calls, \
         h30.calls
+    assert forges == ["helm"], forges
     assert any(line.startswith("Level 30: Farming Blade of Awe Rep")
                for line in h30.bot.logs), h30.bot.logs
-    print("bracket30  : sells the Venom Head, buys Awethur's Accoutrements")
+    print("bracket30  : sells the Venom Head, buys Awethur's, unlocks the helm")
 
     h80 = Stub(solo="King's Echo", classes_held=["King's Echo"],
                inventory={"Void Highlord": 1})
@@ -492,7 +543,11 @@ def main() -> None:
     h30b = Stub(solo="King's Echo", classes_held=["King's Echo"],
                 shops=[_Shop(242, [_ShopItem("Master Ranger", 7260, 5682)]),
                        _Shop(631, ["Awethur's Accoutrements"])])
-    asyncio.run(joe._handle_level_30(h30b))
+    joe.forge_helm_enhancement = spy_forge_helm
+    try:
+        asyncio.run(joe._handle_level_30(h30b))
+    finally:
+        joe.forge_helm_enhancement = real_forge_helm
     assert ("buy_item", 242, "master ranger", 1, 5682) in h30b.calls, h30b.calls
     print("bracket30  : Master Ranger comes from the ported kit now")
 
@@ -518,21 +573,30 @@ def main() -> None:
 
     async def run_do_all():
         joe._reported.clear()
+        real_gear = joe.gear_store
         for name in real:
             setattr(joe, name, await recorder(name))
+
+        async def spy_gear(cmd, restore=False, enh_after=False):
+            calls.append(("gear_store", restore, enh_after))
+
+        joe.gear_store = spy_gear
         try:
             await joe.do_all(Stub())
         finally:
             for name, fn in real.items():
                 setattr(joe, name, fn)
+            joe.gear_store = real_gear
 
     asyncio.run(run_do_all())
     assert [c[0] for c in calls] == [
-        "level_1_to_30", "level_30_to_75", "level_75_to_100", "end_game",
-        "outfit", "pets", "pets"], calls
-    assert calls[-2] == ("pets", joe.PET_HOT_MAMA), calls[-2]
-    assert calls[-1] == ("pets", joe.PET_AKRILOTH), calls[-1]
-    print("doall      : brackets, endgame, outfit, then both pets")
+        "gear_store", "level_1_to_30", "level_30_to_75", "level_75_to_100",
+        "end_game", "outfit", "pets", "pets", "gear_store"], calls
+    assert calls[0] == ("gear_store", False, False), calls[0]
+    assert calls[-1] == ("gear_store", True, True), calls[-1]
+    assert calls[-3] == ("pets", joe.PET_HOT_MAMA), calls[-3]
+    assert calls[-2] == ("pets", joe.PET_AKRILOTH), calls[-2]
+    print("doall      : snapshot, brackets, outfit, pets, then restore")
 
     print("\nfarmer joe tests OK")
 
