@@ -11,6 +11,11 @@ Two source quirks are kept as they are:
 * the ``Midnight Glaucus Sage`` line runs twice (once, then again when the item
   is still missing).  The second attempt cannot conjure an item the first could
   not, but the source has it, so this does too.
+
+``main`` currently runs **only** the last merge, for ``Midnight Glaucus Sage``.
+Its ``Glaucus Mystic`` comes from the SeaVoice fight (quest 9349), which is the
+one place the Vigil is used.  The rest of the chain is commented out while that
+fight is checked.
 """
 from typing import Optional
 
