@@ -64,6 +64,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const slavePasswordInput = document.getElementById('slave-password');
     const slaveClassInput = document.getElementById('slave-class');
     const slaveSkillsInput = document.getElementById('slave-skills');
+    const slaveMasterInput = document.getElementById('slave-master');
     const slaveTaunterInput = document.getElementById('slave-taunter');
     const slaveHpOperatorSelect = document.getElementById('slave-hp-operator');
     const slaveHpThresholdInput = document.getElementById('slave-hp-threshold');
@@ -261,6 +262,7 @@ document.addEventListener('DOMContentLoaded', () => {
         slavePasswordInput.value = '';
         slaveClassInput.value = '';
         slaveSkillsInput.value = '1,2,3,4';
+        slaveMasterInput.value = '';
         slaveTaunterInput.checked = false;
         slaveHpThresholdInput.value = '';
         slaveHpSkillsInput.value = '';
@@ -391,6 +393,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     password: pass,
                     char_class: cls,
                     skills: slaveSkillsInput.value.trim() || '1,2,3,4',
+                    follow_player: slaveMasterInput.value.trim(),
                     taunter: slaveTaunterInput.checked,
                     hp_operator: slaveHpOperatorSelect.value,
                     hp_threshold: parseInt(slaveHpThresholdInput.value) || 0,
@@ -430,6 +433,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 password: pass,
                 char_class: cls,
                 skills: slaveSkillsInput.value.trim() || '1,2,3,4',
+                follow_player: slaveMasterInput.value.trim(),
                 taunter: slaveTaunterInput.checked,
                 hp_operator: slaveHpOperatorSelect.value,
                 hp_threshold: parseInt(slaveHpThresholdInput.value) || 0,
@@ -508,6 +512,18 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    function masterCell(s) {
+        const own = (s.follow_player || '').trim();
+        const globalMaster = (globalConfig.follow_player || '').trim();
+        if (own) {
+            return `<span class="master-badge" title="This account has its own master">${own}</span>`;
+        }
+        if (globalMaster) {
+            return `<span class="master-badge global" title="Follows the global master">${globalMaster}</span>`;
+        }
+        return `<span class="text-muted">-</span>`;
+    }
+
     function renderSlavesTable() {
         slaveTableBody.innerHTML = '';
         const slaves = globalConfig.slaves || [];
@@ -517,7 +533,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (slaves.length === 0) {
-            slaveTableBody.innerHTML = `<tr><td colspan="9" class="text-muted" style="text-align: center; padding: 20px;">No registered slave accounts. Click "+ Add Account" to start.</td></tr>`;
+            slaveTableBody.innerHTML = `<tr><td colspan="10" class="text-muted" style="text-align: center; padding: 20px;">No registered slave accounts. Click "+ Add Account" to start.</td></tr>`;
             return;
         }
 
@@ -543,6 +559,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         </svg>
                         <span class="class-badge-text">${s.char_class || 'Default'}</span>
                     </div>
+                </td>
+                <td class="col-master">
+                    ${masterCell(s)}
                 </td>
                 <td class="col-taunt" style="text-align: center;">
                     <div class="taunt-cell-wrapper">
@@ -689,6 +708,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 slavePasswordInput.value = slave.password;
                 slaveClassInput.value = slave.char_class;
                 slaveSkillsInput.value = slave.skills || '1,2,3,4';
+                slaveMasterInput.value = slave.follow_player || '';
                 slaveTaunterInput.checked = slave.taunter || false;
                 slaveHpOperatorSelect.value = slave.hp_operator || '<';
                 slaveHpThresholdInput.value = slave.hp_threshold !== undefined ? slave.hp_threshold : '';
@@ -733,8 +753,18 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    function refreshMasterCells() {
+        (globalConfig.slaves || []).forEach(s => {
+            const cell = slaveTableBody.querySelector(
+                `tr[data-username="${s.username}"] .col-master`);
+            if (cell) cell.innerHTML = masterCell(s);
+        });
+    }
+
     btnSaveSettings.addEventListener('click', () => {
         saveConfigurationLocal();
+        // The global master is what every account without its own one shows.
+        refreshMasterCells();
         closeGlobalSettingsModal();
         showToast('Global settings saved successfully.');
     });

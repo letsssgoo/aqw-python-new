@@ -12,8 +12,11 @@ function body and drive ``main`` up to that first log line.
 import ast
 import asyncio
 import json
+import os
 import pathlib
+import shutil
 import sys
+import tempfile
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -88,6 +91,58 @@ def bare_bot_lines():
     return sorted(set(hits))
 
 
+def master_checks():
+    """Per-account master: its own entry wins, empty follows the global one."""
+    from app.build_hub_app import SlaveBotThread, SlaveryApi, resolve_master
+
+    global_cfg = {"follow_player": "GLOBAL"}
+    assert resolve_master({"follow_player": "OWN"}, global_cfg) == "OWN"
+    assert resolve_master({"follow_player": ""}, global_cfg) == "GLOBAL"
+    assert resolve_master({}, global_cfg) == "GLOBAL"
+    assert resolve_master(None, {"follow_player": ""}) == ""
+    print("master     : own entry wins, empty falls back to the global one")
+
+    thread = SlaveBotThread(username="a", password="b", char_class="c",
+                            config=global_cfg, callback=None,
+                            follow_player="OWN")
+    assert thread.follow_player == "OWN", thread.follow_player
+    fallback = SlaveBotThread(username="a", password="b", char_class="c",
+                              config=global_cfg, callback=None)
+    assert fallback.follow_player == "GLOBAL", fallback.follow_player
+    print("master     : the slave thread keeps the master it was handed")
+
+    temp_dir = tempfile.mkdtemp(prefix="slavery_test_")
+    try:
+        api = SlaveryApi()
+        api.config_path = os.path.join(temp_dir, "slavery_config.json")
+
+        class _Bot:
+            pass
+
+        class _Thread:
+            def __init__(self):
+                self.bot_instance = _Bot()
+
+        api.active_threads = {"own": _Thread(), "global": _Thread()}
+        saved = api.save_config({
+            "room_number": 9099,
+            "follow_player": "NEWGLOBAL",
+            "whitelist": [],
+            "slaves": [
+                {"username": "own", "follow_player": "OWN", "taunter": True},
+                {"username": "global", "follow_player": ""},
+            ],
+        })
+        assert saved["success"], saved
+        assert api.active_threads["own"].bot_instance.follow_player == "OWN"
+        assert (api.active_threads["global"].bot_instance.follow_player
+                == "NEWGLOBAL")
+        assert api.active_threads["own"].bot_instance.taunter is True
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+    print("master     : saving the global master leaves an account's own alone")
+
+
 def main():
     hits = bare_bot_lines()
     assert hits == [], f"bare 'bot' inside a function at {hits}"
@@ -103,6 +158,8 @@ def main():
     cmd.handler(event)
     assert any("Event packet" in line for line in cmd.bot.logs), cmd.bot.logs
     print("slave      : an event packet is logged, not swallowed as a NameError")
+
+    master_checks()
 
     print("\nslavery tests OK")
 

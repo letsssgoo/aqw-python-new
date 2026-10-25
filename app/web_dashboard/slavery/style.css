@@ -682,6 +682,29 @@ body {
     white-space: nowrap;
 }
 
+/* Master Badge (the account this slave follows) */
+.master-badge {
+    display: inline-flex;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 4px 9px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #cbd5e1;
+    max-width: 130px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.master-badge.global {
+    color: var(--text-muted);
+    border-style: dashed;
+    font-style: italic;
+}
+
 /* Mini Switch for Table Rows */
 .taunt-cell-wrapper {
     display: inline-flex;
