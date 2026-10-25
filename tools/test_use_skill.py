@@ -70,6 +70,10 @@ class Recorder:
         self.calls.append(("scroll", tuple(monsters_id), max_target,
                            self.scroll_id))
 
+    def use_potion(self, potion_id):
+        # Mirrors Bot.use_potion: i1>p:<charId>%<itemId>% -- the item slot.
+        self.calls.append(("potion", potion_id))
+
     def debug(self, *_a, **_k):
         pass
 
@@ -163,10 +167,10 @@ check("h skill: skillAnim set", rec.skillAnim, rec.player.SKILLS[1].get("anim"))
 # ============================================================================
 # 2. the int(None) regression: scroll slot has tgtMax = None
 # ----------------------------------------------------------------------------
-# As sAct ships it (no scroll equipped yet) slot 5 has tgt="f", so it takes the
-# friendly branch -- use_scroll is only reachable from inside the tgt=="h"
-# branch (core/command.py:1214), which is what the server's `seia` push flips
-# it to once a scroll is equipped.  Either way the old
+# As sAct ships it (no scroll equipped yet) slot 5 has tgt="f".  With an item
+# equipped in the potion slot that slot *is* the item, so it goes out as
+# i1>p:<charId>%<itemId>% (the Vigil packet) rather than a5>p:<charId>; with
+# nothing equipped it keeps the class-skill packet.  Either way the old
 # `int(skill.get("tgtMax", 1))` ran BEFORE either branch and raised int(None).
 # ============================================================================
 rec, cmd = setup([make_monster("10", "1")])
@@ -175,9 +179,18 @@ try:
     check("scroll slot does not raise", "no exception", "no exception")
 except TypeError as exc:
     check("scroll slot does not raise", f"TypeError {exc}", "no exception")
-check("slot 5 (tgt=f) routed to player branch", rec.calls[0][0], "player")
-check("slot 5: max_target fell back to 1", rec.calls[0][2], 1)
+check("slot 5 (tgt=f) with an item equipped: item packet",
+      rec.calls[0][0], "potion")
+check("slot 5: fires bot.scroll_id", rec.calls[0][1], 12917)
 check("slot 5: returned", sent, True)
+
+# Nothing equipped -> the slot is not an item and keeps the class-skill packet.
+rec, cmd = setup([make_monster("10", "1")])
+rec.scroll_id = ""
+sent = run(cmd.use_skill(5, "*", False, SkillMode.ALL))
+check("slot 5 (tgt=f) with no item: player branch", rec.calls[0][0], "player")
+check("slot 5: max_target fell back to 1", rec.calls[0][2], 1)
+check("slot 5: returned with no item", sent, True)
 
 # ...and the old expression really did raise, so this is a genuine fix
 try:

@@ -1892,7 +1892,10 @@ class Command:
             index (int): Skill slot that should be triggered. ``5`` is the
                 scroll/potion slot: call ``equip_scroll(...)`` once first so
                 ``bot.scroll_id`` is set, then ``use_skill(5, ...)``. There is
-                no per-call scroll id -- the equipped scroll is the scroll.
+                no per-call scroll id -- the equipped scroll is the scroll. A
+                hostile-targeted scroll goes out as ``i1>m:<monster>``; a
+                self/friendly one uses the item packet
+                ``i1>p:<charId>%<itemId>%``.
             target_monsters (str): Target filter, ``*`` for any or comma-separated list.
             hunt (bool): When True, jump to the monster before casting.
             skill_mode (SkillType): Defines which types of skills (buff, attack, all, none) can be used.
@@ -2000,13 +2003,26 @@ class Command:
             packet_sent = True
         
         if skill_mode in (SkillMode.ALL, SkillMode.BUFF_ONLY):
+            # Slot 5 with something equipped in the potion slot *is* that item,
+            # not a class skill: the client sends
+            # ``i1>p:<charId>%<itemId>%`` and the server answers with the item's
+            # aura and consumes one (the Vigil in CoreAOR is exactly this).
+            # Sending ``a5>p:<charId>`` there casts nothing.  With no item
+            # equipped the slot keeps the old class-skill packet.
+            item_slot = index == 5 and bool(self.bot.scroll_id)
             if skill.target == "f":
                 await self._pace_skill_cast(gap_ms)
-                self.bot.use_skill_to_player(index, max_target)
+                if item_slot:
+                    self.bot.use_potion(self.bot.scroll_id)
+                else:
+                    self.bot.use_skill_to_player(index, max_target)
                 packet_sent = True
             if skill.target == "s":
                 await self._pace_skill_cast(gap_ms)
-                self.bot.use_skill_to_myself(index)
+                if item_slot:
+                    self.bot.use_potion(self.bot.scroll_id)
+                else:
+                    self.bot.use_skill_to_myself(index)
                 packet_sent = True
 
         if not packet_sent:

@@ -1079,21 +1079,28 @@ class Bot:
                 # Some classes ship fewer than six slots in sAct; the item
                 # slot arrives here instead.  Pad with an empty Skill so this
                 # handler can fill it in rather than raising IndexError.
+                #
+                # The payload is shorter than an sAct entry -- equipping the
+                # Vigil sends {"id":2070,"typ":"m","tgt":"s","fx":"m",
+                # "range":301,"cd":20000,"icon":"ime3"} with no `anim` and no
+                # `strl` -- so reading those unguarded raised KeyError on every
+                # potion equip and left the slot without `tgt`/`cd`.
+                slot = data.get("o") or {}
                 while len(self.player.SKILLS) <= 5:
                     self.player.SKILLS.append(Skill())
-                self.player.SKILLS[5]["anim"] = data["o"]["anim"]
-                self.player.SKILLS[5]["strl"] = data["o"]["strl"]
-                self.player.SKILLS[5]["cd"] = data["o"]["cd"]
-                self.player.SKILLS[5]["tgt"] = data["o"]["tgt"]
-                anim_strl = {
-                        "anim" : self.player.SKILLS[5]["anim"],
-                        "strl" : self.player.SKILLS[5]["strl"]
-                    }
-                self.player.SKILLS[5]["ref"] = "i1"
-                self.player.SKILLS[5]["nextUse"] = datetime.now()
-                self.player.skills_ref["i1"] = anim_strl
-                # print(self.player.skills_ref)
-                # print(f"Skills: {self.player.SKILLS}")
+                item_slot = self.player.SKILLS[5]
+                item_slot["anim"] = slot.get("anim", "")
+                item_slot["strl"] = slot.get("strl", "")
+                item_slot["cd"] = slot.get("cd", 0)
+                item_slot["tgt"] = slot.get("tgt", "s")
+                item_slot["typ"] = slot.get("typ", "i")
+                item_slot["id"] = slot.get("id", 0)
+                item_slot["ref"] = "i1"
+                item_slot["nextUse"] = datetime.now()
+                self.player.skills_ref["i1"] = {
+                    "anim": item_slot["anim"],
+                    "strl": item_slot["strl"],
+                }
             elif cmd == "castWait":
                 # Fishing: the server says how long this cast takes (it varies:
                 # 2800-7000 ms in the capture) and whether it is a derp cast.

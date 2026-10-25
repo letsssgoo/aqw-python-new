@@ -498,11 +498,16 @@ def main() -> None:
     assert core_aor.VIGIL_SHOP == 2320 and core_aor.VIGIL_SHOP_ITEM_ID == 12023
     assert core_aor.OXIDIZE == "Oxidize" and core_aor.CLEANSE_SLOT == 5
     assert core_aor.KILL_THING_ITEM == "Voice in the Sea Defeated"
+    assert core_aor.VIGIL_ITEM_ID == 78994, "the Vigil is potion item 78994"
     sv = aor_body[aor_body.index("async def kill_thing("):]
     assert "mana_cradle" in aor_body and "deep_water" in aor_body
     assert "_has_aura(cmd, OXIDIZE)" in sv, "the cleanse is aura-driven"
+    assert "equip_scroll(" in sv and "ScrollType.POTION" in sv, \
+        "a potion is equipped with geia, not equipItem"
+    assert "KILL_THING_ITEM, VIGIL_ITEM_ID" in sv, \
+        "sea_voice must pass the item id, not the name"
     assert "SetSpawnPoint" in sv or "SetSpawnPoint" in aor_body or True
-    print("AOR voice  : SeaVoice 9348, Vigil + Oxidize cleanse on skill 5")
+    print("AOR voice  : SeaVoice 9348, Vigil + Oxidize cleanse on item slot 5")
 
     # Dua daftar drop itu variabel biasa di sumber: diport, bukan dilewati.
     assert core_sow.MAINYU_DROPS == ("Mainyu Rune", "Mainyu Tail", "Mainyu Wings")
@@ -548,6 +553,44 @@ def main() -> None:
     assert stopped, "a failed turn-in has to stop the run"
     print("turn-in   : a failed turn-in stops the story instead of being ignored")
 
+    # --- satu id, satu panggilan: qty tidak dipecah jadi paket per item -----
+    # `get_map_item(id)` dengan qty=1 hanya sekali kirim (`attempts >= qty`
+    # langsung break), jadi 6 map item bisa masuk kurang dari 6 dan turn-in
+    # berikutnya gagal walau farmnya baru saja jalan.
+    picked = []
+
+    async def _record_pickup(item_id, qty=1):
+        picked.append((item_id, qty))
+
+    async def _ok_turn_in(quest_id, item_id=-1, amount=1):
+        return True
+
+    pick_cmd = Command(bot)
+    pick_cmd.get_map_item = _record_pickup
+    pick_cmd.ensure_turn_in_quest = _ok_turn_in
+    asyncio.run(_map_item_quest(pick_cmd, 4811, "battleon", ((5, 6), (6, 1))))
+    assert picked == [(5, 6), (6, 1)], picked
+    print("map item  : qty per id goes in one call, not one packet per item")
+
+    # --- quest lanjutan setelah relog tetap bisa di-turn in ----------------
+    # Item temp hilang saat relog, jadi client tidak melihat syaratnya walau
+    # server sudah menyimpannya. Satu paket turn-in yang memutuskan, bukan
+    # berhenti dengan "requirements are not met".
+    resumed = {"in_progress": True, "sent": 0}
+    resume_cmd = Command(bot)
+    bot.is_client_connected = True
+    resume_cmd.quest_in_progress = lambda quest_id: resumed["in_progress"]
+    resume_cmd.can_turnin_quest = lambda quest_id: False
+
+    async def _sent_turn_in(quest_id, item_id=-1, qty=1):
+        resumed["sent"] += 1
+        resumed["in_progress"] = False
+
+    resume_cmd.turn_in_quest = _sent_turn_in
+    assert asyncio.run(resume_cmd.ensure_turn_in_quest(9307)) is True
+    assert resumed["sent"] == 1, resumed
+    print("resumed   : a quest the client cannot see still gets its turn-in")
+
     # --- paket %...% tidak boleh menyentuh `cmd` (UnboundLocalError) -----
     # `castWait`/`CatchResult` sempat ditaruh di cabang persen, tempat `cmd`
     # belum ada: setiap pesan persen yang tidak dikenal langsung meledak.
@@ -565,6 +608,72 @@ def main() -> None:
         _server("CatchResult", catchResult={"act": "CatchPole"})))
     assert bot.fishing_caught is True, bot.fishing_caught
     print("percent   : %...% messages are safe; castWait/CatchResult parse")
+
+    # --- seia: the item-slot payload has no anim/strl ---------------------
+    # Equipping the Vigil sends {"id":2070,"typ":"m","tgt":"s",...,"cd":20000}.
+    # Reading `anim`/`strl` unguarded raised KeyError on every potion equip and
+    # left slot 5 without `tgt`/`cd`, so the cleanse in CoreAOR.KillThing could
+    # never fire.
+    asyncio.run(bot.handle_server_response(_server(
+        "seia", o={"id": 2070, "typ": "m", "tgt": "s", "fx": "m",
+                   "range": 301, "cd": 20000, "icon": "ime3"}, iRes=1)))
+    item_slot = bot.player.SKILLS[5]
+    assert item_slot["ref"] == "i1" and item_slot["tgt"] == "s", item_slot
+    assert item_slot["cd"] == 20000, item_slot
+    assert bot.player.canUseSkill(5) is True
+    print("seia      : item slot 5 takes tgt/cd without anim/strl")
+
+    # --- CoreAOR.kill_thing: the potion equip must be confirmed by seia ---
+    # `equip_scroll` only sends `geia`; the server's answer is the `seia` push
+    # that fills slot 5.  Without that answer the cleanse would send `i1>p:`
+    # for an item that is not in the slot, so it has to be reported.
+    from bot.story.age_of_ruin import core_aor
+
+    async def _potion_equip(ack: bool):
+        potion_bot = Bot()
+        potion_bot.is_client_connected = True
+        potion_bot.player.INVENTORY.append(
+            ItemInventory({"sName": "Vigil", "ItemID": 78994, "iQty": 1000,
+                           "sType": "Item", "sMeta": 2070}))
+        logs = []
+        potion_bot.log = lambda *a: logs.append(" ".join(map(str, a)))
+        potion_cmd = Command(potion_bot)
+        sent = []
+
+        async def _noop(*_a, **_k):
+            return None
+
+        async def _equip_scroll(name, item_type=None):
+            sent.append((name, getattr(item_type, "value", item_type)))
+            if ack:
+                potion_bot.player.SKILLS = [{} for _ in range(5)] + [
+                    {"ref": "i1", "tgt": "s"}]
+            return True
+
+        async def _has_item(*_a, **_k):
+            return True
+
+        real_buy = core_aor.buy_item
+        core_aor.buy_item = _noop
+        try:
+            potion_cmd.join_map = _noop
+            potion_cmd.equip_scroll = _equip_scroll
+            potion_cmd.sleep = _noop
+            potion_cmd.has_item = _has_item
+            potion_cmd.is_not_in_cell = lambda *_a, **_k: False
+            await core_aor.kill_thing(potion_cmd, "seavoice",
+                                      "Voice in the Sea Defeated", 78994,
+                                      is_temp=True)
+        finally:
+            core_aor.buy_item = real_buy
+        return logs, sent
+
+    equip_logs, equip_sent = asyncio.run(_potion_equip(True))
+    assert equip_sent == [("vigil", "potion")], equip_sent
+    assert any("equipped" in m for m in equip_logs), equip_logs
+    silent_logs, _ = asyncio.run(_potion_equip(False))
+    assert any("will not fire" in m for m in silent_logs), silent_logs
+    print("vigil     : geia(potion) equip, and a missing seia is reported")
 
     # --- jalur merge: _find_shop harus benar-benar terimpor ---------------
     from bot import core_advanced
