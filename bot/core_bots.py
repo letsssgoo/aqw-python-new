@@ -767,9 +767,19 @@ async def kill_once(cmd: Command, map_name: str = "", cell: str = "",
                  if (not here or str(mon.frame or "").lower() == here)
                  and mon.is_alive and mon.current_hp > 0
                  and (monster == "*" or mon.mon_name.lower() == monster.lower())]
-        if not alive:
+        if alive:
+            await cmd.use_next_skill(DEFAULT_SKILL_LIST, monster)
+            continue
+        if cell:
             return True
-        await cmd.use_next_skill(DEFAULT_SKILL_LIST, monster)
+        # No cell was asked for, so this is a map-wide hunt: walk to the monster
+        # when it is alive somewhere else instead of reporting an empty cell.
+        elsewhere = [mon for mon in cmd.bot.monsters
+                     if mon.is_alive and mon.current_hp > 0
+                     and (monster == "*" or mon.mon_name.lower() == monster.lower())]
+        if not elsewhere:
+            return True
+        await cmd.jump_to_monster(monster)
 
     cmd.bot.log(f"[core] nothing died in {map_name or 'this map'} "
                 f"({monster}); carrying on.")

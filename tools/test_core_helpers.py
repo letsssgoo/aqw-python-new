@@ -135,6 +135,23 @@ class Cand:
     def stop_aggro(self):
         self.calls.append(("stop_aggro",))
 
+    def farming_logger(self, item, qty=1, is_temp=False):
+        self.calls.append(("farming_logger", item, qty))
+
+    def get_quant_item(self, item):
+        held = self.bot.player.get_item_inventory(item)
+        return int(held.qty) if held is not None else 0
+
+    def pass_guard(self, label, max_quiet_passes=3):
+        class Guard:
+            def __init__(self):
+                self.ticks = 0
+
+            async def tick(self):
+                self.ticks += 1
+                return self.ticks < 2
+        return Guard()
+
     def is_still_connected(self):
         return True
 
@@ -1373,6 +1390,117 @@ try:
 finally:
     for name, fn in real_rep.items():
         setattr(farms_mod, name, fn)
+
+# ============================================================================
+# 18. Yokai dan DragonSoul Shinobi
+# ============================================================================
+from bot.story import yokai as yok  # noqa: E402
+from bot.other.classes import dragon_shinobi as dss  # noqa: E402
+
+yok_order = []
+
+
+async def yok_kill(cmd, quest, map_name, monster):
+    yok_order.append(f"kill{quest}")
+
+
+async def yok_map(cmd, quest, map_name, item_ids, qty=1):
+    yok_order.append(f"map{quest}")
+
+
+async def yok_hunt(cmd, item, qty, map_name, **kwargs):
+    yok_order.append(f"hunt:{item}")
+
+
+async def yok_hunt_id(cmd, item_id, qty, map_name, **kwargs):
+    yok_order.append(f"huntid:{kwargs.get('monster_map_id')}")
+
+
+async def yok_prog(cmd, quest, *args, **kwargs):
+    return False
+
+
+async def yok_buyq(cmd, quest, map_name, shop, item):
+    yok_order.append(f"buyquest{quest}")
+
+
+async def yok_equip(cmd, solo=False):
+    yok_order.append(f"equip{int(solo)}")
+
+
+leaf = patch(yok, kill_quest=yok_kill, map_item_quest=yok_map,
+             hunt_item=yok_hunt, hunt_item_by_id=yok_hunt_id,
+             quest_progression=yok_prog, buy_quest=yok_buyq,
+             equip_class=yok_equip,
+             item_id_by_name=lambda cmd, quest, name: 9000 + quest)
+try:
+    cmd = Cand()
+    cmd.completed = {6459, 6472, 6494}
+    yok_order.clear()
+    run(yok.do_quests(cmd))
+    check("yokai: a done story does nothing", yok_order, [])
+
+    cmd = Cand()
+    yok_order.clear()
+    run(yok.do_quests(cmd))
+    accepted = [c[1] for c in cmd.calls if c[0] == "accept"]
+    check("yokai: starts at 6450 and reaches 6494",
+          (accepted[0], max(accepted)), (6450, 6494))
+    check("yokai: the map-id hunts use the right monsters",
+          [entry for entry in yok_order if entry.startswith("huntid:")],
+          ["huntid:8", "huntid:7", "huntid:25", "huntid:15", "huntid:31"])
+    check("yokai: 6478 buys its Wasabi", "buyquest6478" in yok_order, True)
+finally:
+    restore(yok, leaf)
+
+dss_order = []
+
+
+async def dss_yokai(cmd, *args, **kwargs):
+    dss_order.append("yokai")
+
+
+async def dss_kill(cmd, *args, **kwargs):
+    dss_order.append(("kill", args, kwargs.get("monster")))
+    return True
+
+
+async def dss_buy(cmd, shop, item, qty=1, map_name=None, shop_item_id=0):
+    dss_order.append(("buy", shop, item, shop_item_id))
+
+
+async def dss_rank(cmd, name="", item_id=0, gear_restore=True):
+    dss_order.append(("rank", name))
+
+
+async def dss_equip(cmd, solo=False):
+    dss_order.append(("equip", solo))
+
+
+leaf = patch(dss, yokai_quests=dss_yokai, kill_once=dss_kill, buy_item=dss_buy,
+             advance_class=dss_rank, equip_class=dss_equip)
+try:
+    cmd = Cand([ItemInventory({"sName": "DragonSoul Shinobi", "ItemID": 59476,
+                               "iQty": 1})])
+    dss_order.clear()
+    run(dss.get_dss(cmd))
+    check("shinobi: owned -> ranked", dss_order,
+          [("rank", "DragonSoul Shinobi")])
+
+    cmd = Cand()
+    dss_order.clear()
+    run(dss.get_dss(cmd, rank_up_class=False))
+    check("shinobi: Yokai first, then the token hunt", dss_order[:3],
+          ["yokai", ("equip", True),
+           ("kill", ("shadowfortress",), "1st Head of Orochi")])
+    check("shinobi: then the shop", dss_order[-1],
+          ("buy", 1968, 59476, 8078))
+    check("shinobi: the token quest is registered and cancelled",
+          [c[1] for c in cmd.calls if c[0] == "register"], [7924])
+    check("shinobi: cancelled afterwards",
+          ("cancel_quests",) in cmd.calls, True)
+finally:
+    restore(dss, leaf)
 
 print(f"passed {passed}   failed {len(failures)}")
 if failures:

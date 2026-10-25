@@ -46,6 +46,7 @@ from bot.nation.afdl.enough_doom_for_an_archfiend import afdl
 from bot.nation.vhl.core_vhl import get_vhl
 from bot.other.classes.blaze_binder import get_class as get_blaze_binder
 from bot.other.classes.cryomancer import get_cryomancer
+from bot.other.classes.dragon_shinobi import get_dss
 from bot.other.classes.dragonslayer import get_dragonslayer
 from bot.other.classes.glacial_berserker import get_gb
 from bot.other.classes.dragonslayer_general import get_ds_general
@@ -619,8 +620,7 @@ async def _handle_level_60(cmd: Command) -> None:
             and any_rank10(cmd, ["DragonSoul Shinobi"])):
         cmd.bot.log("Level 60: Acquiring DragonSoul Shinobi")
         await set_class(cmd)
-        report_once(cmd, "dragonsoul_shinobi",
-                    "DragonShinobi.GetDSS is not ported.")
+        await get_dss(cmd)
 
     await lacerate(cmd)
 

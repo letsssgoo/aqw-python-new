@@ -362,10 +362,48 @@ async def hunt_item_by_id(
             return
 
     target = f"id.{monster_map_id}" if monster_map_id else "*"
+
+    def count() -> int:
+        item = (cmd.bot.player.get_item_temp_inventory_by_id(item_id)
+                if is_temp else None)
+        item = item or cmd.bot.player.get_item_inventory_by_id(item_id)
+        return int(item.qty) if item is not None else 0
+
+    # Same stall handling as ``hunt_item``: a hunt that never reaches its monster
+    # -- the "stuck at Enter" case -- used to cast at nothing forever, because
+    # this loop only ever stopped on the item.
+    last_progress = time.monotonic()
+    last_count = count()
+    last_look = last_progress
+
     while cmd.is_still_connected():
         if held():
             await cmd.leave_combat()
             break
+        now = time.monotonic()
+        current = count()
+        if current != last_count:
+            last_count = current
+            last_progress = now
+            last_look = now
+        elif _fighting(cmd, target):
+            last_progress = now
+            last_look = now
+        elif now - last_progress >= STALL_GIVE_UP_S:
+            cmd.bot.log(f"[hunt] item {item_id}: no progress for "
+                        f"{STALL_GIVE_UP_S / 60:.0f} min in {map_name} "
+                        f"(cell {cmd.bot.player.CELL}) and nothing to attack; "
+                        f"stopping the hunt.")
+            return
+        elif now - last_look >= STALL_CHECK_S:
+            last_look = now
+            cmd.bot.log(f"[hunt] item {item_id}: still at "
+                        f"{cmd.bot.player.CELL} with {current}/{item_qty} and no "
+                        f"target; going back to the hunt's spot")
+            if cell:
+                await move_to_cell(cmd, cell, pad, f"item {item_id}")
+            else:
+                await cmd.jump_to_monster(target)
         await cmd.use_next_skill(DEFAULT_SKILL_LIST, target, hunt)
 
 

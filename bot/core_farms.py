@@ -1035,8 +1035,8 @@ async def glacera_rep(cmd: Command, rank: int = 10) -> None:
         return
 
     if not await cmd.is_completed_before(GLACERA_UNLOCK_QUEST):
-        cmd.bot.log('Farming Quests are not unlocked, Please run: '
-                    '"Story/Glacera.cs"')
+        cmd.bot.log("Farming Quests are not unlocked, run the Glacera story "
+                    "first: bot.story.glacera (do_all).")
         return
 
     await equip_class(cmd)
