@@ -1,0 +1,606 @@
+/* Live telemetry modal, shared by the solo and slave dashboards.
+ *
+ * Every rule is scoped to #aqw-tel-modal so the page it is dropped into keeps
+ * its own .modal-* / .status-pill styles untouched.
+ */
+#aqw-tel-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: rgba(0, 0, 0, 0.72);
+    backdrop-filter: blur(3px);
+    font-family: 'Inter', system-ui, sans-serif;
+    color: #e2e8f0;
+}
+
+#aqw-tel-modal.hidden {
+    display: none;
+}
+
+#aqw-tel-modal .hidden {
+    display: none !important;
+}
+
+#aqw-tel-modal * {
+    box-sizing: border-box;
+}
+
+#aqw-tel-modal .tel-modal {
+    position: relative;
+    width: 95%;
+    max-width: 820px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    background: #11151f;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 14px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+    overflow: hidden;
+}
+
+#aqw-tel-modal .tel-close {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    width: 26px;
+    height: 26px;
+    border: none;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    color: #94a3b8;
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+#aqw-tel-modal .tel-close:hover {
+    background: rgba(239, 68, 68, 0.25);
+    color: #fff;
+}
+
+#aqw-tel-modal .tel-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding: 16px 40px 12px 18px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+#aqw-tel-modal .tel-tag {
+    display: inline-block;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: #a855f7;
+    background: rgba(168, 85, 247, 0.14);
+    border: 1px solid rgba(168, 85, 247, 0.3);
+    border-radius: 4px;
+    padding: 1px 6px;
+    margin-bottom: 6px;
+}
+
+#aqw-tel-modal .tel-title-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+#aqw-tel-modal .tel-title {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #f8fafc;
+}
+
+#aqw-tel-modal .tel-class {
+    background: rgba(99, 102, 241, 0.18);
+    border: 1px solid rgba(99, 102, 241, 0.35);
+    color: #a5b4fc;
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+#aqw-tel-modal .tel-sub {
+    margin: 4px 0 0;
+    font-size: 0.72rem;
+    color: #94a3b8;
+}
+
+#aqw-tel-modal .tel-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.06);
+    color: #94a3b8;
+}
+
+#aqw-tel-modal .tel-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+#aqw-tel-modal .tel-status.online {
+    background: rgba(16, 185, 129, 0.16);
+    color: #34d399;
+}
+
+#aqw-tel-modal .tel-status.connecting {
+    background: rgba(245, 158, 11, 0.16);
+    color: #fbbf24;
+}
+
+#aqw-tel-modal .tel-status.paused {
+    background: rgba(234, 179, 8, 0.16);
+    color: #facc15;
+}
+
+#aqw-tel-modal .tel-status.dead {
+    background: rgba(239, 68, 68, 0.18);
+    color: #f87171;
+}
+
+#aqw-tel-modal .tel-status.offline {
+    background: rgba(148, 163, 184, 0.14);
+    color: #94a3b8;
+}
+
+#aqw-tel-modal .tel-combat {
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: rgba(255, 255, 255, 0.06);
+    color: #94a3b8;
+}
+
+#aqw-tel-modal .tel-combat.combat {
+    background: rgba(239, 68, 68, 0.2);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    color: #fca5a5;
+    animation: telCombatBlink 1.5s infinite ease-in-out;
+}
+
+@keyframes telCombatBlink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+#aqw-tel-modal .tel-switcher {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.78rem;
+    color: #94a3b8;
+}
+
+#aqw-tel-modal .tel-switcher select {
+    background: #0b0f17;
+    color: #e2e8f0;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    padding: 5px 8px;
+    font-size: 0.78rem;
+    max-width: 200px;
+}
+
+#aqw-tel-modal .tel-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 0 18px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    flex-wrap: wrap;
+}
+
+#aqw-tel-modal .tel-tab {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: #94a3b8;
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 9px 10px;
+    cursor: pointer;
+}
+
+#aqw-tel-modal .tel-tab:hover {
+    color: #e2e8f0;
+}
+
+#aqw-tel-modal .tel-tab.active {
+    color: #c084fc;
+    border-bottom-color: #a855f7;
+}
+
+#aqw-tel-modal .tel-badge {
+    background: rgba(255, 255, 255, 0.1);
+    color: #e2e8f0;
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 10px;
+    margin-left: 6px;
+}
+
+#aqw-tel-modal .tel-tab.active .tel-badge {
+    background: #a855f7;
+    color: #fff;
+}
+
+#aqw-tel-modal .tel-body {
+    padding: 16px 18px 18px;
+    overflow-y: auto;
+}
+
+#aqw-tel-modal .tel-pane {
+    display: none;
+}
+
+#aqw-tel-modal .tel-pane.active {
+    display: block;
+}
+
+#aqw-tel-modal .tel-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+@media (max-width: 768px) {
+    #aqw-tel-modal .tel-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+#aqw-tel-modal .tel-card {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    padding: 14px;
+}
+
+#aqw-tel-modal .tel-card-title {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 12px;
+}
+
+#aqw-tel-modal .tel-vital {
+    margin-bottom: 10px;
+}
+
+#aqw-tel-modal .tel-vital-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 0.72rem;
+    margin-bottom: 3px;
+}
+
+#aqw-tel-modal .tel-vital-head b {
+    font-weight: 700;
+    color: #cbd5e1;
+}
+
+#aqw-tel-modal .tel-vital-head span {
+    font-family: 'Fira Code', monospace;
+    color: #94a3b8;
+}
+
+#aqw-tel-modal .tel-bar {
+    height: 8px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.07);
+    overflow: hidden;
+}
+
+#aqw-tel-modal .tel-bar-fill {
+    height: 100%;
+    width: 0;
+    border-radius: 6px;
+    transition: width 0.25s ease;
+}
+
+#aqw-tel-modal .tel-bar-fill.hp {
+    background: linear-gradient(90deg, #059669, #34d399);
+}
+
+#aqw-tel-modal .tel-bar-fill.mp {
+    background: linear-gradient(90deg, #2563eb, #60a5fa);
+}
+
+#aqw-tel-modal .tel-bar-fill.enemy {
+    background: linear-gradient(90deg, #dc2626, #ef4444);
+}
+
+#aqw-tel-modal .tel-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+#aqw-tel-modal .tel-stat {
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    border-radius: 6px;
+    padding: 8px 10px;
+}
+
+#aqw-tel-modal .tel-stat-label {
+    display: block;
+    font-size: 0.66rem;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 2px;
+}
+
+#aqw-tel-modal .tel-stat-value {
+    font-size: 0.84rem;
+    font-weight: 600;
+    color: #f1f5f9;
+    word-break: break-word;
+}
+
+#aqw-tel-modal .tel-stat-value.gold {
+    color: #facc15;
+}
+
+#aqw-tel-modal .tel-stat-value.exp {
+    color: #38bdf8;
+}
+
+#aqw-tel-modal .tel-target-name {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #ef4444;
+}
+
+#aqw-tel-modal .tel-target-map {
+    font-size: 0.74rem;
+    color: #94a3b8;
+    font-family: 'Fira Code', monospace;
+}
+
+#aqw-tel-modal .tel-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-height: 24px;
+    margin-top: 8px;
+}
+
+#aqw-tel-modal .tel-chip {
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: rgba(239, 68, 68, 0.15);
+    color: #fca5a5;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+#aqw-tel-modal .tel-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 30px 16px;
+    color: #64748b;
+    font-size: 0.84rem;
+    text-align: center;
+}
+
+#aqw-tel-modal .tel-auras {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 10px;
+}
+
+#aqw-tel-modal .tel-aura {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 8px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+#aqw-tel-modal .tel-aura.buff {
+    border-left: 3px solid #10b981;
+}
+
+#aqw-tel-modal .tel-aura.debuff {
+    border-left: 3px solid #ef4444;
+}
+
+#aqw-tel-modal .tel-aura-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+}
+
+#aqw-tel-modal .tel-aura-name {
+    font-size: 0.84rem;
+    font-weight: 600;
+    color: #f1f5f9;
+}
+
+#aqw-tel-modal .tel-aura-stacks {
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.1);
+    color: #f1f5f9;
+}
+
+#aqw-tel-modal .tel-aura-foot {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.7rem;
+    color: #94a3b8;
+}
+
+#aqw-tel-modal .tel-aura-type {
+    text-transform: uppercase;
+    font-weight: 700;
+    font-size: 0.64rem;
+    letter-spacing: 0.04em;
+}
+
+#aqw-tel-modal .tel-aura.buff .tel-aura-type {
+    color: #34d399;
+}
+
+#aqw-tel-modal .tel-aura.debuff .tel-aura-type {
+    color: #f87171;
+}
+
+#aqw-tel-modal .tel-aura-timer {
+    font-family: 'Fira Code', monospace;
+    font-weight: 600;
+    color: #e2e8f0;
+}
+
+#aqw-tel-modal .tel-aura-spell {
+    font-size: 0.68rem;
+    color: #94a3b8;
+}
+
+#aqw-tel-modal .tel-drops-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    gap: 10px;
+}
+
+#aqw-tel-modal .tel-drops-wrap {
+    overflow-x: auto;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 8px;
+}
+
+#aqw-tel-modal .tel-drops {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.79rem;
+}
+
+#aqw-tel-modal .tel-drops th {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 8px 10px;
+    text-align: left;
+    color: #94a3b8;
+    font-weight: 600;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+#aqw-tel-modal .tel-drops td {
+    padding: 8px 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    color: #e2e8f0;
+}
+
+#aqw-tel-modal .tel-drops tr:hover {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+#aqw-tel-modal .tel-drop-name {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 500;
+}
+
+#aqw-tel-modal .tel-badge-ac {
+    background: #eab308;
+    color: #000;
+    font-size: 0.64rem;
+    font-weight: 800;
+    padding: 1px 4px;
+    border-radius: 3px;
+}
+
+#aqw-tel-modal .tel-badge-temp {
+    background: rgba(255, 255, 255, 0.12);
+    color: #94a3b8;
+    font-size: 0.64rem;
+    font-weight: 600;
+    padding: 1px 4px;
+    border-radius: 3px;
+}
+
+#aqw-tel-modal .tel-drop-status {
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 12px;
+    display: inline-block;
+}
+
+#aqw-tel-modal .tel-drop-status.looted {
+    background: rgba(16, 185, 129, 0.15);
+    color: #34d399;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+#aqw-tel-modal .tel-drop-status.on-ground {
+    background: rgba(245, 158, 11, 0.15);
+    color: #fbbf24;
+    border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+#aqw-tel-modal .tel-pickup {
+    background: rgba(99, 102, 241, 0.18);
+    border: 1px solid rgba(99, 102, 241, 0.35);
+    color: #818cf8;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+#aqw-tel-modal .tel-pickup:hover {
+    background: #6366f1;
+    color: #fff;
+}
+
+#aqw-tel-modal .tel-pickup:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+#aqw-tel-modal .tel-muted {
+    color: #64748b;
+    font-size: 0.72rem;
+}

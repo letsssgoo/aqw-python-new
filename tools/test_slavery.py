@@ -93,32 +93,44 @@ def bare_bot_lines():
 
 
 def bridge_checks():
-    """Every bridge call the slavery page makes must be wired in the app.
+    """Every bridge call a dashboard makes must be wired in the app.
 
-    The page is loaded inside an iframe whose ``window.pywebview.api`` is a
+    Each page is loaded inside an iframe whose ``window.pywebview.api`` is a
     hand-written forwarder; a method left out of it is silently ``undefined``,
     which is what made the telemetry modal sit at "Offline" with zeroes.
     """
-    js = (REPO_ROOT / "app" / "web_dashboard" / "slavery" / "main.js").read_text(
-        encoding="utf-8")
-    used = set(re.findall(r"window\.pywebview\.api\.(\w+)", js))
-    assert "get_telemetry" in used, sorted(used)
-
+    #: page -> bridge call names that page relies on.
+    required = {
+        "slavery": {"load_config", "save_config", "get_status", "start_slaves",
+                    "stop_slaves", "toggle_pause_slaves", "get_telemetry",
+                    "pickup_drop"},
+        "aqw": {"load_config", "save_config", "get_status", "get_statuses",
+                "get_items", "start_bots", "start_one", "stop_one", "stop_bots",
+                "get_telemetry", "pickup_drop"},
+    }
     hub = (REPO_ROOT / "app" / "build_hub_app.py").read_text(encoding="utf-8")
-    parts = hub.split('elif bot_type == "slavery":')
-    assert len(parts) == 2, "slavery bridge not found in build_hub_app.py"
-    block = parts[1].split("</script>")[0]
-    pairs = re.findall(r"(\w+):\s*\([^)]*\)\s*=>\s*topApi\.(\w+)", block)
-    exposed = {name for name, _ in pairs}
-
-    missing = sorted(used - exposed)
-    assert missing == [], f"bridge does not forward {missing}"
-    print("bridge     : every api call the page makes is forwarded")
-
     top_api_defs = set(re.findall(r"^    def (\w+)\(", hub, re.M))
-    unknown = sorted(target for _, target in pairs if target not in top_api_defs)
-    assert unknown == [], f"bridge forwards to missing TopApi methods {unknown}"
-    print("bridge     : and every forwarded name exists on TopApi")
+
+    for page, wanted in required.items():
+        parts = hub.split(f'bot_type == "{page}":')
+        assert len(parts) == 2, f"{page} bridge not found in build_hub_app.py"
+        block = parts[1].split("</script>")[0]
+        pairs = re.findall(r"(\w+):\s*\([^)]*\)\s*=>\s*topApi\.(\w+)", block)
+        exposed = {name for name, _ in pairs}
+
+        missing = sorted(wanted - exposed)
+        assert missing == [], f"{page} bridge does not forward {missing}"
+        unknown = sorted(target for _, target in pairs if target not in top_api_defs)
+        assert unknown == [], f"{page} bridge forwards to missing TopApi methods {unknown}"
+    print("bridge     : both dashboards forward the calls they make")
+
+    # The solo page thinks it reaches the api as ``a.method()``; the name has to
+    # be in its bridge too, or the whole telemetry button is a no-op.
+    aqw_js = (REPO_ROOT / "app" / "web_dashboard" / "aqw" / "main.js").read_text(
+        encoding="utf-8")
+    assert "AqwTelemetry.open" in aqw_js
+    assert "a.get_telemetry" in aqw_js and "a.pickup_drop" in aqw_js
+    print("bridge     : the solo menu opens the shared telemetry modal")
 
 
 def override_checks():
@@ -222,6 +234,84 @@ def override_checks():
     print("override   : saving the globals leaves every account's own settings alone")
 
 
+def telemetry_checks():
+    """The solo and slave modals read one snapshot builder, and say when idle."""
+    from datetime import datetime, timedelta
+    from types import SimpleNamespace
+    from app.build_hub_app import AqwSoloApi, SlaveryApi, build_telemetry
+
+    class _Aura:
+        def __init__(self, name, kind):
+            self.name = name
+            self.aura_type = kind
+            self.duration = 30
+            self.expires_at = datetime.now() + timedelta(seconds=12)
+            self.icon = ""
+            self.source_spell = "Some Spells"
+
+        def is_expired(self):
+            return False
+
+        def get_val(self):
+            return 2
+
+    fake_player = SimpleNamespace(
+        USER="neo", CURRENT_HP=4000, MAX_HP=5000, MANA=90, MAX_MP=100,
+        IS_IN_COMBAT=True, ISDEAD=False, GOLD=5, GOLDFARMED=1, EXPFARMED=2,
+        CDREDUCTION=0.25, CELL="Enter", PAD="Spawn", X=10, Y=20,
+        AURAS=[_Aura("Haste", "buff")],
+        last_target=SimpleNamespace(
+            mon_name="Boss", mon_map_id="42", current_hp=100, max_hp=1000,
+            is_alive=True, AURAS=[_Aura("Bleed", "debuff")]))
+
+    class _Bot:
+        player = fake_player
+        strMapName = "yulgar"
+        is_client_connected = True
+        is_paused = False
+        is_script_paused = False
+        server = "Artix"
+        username_id = "1"
+        sent = []
+        dropped_items = [{"item_id": "7", "item_name": "Gem", "qty": 1,
+                          "is_acs": False, "is_temp": False, "s_type": "Item",
+                          "time": "12:00:00", "picked_up": False}]
+
+        def get_drop(self, user_id, item_id):
+            self.sent.append((user_id, item_id))
+
+    class _Thread:
+        bot_instance = _Bot()
+        char_class = "ArchPaladin"
+
+        def is_alive(self):
+            return True
+
+    data = build_telemetry(_Thread.bot_instance, "ArchPaladin")
+    assert data["running"] and data["hp"] == 4000 and data["max_hp"] == 5000
+    assert data["char_class"] == "ArchPaladin"
+    assert data["map"] == "yulgar" and data["cell"] == "Enter"
+    assert data["target"]["name"] == "Boss"
+    assert len(data["target"]["auras"]) == 1
+    assert len(data["auras"]) == 1 and data["auras"][0]["name"] == "Haste"
+    assert len(data["dropped_items"]) == 1
+    print("telemetry  : one builder feeds both modals, drops and auras included")
+
+    solo = AqwSoloApi()
+    solo.bots = {"neo": {"thread": _Thread(), "instance": _Thread.bot_instance}}
+    live = solo.get_telemetry("neo")
+    assert live["running"] and live["username"] == "neo", live
+    picked = solo.pickup_drop("neo", "7")
+    assert picked["success"], picked
+    assert _Thread.bot_instance.sent == [("1", "7")]
+    assert _Thread.bot_instance.dropped_items[0]["picked_up"] is True
+    assert solo.get_telemetry("ghost")["running"] is False
+    print("telemetry  : the solo menu reads and picks up drops on a live bot")
+
+    assert SlaveryApi().get_telemetry("ghost")["running"] is False
+    print("telemetry  : a stopped account answers 'not running' instead of raising")
+
+
 def main():
     hits = bare_bot_lines()
     assert hits == [], f"bare 'bot' inside a function at {hits}"
@@ -240,6 +330,7 @@ def main():
 
     override_checks()
     bridge_checks()
+    telemetry_checks()
 
     print("\nslavery tests OK")
 
