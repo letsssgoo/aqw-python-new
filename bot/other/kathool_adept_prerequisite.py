@@ -11,11 +11,6 @@ Two source quirks are kept as they are:
 * the ``Midnight Glaucus Sage`` line runs twice (once, then again when the item
   is still missing).  The second attempt cannot conjure an item the first could
   not, but the source has it, so this does too.
-
-``main`` currently runs **only** the last merge, for ``Midnight Glaucus Sage``.
-Its ``Glaucus Mystic`` comes from the SeaVoice fight (quest 9349), which is the
-one place the Vigil is used.  The rest of the chain is commented out while that
-fight is checked.
 """
 from typing import Optional
 
@@ -91,18 +86,6 @@ async def main(cmd: Command):
     await cmd.equip_enhancement("Wizard Helm Enhancement",
                                 enhance_if_missing=True)
 
-    # The last merge only.  "Midnight Glaucus Sage" needs ingredients that this
-    # shop does not sell, so the merge script farms them through the SeaVoice
-    # fight (quest 9349) -- and that fight is the one place the Vigil is used: a
-    # thousand bought, one equipped into item slot 5.
-    cmd.add_drop(GLAUCUS_DROP)
-    await sea_voice_merge(cmd, buy_only_this=GLAUCUS)
-
-    # The hub brings a dropped session back by default, but a script that
-    # finished must not be re-run -- without this the bot relogins and runs the
-    # merge again forever.
-    cmd.bot.auto_relogin = False
-
-    # await kathool_adept_prerequisite(cmd)
-    # await fishing_rep(cmd)
-    # await somnia_rep(cmd)
+    await kathool_adept_prerequisite(cmd)
+    await fishing_rep(cmd)
+    await somnia_rep(cmd)
