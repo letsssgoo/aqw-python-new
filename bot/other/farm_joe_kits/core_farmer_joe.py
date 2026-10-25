@@ -43,7 +43,9 @@ from bot.enhancements.examen import examen
 from bot.enhancements.vim import vim
 from bot.nation.afdl.enough_doom_for_an_archfiend import afdl
 from bot.nation.vhl.core_vhl import get_vhl
+from bot.other.classes.dragonslayer_general import get_ds_general
 from bot.other.classes.rep_based.master_ranger import get_mr
+from bot.other.weapons.burning_blade import get_burning_blade
 from core.command import Command
 from model.inventory import ItemType
 from templates.hunt import hunt_item
@@ -567,19 +569,18 @@ async def _handle_level_50(cmd: Command) -> None:
         cmd.bot.log("Level 50: Acquiring Scarlet Sorceress")
         await set_class(cmd)
         report_once(cmd, "scarlet_sorceress",
-                    "ScarletSorceress.GetSSorc is not ported.")
+                    "ScarletSorceress.GetSSorc needs CoreToD.TowerofMirrors and "
+                    "BloodSorceress.GetBSorc; neither is ported.")
 
     if not (await cmd.has_item("Dragonslayer General")
             and any_rank10(cmd, ["Dragonslayer General"])):
         cmd.bot.log("Level 50: Acquiring Dragonslayer General")
         await set_class(cmd)
-        report_once(cmd, "dragonslayer_general",
-                    "DragonslayerGeneral.GetDSGeneral is not ported.")
+        await get_ds_general(cmd)
 
     cmd.bot.log("Level 50: Acquiring Burning Blade")
     await set_class(cmd)
-    report_once(cmd, "burning_blade",
-                "BurningBlade.GetBurningBlade is not ported.")
+    await get_burning_blade(cmd)
 
 
 async def _handle_level_55(cmd: Command) -> None:

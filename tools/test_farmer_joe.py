@@ -335,7 +335,8 @@ def main() -> None:
     real_vhl = joe.get_vhl
     real_porters = {name: getattr(joe, name) for name in
                     ("forge_helm_enhancement", "lacerate", "smite", "afdl",
-                     "smart_enhance", "vim", "pneuma", "examen", "anima")}
+                     "smart_enhance", "vim", "pneuma", "examen", "anima",
+                     "get_ds_general", "get_burning_blade")}
 
     async def fake_exp(cmd, level=100, rank_up_class=False):
         levels.append(level)
@@ -490,6 +491,32 @@ def main() -> None:
                for line in h70.bot.logs), h70.bot.logs
     print("bracket70  : buys the Horc Evader, runs Smite + the four helm quests")
 
+    # --- bracket 50: the two ported pieces, Scarlet still reported --------
+    h50 = Stub(solo="King's Echo", classes_held=["King's Echo"])
+    level50 = []
+    real50 = {name: getattr(joe, name) for name in
+              ("get_ds_general", "get_burning_blade")}
+
+    async def spy50(cmd, *args, **kwargs):
+        level50.append("ran")
+
+    for name in real50:
+        setattr(joe, name, spy50)
+    try:
+        asyncio.run(joe._handle_level_50(h50))
+    finally:
+        for name, fn in real50.items():
+            setattr(joe, name, fn)
+    assert level50 == ["ran", "ran"], level50
+    assert any(line.startswith("Level 50: Acquiring Dragonslayer General")
+               for line in h50.bot.logs), h50.bot.logs
+    assert any(line.startswith("Level 50: Acquiring Burning Blade")
+               for line in h50.bot.logs), h50.bot.logs
+    assert any("CoreToD.TowerofMirrors" in line for line in h50.bot.logs), \
+        h50.bot.logs
+    print("bracket50  : Dragonslayer General + Burning Blade run, Scarlet names "
+          "its missing stories")
+
     h30 = Stub(solo="King's Echo", classes_held=["King's Echo"],
                inventory={"Venom Head": 1},
                shops=[_Shop(631, ["Awethur's Accoutrements"])])
@@ -536,10 +563,19 @@ def main() -> None:
     print("masterrng  : bought from sandsea 242 by item id and shop entry")
 
     ranked_mr = Stub(inventory={"Master Ranger": 1})
-    asyncio.run(master_ranger.get_mr(ranked_mr))
-    assert any("would be ranked up here" in line for line in ranked_mr.bot.logs), \
-        ranked_mr.bot.logs
-    print("masterrng  : the rank-up is reported, never guessed")
+    ranked_calls = []
+    real_advance = master_ranger.advance_class
+
+    async def spy_advance(cmd, name, *args, **kwargs):
+        ranked_calls.append(name)
+
+    master_ranger.advance_class = spy_advance
+    try:
+        asyncio.run(master_ranger.get_mr(ranked_mr))
+    finally:
+        master_ranger.advance_class = real_advance
+    assert ranked_calls == ["Master Ranger"], ranked_calls
+    print("masterrng  : the rank-up runs through the ported RankUpClass")
 
     h30b = Stub(solo="King's Echo", classes_held=["King's Echo"],
                 shops=[_Shop(242, [_ShopItem("Master Ranger", 7260, 5682)]),

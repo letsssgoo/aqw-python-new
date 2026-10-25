@@ -154,6 +154,9 @@ class Cand:
     async def has_item(self, name, qty=1, isTemp=False):
         return self.bot.player.get_item_inventory(name) is not None
 
+    async def has_item_id(self, item_id):
+        return self.bot.player.get_item_inventory_by_id(item_id) is not None
+
     async def sell_item(self, name, qty=1):
         self.calls.append(("sell", name, qty))
 
@@ -696,6 +699,109 @@ try:
     check("anima: pulls examen only", order.count("rep7"), 1)
 finally:
     restore(vim_mod, leaf)
+
+# ============================================================================
+# 12. Dragonslayer General and Burning Blade
+# ============================================================================
+from bot.other.classes import dragonslayer_general as dg  # noqa: E402
+from bot.other.weapons import burning_blade as bb  # noqa: E402
+
+ds_order = []
+
+
+async def ds_gold(cmd, quant=0):
+    ds_order.append(f"gold{quant}")
+
+
+async def ds_kill(cmd, quest, map_name, monster):
+    ds_order.append(f"story{quest}:{monster}")
+
+
+async def ds_buy(cmd, shop, item, qty=1, map_name=None, shop_item_id=0):
+    ds_order.append(f"buy{shop}:{item if isinstance(item, str) else 'id'}")
+
+
+async def ds_rank(cmd, name="", item_id=0, gear_restore=True):
+    ds_order.append(f"rank:{name}")
+
+
+async def ds_gear(cmd, restore=False, enh_after=False):
+    ds_order.append(f"gear{int(restore)}")
+
+
+async def ds_hunt(cmd, item, qty, map_name, **kwargs):
+    ds_order.append(f"hunt:{item}x{qty}")
+
+
+async def ds_equip(cmd, solo=False):
+    ds_order.append(f"equip:{int(solo)}")
+
+
+leaf = patch(dg, farm_gold=ds_gold, kill_quest=ds_kill, buy_item=ds_buy,
+             advance_class=ds_rank, gear_store=ds_gear, hunt_item=ds_hunt,
+             equip_class=ds_equip, check_class_rank=lambda cmd, name: 0)
+try:
+    cmd = Cand([ItemInventory({"sName": "Dragonslayer General", "ItemID": 35996,
+                               "iQty": 1})])
+    ds_order.clear()
+    run(dg.get_ds_general(cmd))
+    check("dsg: owned -> only the rank-up", ds_order,
+          ["gear0", "rank:Dragonslayer General"])
+
+    cmd = Cand()
+    ds_order.clear()
+    run(dg.get_ds_general(cmd, rank_up_class=False))
+    check("dsg: the source's order", ds_order, [
+        "gear0", "gold30000",
+        "story165:Wyvern", "story166:Bronze Draconian",
+        "story167:Dark Draconian", "story168:Red Dragon",
+        "gear0", "buy38:Dragonslayer", "rank:Dragonslayer", "gear1",
+        "equip:0",
+        "hunt:Enchanted Scalex75", "hunt:Dragon Clawx100",
+        "buy1286:id"])
+    check("dsg: the scale quest was registered",
+          ("register", dg.SCALE_QUEST) in cmd.calls, True)
+    check("dsg: registered quests cancelled",
+          ("cancel_quests",) in cmd.calls, True)
+    check("dsg: no rank-up when it is off",
+          [entry for entry in ds_order if entry.startswith("rank:")],
+          ["rank:Dragonslayer"])
+finally:
+    restore(dg, leaf)
+
+bb_order = []
+
+
+async def bb_hunt(cmd, item, qty, map_name, **kwargs):
+    bb_order.append((item, qty, map_name, kwargs.get("cell"),
+                     kwargs.get("monster_name")))
+
+
+async def bb_wait(cmd, item, qty=1):
+    bb_order.append(("wait", item))
+
+
+async def bb_equip(cmd, solo=False):
+    bb_order.append(("solo", solo))
+
+
+leaf = patch(bb, hunt_item=bb_hunt, wait_for_item=bb_wait, equip_class=bb_equip)
+try:
+    cmd = Cand([ItemInventory({"sName": "Burning Blade", "ItemID": 31058,
+                               "iQty": 1})])
+    bb_order.clear()
+    run(bb.get_burning_blade(cmd))
+    check("blade: owned -> nothing", bb_order, [])
+
+    cmd = Cand()
+    bb_order.clear()
+    run(bb.get_burning_blade(cmd))
+    check("blade: kills the Warlord at r7/Left", bb_order, [
+        ("solo", True),
+        ("Burning Blade", 1, "lostruinswar", "r7", "Diabolical Warlord"),
+        ("wait", "Burning Blade")])
+finally:
+    restore(bb, leaf)
 
 print(f"passed {passed}   failed {len(failures)}")
 if failures:
