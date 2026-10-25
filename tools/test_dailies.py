@@ -36,6 +36,7 @@ class StubPlayer:
     def __init__(self, held=None, banked=None):
         self.held = dict(held or {})
         self.banked = dict(banked or {})
+        self.INVENTORY = []
 
     def get_item_inventory(self, name):
         qty = self.held.get(name, 0)
@@ -255,6 +256,48 @@ try:
     run(dailies.check_dailyv2(cmd, 1235))
     check("check daily whitelists requirements",
           ("drop", ["Slain Gorillaphant"]) in cmd.calls, True)
+
+    # --- a refused daily stops the loop instead of spinning ----------------
+    # ``mine_crafting`` asks for one turn-in per metal; the second is refused
+    # once the daily is spent, so the loop has to stop there.
+    async def _noop_equip(cmd_, solo=False):
+        return True
+
+    saved_loop = patch(hunt_item=_noop_hunt, wait_for_item=_noop_wait,
+                       equip_class=_noop_equip)
+    try:
+        cmd = StubCommand(turn_in=False)
+        run(dailies.mine_crafting(cmd, metals=("Barium", "Copper"), quant=2))
+        check("mine crafting: one turn-in per day only",
+              [c for c in cmd.calls if c[0] == "turnin"],
+              [("turnin", 2091, 11932)])
+        check("mine crafting: says why it stopped",
+              any("one turn-in per day" in line for line in cmd.bot.logs), True)
+    finally:
+        restore(saved_loop)
+
+    # ``monthly_treasure_chest_keys`` loops while keys and chests are held; a
+    # chest quest that refuses must break it.
+    cmd = StubCommand(held={"Treasure Chest": 1,
+                            "Magic Treasure Chest Key": 1},
+                      quests={1238: StubQuest()})
+    cmd.bot.player.is_member = True
+    calls = []
+
+    async def refusing_chain(cmd_, quest, item_id=-1):
+        calls.append(quest)
+        return False
+
+    saved_chain = dailies.chain_complete
+    dailies.chain_complete = refusing_chain
+    try:
+        run(dailies.monthly_treasure_chest_keys(cmd, log=False))
+    finally:
+        dailies.chain_complete = saved_chain
+    check("monthly keys: the chest loop stops after one refusal", calls, [1238])
+    check("monthly keys: says why it stopped",
+          any("stops here before it can spin" in line for line in cmd.bot.logs),
+          True)
 
     # --- not_ported: named, with its reason --------------------------------
     cmd = StubCommand()
