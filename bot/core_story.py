@@ -137,7 +137,7 @@ async def map_item_quest(cmd: Command, quest_id: int, map_name: str,
     """
     # the reference guards this one with QuestProgression too, so a quest that is
     # already done is skipped rather than accepted a second time
-    if await cmd.is_completed_before(quest_id):
+    if await quest_progression(cmd, quest_id):
         return
 
     if isinstance(item_ids, int):
@@ -151,10 +151,6 @@ async def map_item_quest(cmd: Command, quest_id: int, map_name: str,
         cmd.bot.log(f"[story] quest {quest_id} could not be accepted; nothing "
                     f"is farmed for it.")
         raise CustomError(f"quest {quest_id} could not be accepted")
-    # ``QuestProgression(GetReward: true)`` whitelists the quest's rewards so the
-    # turn-in's item is picked up; the quest has to be loaded for its payload to
-    # name them, which the accept above does.
-    cmd.add_quest_rewards(quest_id)
     while cmd.is_still_connected() and cmd.is_not_in_map(map_name):
         await cmd.join_map(map_name)
     for item_id, count in wanted:
@@ -179,7 +175,7 @@ async def kill_quest(cmd: Command, quest_id: int, map_name: str,
     requirement-to-monster mapping of its array overload.  ``skill_list`` is the
     rotation to cast, for fights that want a specific one.
     """
-    if await cmd.is_completed_before(quest_id):
+    if await quest_progression(cmd, quest_id):
         return
 
     names = _as_names(monster_names)
@@ -195,7 +191,6 @@ async def kill_quest(cmd: Command, quest_id: int, map_name: str,
         cmd.bot.log(f"[story] quest {quest_id} could not be accepted; nothing "
                     f"is hunted for it.")
         raise CustomError(f"quest {quest_id} could not be accepted")
-    cmd.add_quest_rewards(quest_id)
     quest = cmd.get_loaded_quest(quest_id)
     if quest is None:
         cmd.bot.log(f"[story] quest {quest_id} did not load; nothing farmed.")
