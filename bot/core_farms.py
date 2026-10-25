@@ -596,16 +596,25 @@ ICESTORM_LADDER = (
 
 
 async def icestorm_arena(cmd: Command, level: int = 100,
-                         rank_up_class: bool = False) -> None:
+                         rank_up_class: bool = False,
+                         keep_class: bool = False) -> None:
     """``CoreFarms.IcestormArena``: one cell per level band, up to level 100.
 
     Levels 61-75 follow BattleGroundE instead of the arena -- except for a
     rank-up run, which stays in the arena -- and 75+ moves to /icestormunder.
+
+    Args:
+        cmd (Command): Facade to act through.
+        level (int): Level to stop at.
+        rank_up_class (bool): Keep farming after the level cap, for class rank.
+        keep_class (bool): Do not equip the configured class first; a rank-up
+            run has to keep the class it is ranking on.
     """
     if cmd.get_player().LEVEL >= level and not rank_up_class:
         return
 
-    await equip_class(cmd)
+    if not keep_class:
+        await equip_class(cmd)
     # the reference toggles its experience boost here; this engine has no boosts
 
     for start, end, map_name, cell, pad, quests in ICESTORM_LADDER:

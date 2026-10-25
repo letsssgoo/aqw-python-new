@@ -26,7 +26,7 @@ Voucher and merge-item steps).
 from typing import Optional, Union
 
 from bot.core_bots import _find_shop, load_shop_entry, points_to_level
-from bot.core_farms import farm_experience, farm_faction, farm_gold
+from bot.core_farms import farm_experience, farm_faction, farm_gold, icestorm_arena
 from core.command import Command, QUIET_PASSES
 
 #: ``GetItemReq`` caps its gold farm here (``Math.Min(cost * quant, 100000000)``).
@@ -320,6 +320,32 @@ HELM_SPECIALS = {
     "Hearty": 32,
 }
 
+#: ``SpecialIdMapper.WeaponFromId``: **legacy** proc ids -> ``WeaponSpecial``.
+#: Deliberately not the inverse of :data:`WEAPON_SPECIALS`: the reference keeps
+#: this for ids persisted by older builds, where 0 meant Forge and 1 meant None.
+LEGACY_WEAPON_IDS = {
+    0: "Forge", 1: "None", 2: "Spiral_Carve", 3: "Awe_Blast", 4: "Health_Vamp",
+    5: "Mana_Vamp", 6: "Powerword_Die", 7: "Lacerate", 8: "Smite",
+    9: "Valiance", 10: "Arcanas_Concerto", 11: "Acheron", 12: "Elysium",
+    13: "Praxis", 14: "Dauntless", 15: "Ravenous",
+}
+
+#: ``SpecialIdMapper.HelmFromId``: the helm pattern ids, by the same legacy ids.
+LEGACY_HELM_IDS = {
+    0: "None", 10: "Forge", 25: "Vim", 26: "Examen", 27: "Pneuma",
+    28: "Anima", 32: "Hearty",
+}
+
+
+def weapon_from_id(item_id: int) -> str:
+    """``SpecialIdMapper.WeaponFromId``: legacy id -> weapon special name."""
+    return LEGACY_WEAPON_IDS.get(int(item_id), "None")
+
+
+def helm_from_id(item_id: int) -> str:
+    """``SpecialIdMapper.HelmFromId``: legacy id -> helm special name."""
+    return LEGACY_HELM_IDS.get(int(item_id), "None")
+
 #: ``WeaponSpecial`` -- proc ids.
 WEAPON_SPECIALS = {
     "None": 0, "Forge": 1, "Spiral_Carve": 2, "Awe_Blast": 3, "Health_Vamp": 4,
@@ -437,6 +463,38 @@ def _current_special(cmd: Command, slot: str) -> str:
         if pattern == item.enh_pattern_id:
             return name
     return "None"
+
+
+def current_class_enh(cmd: Command) -> str:
+    """``CoreAdvanced.CurrentClassEnh``: the equipped class's enhancement type.
+
+    Patterns 1 and 23 are the aliases the reference folds into 9 (Lucky), and a
+    pattern that is not one of the enhancement types reads Lucky as well -- the
+    same answer ``Enum.IsDefined ? ... : Lucky`` gives.
+    """
+    equipped = cmd.get_equipped_class()
+    pattern = int(getattr(equipped, "enh_pattern_id", 0) or 0) if equipped else 0
+    if pattern in (1, 23):
+        pattern = 9
+    for name, value in ENHANCEMENT_TYPES.items():
+        if value == pattern:
+            return name
+    return "Lucky"
+
+
+def current_cape_special(cmd: Command) -> str:
+    """``CoreAdvanced.CurrentCapeSpecial``."""
+    return _current_special(cmd, "ba")
+
+
+def current_helm_special(cmd: Command) -> str:
+    """``CoreAdvanced.CurrentHelmSpecial``."""
+    return _current_special(cmd, "he")
+
+
+def current_weapon_special(cmd: Command) -> str:
+    """``CoreAdvanced.CurrentWeaponSpecial``."""
+    return _current_special(cmd, "Weapon")
 
 
 async def _resolve_flags(cmd: Command, names, cache: dict = None) -> dict:
@@ -608,6 +666,160 @@ async def enhance_equipped(cmd: Command, type_: str, cape: str = "None",
     equipped = [item for item in cmd.bot.player.INVENTORY
                 if item.is_equipped and item.s_es in ENHANCEABLE_SLOTS]
     await auto_enhance(cmd, equipped, type_, cape, helm, weapon)
+
+
+#: Rank points a class item needs before it reads "Rank 10".
+CLASS_RANK_MAX = 302500
+#: Classes the reference refuses to rank past Rank 1.
+UNRANKABLE_CLASSES = ("hobo highlord", "no class", "obsidian no class")
+
+
+async def gear_store(cmd: Command, restore: bool = False,
+                     enh_after: bool = False) -> None:
+    """``CoreAdvanced.GearStore``: remember the worn gear, then put it back.
+
+    The reference keeps this on the instance; one ``Bot`` owns one state here,
+    so it is stored on ``cmd.bot`` under ``gear_store_saved``.
+
+    Args:
+        cmd (Command): Facade to act through.
+        restore (bool): True to re-equip what was saved instead of saving.
+        enh_after (bool): Re-apply the saved enhancements after restoring.
+    """
+    if not restore:
+        equipped = [item for item in cmd.bot.player.INVENTORY if item.is_equipped]
+        saved = {
+            "items": [item.item_name for item in equipped],
+            "class_enh": current_class_enh(cmd),
+            "weapon": current_weapon_special(cmd),
+            "cape": (current_cape_special(cmd)
+                     if any(item.s_es == "ba" for item in equipped)
+                     else "None"),
+            "helm": (current_helm_special(cmd)
+                     if any(item.s_es == "he" for item in equipped)
+                     else "None"),
+        }
+        cmd.bot.gear_store_saved = saved
+        cmd.bot.log("GearStore: Saved current equipment state")
+        cmd.bot.log(f" - Items: {', '.join(saved['items'])}")
+        cmd.bot.log(f" - Class Enh: {saved['class_enh']}")
+        if saved["cape"] != "None":
+            cmd.bot.log(f" - Cape Special: {saved['cape']}")
+        if saved["helm"] != "None":
+            cmd.bot.log(f" - Helm Special: {saved['helm']}")
+        if saved["weapon"] != "None":
+            cmd.bot.log(f" - Weapon Special: {saved['weapon']}")
+        return
+
+    saved = getattr(cmd.bot, "gear_store_saved", None)
+    if not saved or not saved.get("items"):
+        cmd.bot.log("GearStore: nothing was saved, so there is nothing to "
+                    "restore.")
+        return
+
+    cmd.bot.log("GearStore: Restoring saved equipment state")
+    cmd.bot.log(f" - Items: {', '.join(saved['items'])}")
+    if enh_after:
+        cmd.bot.log(f" - Enhancements -> Class: {saved['class_enh']}"
+                    f", Cape: {saved['cape']}, Helm: {saved['helm']}"
+                    f", Weapon: {saved['weapon']}")
+    for name in saved["items"]:
+        if not await cmd.equip_item(name):
+            cmd.bot.log(f"[advanced] GearStore: {name!r} could not be put back "
+                        f"on.")
+    if enh_after:
+        await enhance_equipped(cmd, saved["class_enh"], saved["cape"],
+                               saved["helm"], saved["weapon"])
+
+
+async def rank_up_class(cmd: Command, class_name: str = "", item_id: int = 0,
+                        gear_restore: bool = True) -> None:
+    """``CoreAdvanced.RankUpClass``: carry one class to Rank 10 in the arena.
+
+    Unlike :func:`bot.core_farms.icestorm_arena` this must keep the *ranked*
+    class on, so the arena is entered with ``keep_class=True``; the reference
+    equips the class before the run for the same reason.
+
+    Args:
+        cmd (Command): Facade to act through.
+        class_name (str): Class to rank, or ``"(Current)"`` for the worn one.
+        item_id (int): Class item id; wins over ``class_name`` when set.
+        gear_restore (bool): Put the previously worn gear back afterwards.
+    """
+    if class_name == "(Current)":
+        equipped = cmd.get_equipped_class()
+        class_name = getattr(equipped, "item_name", "") if equipped else ""
+        if not class_name:
+            cmd.bot.log("CurrentClass is null or has no name. Cannot rank up.")
+            return
+
+    def matches(item) -> bool:
+        if item.s_es != "ar":
+            return False
+        if item_id:
+            return str(item.item_id) == str(item_id)
+        return item.item_name.strip().lower() == class_name.strip().lower()
+
+    item = next((i for i in cmd.bot.player.INVENTORY if matches(i)), None)
+    if item is None and item_id:
+        banked = cmd.bot.player.get_item_bank_by_id(item_id)
+    elif item is None:
+        banked = cmd.bot.player.get_item_bank(class_name)
+    else:
+        banked = None
+    if item is None and banked is not None:
+        await cmd.bank_to_inv(banked.item_name)
+        item = next((i for i in cmd.bot.player.INVENTORY if matches(i)), None)
+        if item is None:
+            cmd.bot.log("Failed to unbank class item.")
+            return
+    if item is None:
+        cmd.bot.log(f"Can't level up "
+                    f"{item_id if item_id else class_name!r} because you don't "
+                    f"own it.")
+        return
+
+    if item.is_upgrade and not cmd.bot.player.is_member:
+        cmd.bot.log(f"{item.item_name!r} requires membership to rank up.")
+        return
+    if int(item.qty) >= CLASS_RANK_MAX:
+        cmd.bot.log(f"{item.item_name!r} is already Rank 10")
+        return
+    if item.item_name.strip().lower() in UNRANKABLE_CLASSES:
+        cmd.bot.log(f"{item.item_name!r} cannot be leveled past Rank 1")
+        return
+
+    if gear_restore:
+        await gear_store(cmd)
+
+    await smart_enhance(cmd, item.item_name)
+
+    item = next((i for i in cmd.bot.player.INVENTORY if matches(i)), None)
+    if item is None:
+        cmd.bot.log("Class item not found in inventory after enhance.")
+        return
+    if item.enh_level <= 0:
+        cmd.bot.log(f"Can't level up {item.item_name!r} because it's not "
+                    f"enhanced.")
+        return
+    if not item.is_equipped:
+        await cmd.equip_item(item.item_name)
+
+    # The reference toggles a class boost here; this engine has no boosts.
+    await icestorm_arena(cmd, cmd.get_player().LEVEL, rank_up_class=True,
+                         keep_class=True)
+
+    item = next((i for i in cmd.bot.player.INVENTORY if matches(i)), None)
+    if item is None:
+        cmd.bot.log("Class item missing after arena.")
+        return
+    if int(item.qty) >= CLASS_RANK_MAX:
+        cmd.bot.log(f"{item.item_name!r} is now Rank 10")
+    else:
+        cmd.bot.log(f"{item.item_name!r} is somehow... not rank 10??")
+
+    if gear_restore:
+        await gear_store(cmd, restore=True)
 
 
 def already_has_requested(item, player_level: int, type_: str, cape: str,

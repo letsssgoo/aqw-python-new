@@ -12,19 +12,26 @@ call live here so far:
 ``buy_item``            ``CoreBots.BuyItem``, by name or by item id
 ``dynamic_quant``       ``CoreBots.dynamicQuant``
 ``wait_for_item``       ``Bot.Wait.ForPickup``, as a bounded poll
+``hunt_monster_quest``  ``CoreBots.HuntMonsterQuest`` (the map/monster tuples)
+``get_map_items``       ``CoreBots.GetMapItems``
+``register_quests``     ``CoreBots.RegisterQuests``, the plural form
+``saved_state``         ``CoreBots.SavedState`` / ``CheckSaveState`` /
+                        ``ExecuteSaveState``
 ======================  ==================================================
 
 ``bot.nation.core_nation`` re-exports ``equip_class`` and ``can_we_aggro`` from
 here, so its call sites and tests keep the names they had.
 """
 import json
+import random
+import time
 from enum import Enum
-from typing import Optional, Union
+from typing import Optional, Sequence, Tuple, Union
 
 from core.command import Command
 from core.utils import is_valid_json
 from model.inventory import ItemType
-from templates.hunt import DEFAULT_SKILL_LIST
+from templates.hunt import DEFAULT_SKILL_LIST, hunt_item
 
 #: Kitsune's own name -- ``KillKitsune`` attacks it by name.
 KITSUNE = "Kitsune"
@@ -427,3 +434,196 @@ def can_we_aggro(cmd: Command) -> bool:
         cmd.start_aggro_by_cell([cell])
         return True
     return False
+
+
+# ---------------------------------------------------------------------------
+# HuntMonsterQuest / GetMapItems / RegisterQuests
+# ---------------------------------------------------------------------------
+def _requirement_rows(quest) -> list:
+    """A quest's requirements as ``[(item_id, name, qty, is_temp), ...]``.
+
+    ``turnin`` is the authoritative requirement list (the same one
+    :meth:`Quest.requirements_met` reads); its rows carry the id, the quantity
+    and the temp flag.  Names are not always in ``turnin`` -- ``oItems`` is what
+    carries them -- so the name is resolved by id from there, and a requirement
+    whose name cannot be resolved is reported by the caller instead of being
+    hunted under a guessed name.
+    """
+    names = {}
+    for entry in getattr(quest, "items", []) or []:
+        item_id = int(entry.get("ItemID") or entry.get("id") or 0)
+        name = str(entry.get("sName") or entry.get("Name") or "")
+        if item_id and name:
+            names[item_id] = name
+
+    rows = []
+    for entry in getattr(quest, "turn_in_requirements", []) or []:
+        item_id = int(entry.get("ItemID") or 0)
+        qty = int(entry.get("iQty") or 1) or 1
+        is_temp = bool(int(entry.get("bTemp") or 0))
+        name = str(entry.get("sName") or names.get(item_id, ""))
+        rows.append((item_id, name, qty, is_temp))
+    return rows
+
+
+def _held_by_id(cmd: Command, item_id: int, is_temp: bool) -> int:
+    """How many of an item id the account holds, in the bag the quest uses."""
+    player = cmd.bot.player
+    item = None
+    if is_temp:
+        item = player.get_item_temp_inventory_by_id(item_id)
+    item = item or player.get_item_inventory_by_id(item_id)
+    return int(item.qty) if item is not None else 0
+
+
+async def hunt_monster_quest(cmd: Command,
+                             quest_id: int,
+                             *targets: Tuple[str, str, bool],
+                             log: bool = True) -> bool:
+    """``CoreBots.HuntMonsterQuest``: farm a quest's requirements on given maps.
+
+    The reference walks the quest's own requirement list and pairs each one with
+    a ``(map, monster, classType)`` tuple from the caller; a requirement already
+    held is skipped, and anything past the end of the tuple list is left alone.
+
+    Args:
+        cmd (Command): Facade to act through.
+        quest_id (int): Quest to accept, farm and turn in.
+        targets (Tuple[str, str, bool]): ``(map_name, monster_name, solo)`` per
+            requirement, in the quest's order.
+        log (bool): Kept for signature parity; hunts always report their map.
+
+    Returns:
+        bool: True when the quest was accepted, farmed and turned in.
+    """
+    if not await cmd.ensure_accept_quest(quest_id):
+        cmd.bot.log(f"[core] quest {quest_id} cannot be accepted right now; "
+                    f"nothing farmed.")
+        return False
+    quest = cmd.get_loaded_quest(quest_id)
+    if quest is None:
+        cmd.bot.log(f"[core] quest {quest_id} did not load; nothing farmed.")
+        return False
+
+    for index, (item_id, name, qty, is_temp) in enumerate(_requirement_rows(quest)):
+        if _held_by_id(cmd, item_id, is_temp) >= qty:
+            continue
+        if index >= len(targets):
+            break
+        if not name:
+            cmd.bot.log(f"[core] quest {quest_id} requirement {item_id} arrived "
+                        f"without a name; cannot hunt it by name.")
+            continue
+        map_name, monster, solo = targets[index]
+        await equip_class(cmd, solo=bool(solo))
+        await hunt_item(cmd, name, qty, map_name, monster_name=monster or "*",
+                        is_temp=is_temp)
+
+    return await cmd.ensure_turn_in_quest(quest_id)
+
+
+async def get_map_items(cmd: Command,
+                        items: Sequence[Tuple[int, int]],
+                        map_name: Optional[str] = None) -> None:
+    """``CoreBots.GetMapItems``: click every map item, once per quantity.
+
+    Args:
+        cmd (Command): Facade to act through.
+        items (Sequence[Tuple[int, int]]): ``(item_id, qty)`` pairs.
+        map_name (str): Map to join first, when given.
+    """
+    if not items:
+        return
+    if map_name:
+        await cmd.join_map(map_name)
+    for item_id, qty in items:
+        await cmd.get_map_item(item_id, qty)
+
+
+async def register_quests(cmd: Command, *quest_ids: int) -> None:
+    """``CoreBots.RegisterQuests``: register several quests for auto turn-in."""
+    for quest_id in quest_ids:
+        await cmd.register_quest(quest_id)
+
+
+# ---------------------------------------------------------------------------
+# SavedState -- hop to /whitemap on a 30-60 minute timer
+# ---------------------------------------------------------------------------
+SAVE_STATE_MIN_S = 30 * 60
+SAVE_STATE_MAX_S = 60 * 60
+
+
+def _save_state_interval_s() -> float:
+    """``GetRandomInterval``: the 30-60 minute window, in seconds."""
+    return random.uniform(SAVE_STATE_MIN_S, SAVE_STATE_MAX_S)
+
+
+def saved_state(cmd: Command, on: bool = True, previous_map: str = "") -> None:
+    """``CoreBots.SavedState``: arm or disarm the periodic save-state hop.
+
+    Enabling needs a map to come back to; disabling never does -- the reference
+    once returned on the empty map for both directions, so ``SavedState(false)``
+    could not disarm it.
+
+    Args:
+        cmd (Command): Facade to act through.
+        on (bool): True to arm, False to disarm.
+        previous_map (str): Map to return to after the hop.
+    """
+    enabled = bool(getattr(cmd.bot, "save_state_enabled", False))
+    if on:
+        if not previous_map or enabled:
+            return
+        cmd.bot.save_state_enabled = True
+        cmd.bot.save_state_map = previous_map
+        cmd.bot.save_state_next = time.time() + _save_state_interval_s()
+        cmd.bot.log("[core] SaveState [True] we'll randomly go to /whitemap to "
+                    "save your progress every 30 minutes to an hour")
+        return
+    if not enabled:
+        return
+    cmd.bot.save_state_enabled = False
+    cmd.bot.log("[core] SaveState [False]")
+
+
+def check_save_state(cmd: Command) -> bool:
+    """``CoreBots.CheckSaveState``: whether the save-state hop is due."""
+    if not getattr(cmd.bot, "save_state_enabled", False):
+        return False
+    return time.time() >= getattr(cmd.bot, "save_state_next", 0)
+
+
+async def execute_save_state(cmd: Command) -> None:
+    """``CoreBots.ExecuteSaveState``: hop to the house map and come back."""
+    if not getattr(cmd.bot, "save_state_enabled", False):
+        return
+    previous_map = getattr(cmd.bot, "save_state_map", "")
+    if not previous_map:
+        return
+    await cmd.jump_cell("Enter", "Spawn")
+    await cmd.join_map("whitemap", 100000)
+    await cmd.join_map(previous_map)
+    cmd.bot.save_state_next = time.time() + _save_state_interval_s()
+
+
+async def hunt_monster_quest_single(cmd: Command,
+                                    quest_id: int,
+                                    map_name: str,
+                                    monster: str,
+                                    solo: bool = False,
+                                    log: bool = True) -> bool:
+    """``CoreBots.HuntMonsterQuest(questId, mapName, monsterName)``.
+
+    The same map and monster serve every requirement, which is the overload a
+    single-monster daily uses.
+    """
+    if not await cmd.ensure_accept_quest(quest_id):
+        cmd.bot.log(f"[core] quest {quest_id} cannot be accepted right now; "
+                    f"nothing farmed.")
+        return False
+    quest = cmd.get_loaded_quest(quest_id)
+    if quest is None:
+        cmd.bot.log(f"[core] quest {quest_id} did not load; nothing farmed.")
+        return False
+    targets = [(map_name, monster, solo)] * len(_requirement_rows(quest))
+    return await hunt_monster_quest(cmd, quest_id, *targets, log=log)
