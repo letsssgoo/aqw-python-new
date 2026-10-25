@@ -336,7 +336,8 @@ def main() -> None:
     real_porters = {name: getattr(joe, name) for name in
                     ("forge_helm_enhancement", "lacerate", "smite", "afdl",
                      "smart_enhance", "vim", "pneuma", "examen", "anima",
-                     "get_ds_general", "get_burning_blade")}
+                     "get_ds_general", "get_burning_blade", "blade_of_awe_rep",
+                     "get_ssorc", "get_blaze_binder")}
 
     async def fake_exp(cmd, level=100, rank_up_class=False):
         levels.append(level)
@@ -495,7 +496,7 @@ def main() -> None:
     h50 = Stub(solo="King's Echo", classes_held=["King's Echo"])
     level50 = []
     real50 = {name: getattr(joe, name) for name in
-              ("get_ds_general", "get_burning_blade")}
+              ("get_ssorc", "get_ds_general", "get_burning_blade")}
 
     async def spy50(cmd, *args, **kwargs):
         level50.append("ran")
@@ -507,37 +508,59 @@ def main() -> None:
     finally:
         for name, fn in real50.items():
             setattr(joe, name, fn)
-    assert level50 == ["ran", "ran"], level50
+    assert level50 == ["ran", "ran", "ran"], level50
     assert any(line.startswith("Level 50: Acquiring Dragonslayer General")
                for line in h50.bot.logs), h50.bot.logs
     assert any(line.startswith("Level 50: Acquiring Burning Blade")
                for line in h50.bot.logs), h50.bot.logs
-    assert any("CoreToD.TowerofMirrors" in line for line in h50.bot.logs), \
-        h50.bot.logs
-    print("bracket50  : Dragonslayer General + Burning Blade run, Scarlet names "
-          "its missing stories")
+    print("bracket50  : Scarlet, Dragonslayer General and Burning Blade all run")
+
+    # --- bracket 55: Blaze Binder runs, Cryomancer still names its story ---
+    h55 = Stub(solo="King's Echo", classes_held=["King's Echo"])
+    level55 = []
+    real55 = joe.get_blaze_binder
+
+    async def spy55(cmd, *args, **kwargs):
+        level55.append("ran")
+
+    joe.get_blaze_binder = spy55
+    try:
+        asyncio.run(joe._handle_level_55(h55))
+    finally:
+        joe.get_blaze_binder = real55
+    assert level55 == ["ran"], level55
+    assert any(line.startswith("Level 55: Acquiring Blaze Binder")
+               for line in h55.bot.logs), h55.bot.logs
+    assert any("Glac.DoAll" in line for line in h55.bot.logs), h55.bot.logs
+    print("bracket55  : Blaze Binder runs, Cryomancer names Glac.DoAll")
 
     h30 = Stub(solo="King's Echo", classes_held=["King's Echo"],
                inventory={"Venom Head": 1},
                shops=[_Shop(631, ["Awethur's Accoutrements"])])
     forges = []
     real_forge_helm = joe.forge_helm_enhancement
+    real_boa = joe.blade_of_awe_rep
 
     async def spy_forge_helm(cmd):
         forges.append("helm")
 
+    async def spy_boa(cmd, *args, **kwargs):
+        forges.append("boa")
+
     joe.forge_helm_enhancement = spy_forge_helm
+    joe.blade_of_awe_rep = spy_boa
     try:
         asyncio.run(joe._handle_level_30(h30))
     finally:
         joe.forge_helm_enhancement = real_forge_helm
+        joe.blade_of_awe_rep = real_boa
     assert ("sell_item", "Venom Head") in h30.calls, h30.calls
     assert ("buy_item", 631, "awethur's accoutrements", 1, 0) in h30.calls, \
         h30.calls
-    assert forges == ["helm"], forges
+    assert forges == ["boa", "helm"], forges
     assert any(line.startswith("Level 30: Farming Blade of Awe Rep")
                for line in h30.bot.logs), h30.bot.logs
-    print("bracket30  : sells the Venom Head, buys Awethur's, unlocks the helm")
+    print("bracket30  : sells the Venom Head, buys Awethur's, helm + BoA rep")
 
     h80 = Stub(solo="King's Echo", classes_held=["King's Echo"],
                inventory={"Void Highlord": 1})
@@ -581,10 +604,12 @@ def main() -> None:
                 shops=[_Shop(242, [_ShopItem("Master Ranger", 7260, 5682)]),
                        _Shop(631, ["Awethur's Accoutrements"])])
     joe.forge_helm_enhancement = spy_forge_helm
+    joe.blade_of_awe_rep = spy_boa
     try:
         asyncio.run(joe._handle_level_30(h30b))
     finally:
         joe.forge_helm_enhancement = real_forge_helm
+        joe.blade_of_awe_rep = real_boa
     assert ("buy_item", 242, "master ranger", 1, 5682) in h30b.calls, h30b.calls
     print("bracket30  : Master Ranger comes from the ported kit now")
 

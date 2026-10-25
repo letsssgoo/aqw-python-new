@@ -728,3 +728,49 @@ async def ensure_complete_choose(cmd: Command, quest_id: int,
     cmd.bot.log(f"[core] quest {quest_id} offers none of "
                 f"{', '.join(item_names)}; not turned in.")
     return False
+
+
+#: How many attack ticks :func:`kill_once` gives a kill before it reports.
+KILL_ONE_TRIES = 60
+
+
+async def kill_once(cmd: Command, map_name: str = "", cell: str = "",
+                    pad: str = "Left", monster: str = "*") -> bool:
+    """``Core.KillMonster(map, cell, pad, monster)``: one kill, with no item.
+
+    The reference has kill helpers that take no item -- reputation farming, the
+    Blade of Awe loop, ``Bot.Kill.Monster("*")`` in a class quest -- and
+    ``hunt_item`` cannot express them because it needs an item name.  This is
+    that mode: join, hold the cell, and attack until nothing in it is alive.
+
+    Args:
+        cmd (Command): Facade to act through.
+        map_name (str): Map to join first, when given.
+        cell (str): Cell to hold, when given.
+        pad (str): Pad inside ``cell``.
+        monster (str): Monster name, or ``"*"`` for whatever is there.
+
+    Returns:
+        bool: True when the cell came up empty (the kill landed or there was
+        nothing to kill), False when the bounded loop ran out.
+    """
+    if map_name:
+        await cmd.join_map(map_name)
+    if cell:
+        await cmd.jump_cell(cell, pad)
+
+    for _ in range(KILL_ONE_TRIES):
+        if not cmd.is_still_connected():
+            return False
+        here = str(getattr(cmd.bot.player, "CELL", "") or "").lower()
+        alive = [mon for mon in cmd.bot.monsters
+                 if (not here or str(mon.frame or "").lower() == here)
+                 and mon.is_alive and mon.current_hp > 0
+                 and (monster == "*" or mon.mon_name.lower() == monster.lower())]
+        if not alive:
+            return True
+        await cmd.use_next_skill(DEFAULT_SKILL_LIST, monster)
+
+    cmd.bot.log(f"[core] nothing died in {map_name or 'this map'} "
+                f"({monster}); carrying on.")
+    return False

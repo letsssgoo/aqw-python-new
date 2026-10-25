@@ -333,6 +333,7 @@ async def hunt_item_by_id(
         pad: str = "Left",
         monster_map_id: int = 0,
         is_temp: bool = True,
+        hunt: bool = False,
     ):
     """Kill a monster *by its map id* until the item *by its id* is held.
 
@@ -340,6 +341,9 @@ async def hunt_item_by_id(
     name -- ``fiendshard``'s quest 7898 is one -- and ``hunt_item`` matches by
     name only.  The item is looked for in the temp bag when ``is_temp``, which is
     where quest progress items land.
+
+    ``hunt`` is passed to ``use_next_skill``, so the bot walks to the monster's
+    cell the way ``Core.HuntMonsterMapID`` does.
     """
     def held() -> bool:
         item = (cmd.bot.player.get_item_temp_inventory_by_id(item_id)
@@ -362,7 +366,7 @@ async def hunt_item_by_id(
         if held():
             await cmd.leave_combat()
             break
-        await cmd.use_next_skill(DEFAULT_SKILL_LIST, target)
+        await cmd.use_next_skill(DEFAULT_SKILL_LIST, target, hunt)
 
 
 async def kill_quest(

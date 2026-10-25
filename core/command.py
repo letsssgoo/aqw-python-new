@@ -1223,6 +1223,17 @@ class Command:
         await self.enhance_item(equipped.item_id, rec.item_id, rec.shop_id)
         return True
 
+    def farming_logger(self, item: str, quant: int = 1) -> None:
+        """``CoreBots.FarmingLogger``: how much of ``item`` is held, out of ``quant``.
+
+        The facade form of :func:`bot.core_bots.farming_logger` -- the ported
+        scripts call it as a method, which is how the reference reaches it
+        (``Core.FarmingLogger``).  The import is local because ``core_bots``
+        imports this module.
+        """
+        from bot.core_bots import farming_logger
+        farming_logger(self, item, quant)
+
     def add_drop(self, itemName: Union[str, List[str]]) -> None:
         """Add items to the drop whitelist handled by the bot.
 

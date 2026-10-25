@@ -33,7 +33,7 @@ from bot.core_advanced import buy_item as adv_buy_item
 from bot.core_advanced import gear_store, rank_up_class, smart_enhance
 from bot.core_bots import buy_item, equip_class, farming_logger
 from bot.core_dailies import elders_blood
-from bot.core_farms import farm_experience
+from bot.core_farms import blade_of_awe_rep, farm_experience
 from bot.enhancements.anima import anima
 from bot.enhancements.forge_helm import forge_helm_enhancement
 from bot.enhancements.lacerate import lacerate
@@ -43,8 +43,10 @@ from bot.enhancements.examen import examen
 from bot.enhancements.vim import vim
 from bot.nation.afdl.enough_doom_for_an_archfiend import afdl
 from bot.nation.vhl.core_vhl import get_vhl
+from bot.other.classes.blaze_binder import get_class as get_blaze_binder
 from bot.other.classes.dragonslayer_general import get_ds_general
 from bot.other.classes.rep_based.master_ranger import get_mr
+from bot.other.classes.scarlet_sorceress import get_ssorc
 from bot.other.weapons.burning_blade import get_burning_blade
 from core.command import Command
 from model.inventory import ItemType
@@ -555,9 +557,7 @@ async def _handle_level_30(cmd: Command) -> None:
 
     cmd.bot.log("Level 30: Farming Blade of Awe Rep for enhancements & sword")
     await set_class(cmd)
-    report_once(cmd, "blade_of_awe_rep",
-                "CoreFarms.BladeofAweREP is not ported; the Blade of Awe rep is "
-                "not farmed.")
+    await blade_of_awe_rep(cmd)
     await adv_buy_item(cmd, MUSEUM_SHOP, AWETHUR_ITEM, map_name="museum")
     await forge_helm_enhancement(cmd)
 
@@ -568,9 +568,7 @@ async def _handle_level_50(cmd: Command) -> None:
             and any_rank10(cmd, ["Scarlet Sorceress"])):
         cmd.bot.log("Level 50: Acquiring Scarlet Sorceress")
         await set_class(cmd)
-        report_once(cmd, "scarlet_sorceress",
-                    "ScarletSorceress.GetSSorc needs CoreToD.TowerofMirrors and "
-                    "BloodSorceress.GetBSorc; neither is ported.")
+        await get_ssorc(cmd)
 
     if not (await cmd.has_item("Dragonslayer General")
             and any_rank10(cmd, ["Dragonslayer General"])):
@@ -589,8 +587,7 @@ async def _handle_level_55(cmd: Command) -> None:
             and any_rank10(cmd, ["Blaze Binder"])):
         cmd.bot.log("Level 55: Acquiring Blaze Binder")
         await set_class(cmd)
-        report_once(cmd, "blaze_binder",
-                    "BlazeBinder.GetClass is not ported.")
+        await get_blaze_binder(cmd)
 
     if not (await cmd.has_item("Cryomancer")
             and any_rank10(cmd, ["Cryomancer"])):

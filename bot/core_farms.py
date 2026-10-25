@@ -26,8 +26,9 @@ import time
 from typing import Awaitable, Callable, Optional, Sequence, Tuple
 
 from bot.core_bots import (Alignment, REP_THRESHOLDS, buy_item, can_we_aggro,
-                           change_alignment,
-                           equip_class, wait_for_item)
+                           change_alignment, check_save_state,
+                           equip_class, execute_save_state, kill_once,
+                           saved_state, wait_for_item)
 from core.command import Command
 from templates.hunt import DEFAULT_SKILL_LIST, hunt_item, move_to_cell
 
@@ -1199,3 +1200,107 @@ async def blacksmithing_rep(cmd: Command, rank: int = 10, use_gold: bool = False
         if not await guard.tick():
             break
     cmd.cancel_registered_quests()
+
+
+# ---------------------------------------------------------------------------
+# Blade of Awe
+# ---------------------------------------------------------------------------
+BLADE_OF_AWE = "Blade of Awe"
+#: The weapon ``UnlockBoA``'s quests unlock; rank 6 is all the rep it needs.
+BOA_ITEM = 17585
+BOA_SHOP, BOA_SHOP_MAP = 631, "museum"
+#: The rep quest the farm loop registers.
+BOA_FARM_QUEST = 2935
+BOA_MAP, BOA_CELL, BOA_PAD = "castleundead", "Enter", "Left"
+BOA_MONSTER = "Skeletal Viking"
+#: ``UnlockBoA``'s first four quests: (quest, map, monster, item, solo).
+BOA_UNLOCKS = (
+    (2933, "j6", "Sketchy Dragon", "Stonewrit Found!", True),
+    (2934, "gilead", "Fire Elemental", "Handle Found!", True),
+    (2935, "castleundead", "Skeletal Viking", "Hilt Found!", False),
+    (2936, "hydra", "Hydra Head", "Blade Found!", False),
+)
+BOA_RUNES_QUEST = 2937
+BOA_RUNES_ITEM = "Runes Found!"
+
+
+async def unlock_boa(cmd: Command) -> None:
+    """``CoreFarms.UnlockBoA``: quests 2933-2937, the Blade of Awe's unlocks.
+
+    Note:
+        The reference calls ``Core.ResetQuest(2937)`` first -- accept, abandon,
+        accept again -- to shake off a stuck run.  This engine has no abandon
+        packet, so that one step is the accept alone; every other quest here is
+        one hunt and one turn-in, as in the source.
+    """
+    if await cmd.is_completed_before(BOA_RUNES_QUEST):
+        return
+
+    for quest_id, map_name, monster, item, solo in BOA_UNLOCKS:
+        if await cmd.is_completed_before(quest_id):
+            cmd.bot.log(f"Already Completed: [{quest_id}]")
+            continue
+
+        cmd.bot.log(f'Doing Quest: [{quest_id}] - "{item}"')
+        await equip_class(cmd, solo=solo)
+        if await cmd.ensure_accept_quest(quest_id) is False:
+            cmd.bot.log(f"[farm] quest {quest_id} could not be accepted; the "
+                        f"Blade of Awe unlock stops here.")
+            return
+        await hunt_item(cmd, item, 1, map_name, monster_name=monster,
+                        is_temp=False)
+        if await cmd.ensure_turn_in_quest(quest_id) is False:
+            cmd.bot.log(f"[farm] quest {quest_id} could not be turned in; the "
+                        f"Blade of Awe unlock stops here.")
+            return
+        cmd.bot.log(f"Completed Quest: [{quest_id}]")
+
+    if await cmd.is_completed_before(BOA_RUNES_QUEST):
+        cmd.bot.log(f"Already Completed: [{BOA_RUNES_QUEST}]")
+        return
+
+    from bot.nation.core_nation import kill_escherion
+
+    cmd.bot.log(f'Doing Quest: [{BOA_RUNES_QUEST}] - "{BOA_RUNES_ITEM}"')
+    await equip_class(cmd, solo=True)
+    if await cmd.ensure_accept_quest(BOA_RUNES_QUEST) is False:
+        cmd.bot.log(f"[farm] quest {BOA_RUNES_QUEST} could not be accepted.")
+        return
+    await kill_escherion(cmd, BOA_RUNES_ITEM)
+    if await cmd.ensure_turn_in_quest(BOA_RUNES_QUEST) is False:
+        cmd.bot.log(f"[farm] quest {BOA_RUNES_QUEST} could not be turned in.")
+        return
+    cmd.bot.log(f"Completed Quest: [{BOA_RUNES_QUEST}]")
+
+
+async def blade_of_awe_rep(cmd: Command, rank: int = 10,
+                           farm_boa: bool = True) -> None:
+    """``CoreFarms.BladeofAweREP``: rank the faction in /castleundead.
+
+    Args:
+        cmd (Command): Facade to act through.
+        rank (int): Reputation rank wanted.
+        farm_boa (bool): Also unlock and buy the Blade of Awe itself.
+    """
+    await unlock_boa(cmd)
+
+    target = 6 if farm_boa and not await cmd.has_item_id(BOA_ITEM) else rank
+    current = cmd.get_faction_rank(BLADE_OF_AWE)
+    if current < target or (farm_boa and current < rank):
+        saved_state(cmd, True, BOA_MAP)
+        await equip_class(cmd)
+        cmd.bot.log(f"Farming rank {target if current < target else rank}")
+
+        await cmd.register_quest(BOA_FARM_QUEST)
+        while (cmd.is_still_connected()
+               and (cmd.get_faction_rank(BLADE_OF_AWE) < target
+                    or (farm_boa
+                        and cmd.get_faction_rank(BLADE_OF_AWE) < target))):
+            if check_save_state(cmd):
+                await execute_save_state(cmd)
+            await kill_once(cmd, BOA_MAP, BOA_CELL, BOA_PAD, BOA_MONSTER)
+        cmd.cancel_registered_quests()
+        saved_state(cmd, False)
+
+    if farm_boa and not await cmd.has_item_id(BOA_ITEM):
+        await buy_item(cmd, BOA_SHOP, BOA_ITEM, map_name=BOA_SHOP_MAP)

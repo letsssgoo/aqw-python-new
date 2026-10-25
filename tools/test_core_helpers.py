@@ -60,6 +60,7 @@ class Player:
     def __init__(self, inventory=()):
         self.INVENTORY = list(inventory)
         self.TEMPINVENTORY = []
+        self.BANK = []
         self.is_member = True
         self.LEVEL = 80
         self.temp = {}
@@ -100,6 +101,9 @@ class Bot:
     def log(self, *args):
         self.logs.append(" ".join(map(str, args)))
 
+    def request_relogin(self, reason=""):
+        self.logs.append(f"relogin: {reason}")
+
 
 class Cand:
     def __init__(self, inventory=(), quests=None, accept=True, turn_in=True):
@@ -107,6 +111,7 @@ class Cand:
         self.quests = quests or {}
         self.rewards = {}
         self.completed = set()
+        self.ranks = {}
         self.accept = accept
         self.turn_in = turn_in
         self.calls = []
@@ -127,6 +132,12 @@ class Cand:
     def cancel_registered_quests(self):
         self.calls.append(("cancel_quests",))
 
+    def stop_aggro(self):
+        self.calls.append(("stop_aggro",))
+
+    def is_still_connected(self):
+        return True
+
     async def ensure_accept_quest(self, quest):
         self.calls.append(("accept", quest))
         return self.accept
@@ -143,6 +154,9 @@ class Cand:
 
     async def join_map(self, name, room=None):
         self.calls.append(("join", name, room))
+
+    async def sleep(self, milliseconds):
+        self.calls.append(("sleep", milliseconds))
 
     async def get_map_item(self, item_id, qty=1):
         self.calls.append(("mapitem", item_id, qty))
@@ -181,6 +195,9 @@ class Cand:
 
     def get_player(self):
         return self.bot.player
+
+    def get_faction_rank(self, name):
+        return self.ranks.get(name.lower(), 0)
 
 
 def run(coro):
@@ -802,6 +819,266 @@ try:
         ("wait", "Burning Blade")])
 finally:
     restore(bb, leaf)
+
+# ============================================================================
+# 13. Throne of Darkness, the three classes and Blade of Awe
+# ============================================================================
+from bot.story.throne_of_darkness import core_tod as tod  # noqa: E402
+from bot.other.classes import blood_sorceress as bs  # noqa: E402
+from bot.other.classes import scarlet_sorceress as ss  # noqa: E402
+from bot.other.classes import blaze_binder as bz  # noqa: E402
+from bot import core_farms as farms_mod  # noqa: E402
+
+tod_order = []
+
+
+async def tod_kill(cmd, quest, map_name, monster):
+    tod_order.append(f"kill{quest}")
+
+
+async def tod_map(cmd, quest, map_name, item_ids, qty=1):
+    tod_order.append(f"map{quest}")
+
+
+async def tod_hunt(cmd, item, qty, map_name, **kwargs):
+    tod_order.append(f"hunt:{item}")
+
+
+async def tod_hunt_id(cmd, item_id, qty, map_name, **kwargs):
+    tod_order.append(f"huntid:{item_id}@{kwargs.get('monster_map_id')}")
+
+
+async def tod_equip(cmd, solo=False):
+    tod_order.append(f"equip{int(solo)}")
+
+
+leaf = patch(tod, kill_quest=tod_kill, map_item_quest=tod_map,
+             hunt_item=tod_hunt, hunt_item_by_id=tod_hunt_id,
+             equip_class=tod_equip,
+             item_id_by_name=lambda cmd, quest, name: 9000 + quest)
+try:
+    cmd = Cand()
+    cmd.completed = {5313, 5332}
+    tod_order.clear()
+    run(tod.tower_of_mirrors(cmd))
+    check("tod: a done tower does nothing", tod_order, [])
+
+    cmd = Cand()
+    cmd.completed = {5313}
+    tod_order.clear()
+    run(tod.tower_of_mirrors(cmd))
+    accepted = [c[1] for c in cmd.calls if c[0] == "accept"]
+    check("tod: every tower quest in order", accepted,
+          [5314, 5315, 5316, 5317, 5318, 5319, 5320, 5321, 5322, 5323, 5324,
+           5325, 5326, 5327, 5328, 5329, 5332])
+    check("tod: 5330/5331 go through the story helpers",
+          [entry for entry in tod_order if entry in ("kill5330", "map5331")],
+          ["kill5330", "map5331"])
+    check("tod: the map-id bosses are hunted by id",
+          [entry for entry in tod_order if entry.startswith("huntid:")],
+          ["huntid:9000;a@36" if False else "huntid:" + str(9000 + q) + "@" + str(i)
+           for q, i in ((5317, 36), (5320, 40), (5323, 45), (5326, 49),
+                        (5329, 52), (5332, 32))])
+finally:
+    restore(tod, leaf)
+
+bs_order = []
+
+
+async def bs_hunt(cmd, item_id, qty, map_name, **kwargs):
+    bs_order.append((item_id, qty, kwargs.get("cell"),
+                     kwargs.get("monster_map_id")))
+
+
+async def bs_rank(cmd, name="", item_id=0, gear_restore=True):
+    bs_order.append(("rank", item_id or name))
+
+
+async def bs_equip(cmd, solo=False):
+    bs_order.append(("solo", solo))
+
+
+leaf = patch(bs, hunt_item_by_id=bs_hunt, advance_class=bs_rank,
+             equip_class=bs_equip)
+try:
+    cmd = Cand([ItemInventory({"sName": "Blood Sorceress", "ItemID": 36298,
+                               "iQty": 1})])
+    bs_order.clear()
+    run(bs.get_bsorc(cmd))
+    check("bsorc: owned -> ranked by id", bs_order, [("rank", 36298)])
+
+    cmd = Cand()
+    bs_order.clear()
+    run(bs.get_bsorc(cmd, rank_up_class=False))
+    check("bsorc: the groglurk at r16/Top", bs_order,
+          [("solo", True), (36298, 1, "r16", 32)])
+finally:
+    restore(bs, leaf)
+
+ss_order = []
+
+
+async def ss_tower(cmd):
+    ss_order.append("tower")
+
+
+async def ss_bsorc(cmd, *args, **kwargs):
+    ss_order.append("bsorc")
+    # ``GetBSorc``'s own rank-up leaves the class at rank 10.
+    cmd.bot.player.INVENTORY.append(
+        ItemInventory({"sName": "Blood Sorceress", "sES": "ar",
+                       "ItemID": 36298, "iQty": 302500}))
+
+
+async def ss_chain(cmd, quest, item_id=-1):
+    ss_order.append(f"chain{quest}")
+    return True
+
+
+async def ss_exp(cmd, level=100, rank_up_class=False):
+    ss_order.append(f"exp{level}")
+
+
+async def ss_rank(cmd, name="", item_id=0, gear_restore=True):
+    ss_order.append(f"rank:{item_id or name}")
+
+
+async def ss_enhance(cmd, item, type_, *args, **kwargs):
+    ss_order.append(f"enh:{item}")
+
+
+async def ss_wait(cmd, item, qty=1):
+    ss_order.append(f"wait:{item}")
+
+
+leaf = patch(ss, tower_of_mirrors=ss_tower, get_bsorc=ss_bsorc,
+             chain_complete=ss_chain, farm_experience=ss_exp,
+             advance_class=ss_rank, enhance_item=ss_enhance,
+             wait_for_item=ss_wait)
+try:
+    cmd = Cand([ItemInventory({"sName": "Scarlet Sorceress", "ItemID": 1,
+                               "iQty": 1})])
+    ss_order.clear()
+    run(ss.get_ssorc(cmd))
+    check("scarlet: owned -> ranked", ss_order, ["rank:Scarlet Sorceress"])
+
+    cmd = Cand()
+    ss_order.clear()
+    run(ss.get_ssorc(cmd, rank_up_class=False))
+    check("scarlet: the source's order", ss_order, [
+        "tower", "bsorc", "wait:Blood Sorceress", "enh:Blood Sorceress",
+        "exp50", "chain6236", "wait:Scarlet Sorceress",
+        "enh:Scarlet Sorceress"])
+    check("scarlet: the class quest runs", "chain6236" in ss_order, True)
+finally:
+    restore(ss, leaf)
+
+bz_order = []
+
+
+async def bz_pyro(cmd):
+    bz_order.append("pyromancer")
+
+
+async def bz_kill(cmd, *args, **kwargs):
+    bz_order.append("kill")
+
+
+async def bz_gear(cmd, restore=False, enh_after=False):
+    bz_order.append(f"gear{int(restore)}")
+
+
+async def bz_buy(cmd, shop, item, qty=1, map_name=None, shop_item_id=0):
+    bz_order.append(f"buy{shop}:{item}")
+
+
+async def bz_rank(cmd, name="", item_id=0, gear_restore=True):
+    bz_order.append(f"rank:{name}")
+
+
+leaf = patch(bz, pyromancer=bz_pyro, kill_once=bz_kill, gear_store=bz_gear,
+             buy_item=bz_buy, advance_class=bz_rank)
+try:
+    cmd = Cand([ItemInventory({"sName": "Blaze Binder", "ItemID": 2,
+                               "iQty": 1})])
+    bz_order.clear()
+    run(bz.get_class(cmd))
+    check("blaze: owned -> ranked", bz_order, ["rank:Blaze Binder"])
+
+    cmd = Cand()
+    bz_order.clear()
+    run(bz.get_class(cmd, rank_up_class=False))
+    check("blaze: pyro, one point, two sigils, the class", bz_order, [
+        "pyromancer", "gear0", "kill", "gear1", "buy1142:Darkness Sigil",
+        "buy1142:Flame Sigil", "buy1140:Blaze Binder",
+        "rank:Blaze Binder"])
+finally:
+    restore(bz, leaf)
+
+boa_order = []
+
+
+async def boa_kill(cmd, *args, **kwargs):
+    boa_order.append("kill")
+    cmd.ranks["blade of awe"] = 10
+
+
+def boa_save(cmd, on=True, previous_map=""):
+    boa_order.append(f"save{int(on)}")
+
+
+def boa_check(cmd):
+    return False
+
+
+async def boa_exec(cmd):
+    boa_order.append("exec")
+
+
+async def boa_hunt(cmd, item, qty, map_name, **kwargs):
+    boa_order.append(f"hunt:{item}")
+
+
+async def boa_equip(cmd, solo=False):
+    boa_order.append(f"equip{int(solo)}")
+
+
+async def boa_buy(cmd, shop, item, qty=1, map_name=None, shop_item_id=0):
+    boa_order.append(f"buy{shop}")
+
+
+leaf = patch(farms_mod, kill_once=boa_kill, saved_state=boa_save,
+             check_save_state=boa_check, execute_save_state=boa_exec,
+             hunt_item=boa_hunt, equip_class=boa_equip, buy_item=boa_buy)
+from bot.nation import core_nation as nation_mod  # noqa: E402
+
+
+async def boa_escherion(cmd, item, qty=1):
+    boa_order.append(f"hunt:{item}")
+
+
+real_escherion = nation_mod.kill_escherion
+nation_mod.kill_escherion = boa_escherion
+try:
+    cmd = Cand()
+    cmd.completed = {2937}
+    boa_order.clear()
+    run(farms_mod.blade_of_awe_rep(cmd))
+    check("boa: unlocks already done -> only the rep + buy", boa_order,
+          ["save1", "equip0", "kill", "save0", "buy631"])
+
+    cmd = Cand()
+    cmd.completed = {2933}
+    boa_order.clear()
+    run(farms_mod.blade_of_awe_rep(cmd, farm_boa=False))
+    check("boa: quests skipped when done",
+          [c[1] for c in cmd.calls if c[0] == "accept"],
+          [2934, 2935, 2936, 2937])
+    check("boa: the last quest hunts Escherion's rune",
+          any(entry == "hunt:Runes Found!" for entry in boa_order), True)
+finally:
+    nation_mod.kill_escherion = real_escherion
+    restore(farms_mod, leaf)
 
 print(f"passed {passed}   failed {len(failures)}")
 if failures:
