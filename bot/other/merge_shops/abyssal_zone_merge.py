@@ -9,7 +9,7 @@ The lead-in is ``AoR.AbyssalZone()``, ported as
 """
 from typing import Optional, Sequence
 
-from bot.core_advanced import start_buy_all_merge
+from bot.core_advanced import farm_quest_reward, start_buy_all_merge
 from bot.core_bots import equip_class
 from bot.other.merge_shops.midnight_zone_merge import _kill_once
 from bot.story.age_of_ruin.core_aor import abyssal_zone
@@ -57,8 +57,7 @@ async def _find_ingredients(cmd: Command, item_id, name: str,
         return
 
     if name == "Water Elf Antler":
-        await cmd.register_quest(ANTLER_QUEST)
-        while cmd.is_still_connected() and not await cmd.has_item(name, quant):
+        async def farm_pass() -> None:
             await equip_class(cmd, solo=True)
             await hunt_item(cmd, ANTLER_SOLO[0], ANTLER_SOLO[2], MAP,
                             monster_name=ANTLER_SOLO[1], is_temp=True)
@@ -66,6 +65,8 @@ async def _find_ingredients(cmd: Command, item_id, name: str,
                 await hunt_item(cmd, item, qty, MAP, monster_name=monster,
                                 is_temp=True)
             await _kill_once(cmd, MAP, ANTLER_KILL)
+
+        await farm_quest_reward(cmd, ANTLER_QUEST, name, quant, farm_pass)
         cmd.cancel_registered_quests()
         return
 

@@ -12,7 +12,8 @@ Zone, Abyssal Zone, Trench Observe), all ported.
 """
 from typing import Optional, Sequence
 
-from bot.core_advanced import buy_item, smart_enhance, start_buy_all_merge
+from bot.core_advanced import (farm_quest_reward, smart_enhance,
+                               start_buy_all_merge)
 from bot.core_bots import equip_class
 from bot.other.merge_shops.midnight_zone_merge import _kill_once
 from bot.story.age_of_ruin.core_aor import kill_thing
@@ -93,23 +94,23 @@ async def _attack_voice_in_the_sea(cmd: Command, item: str,
                      "(go get AP at least and rerun)")
         return
 
-    await cmd.register_quest(FIGHT_QUEST)
     await equip_class(cmd, solo=True)
     cmd.add_drop(FIGHT_DROP)
     if cmd.is_in_bank(FIGHT_DROP):
         await cmd.bank_to_inv(FIGHT_DROP)
 
-    while cmd.is_still_connected() and not await cmd.has_item(item, quant,
-                                                              isTemp=True):
-        chosen = await _pick_solo_class(cmd) or chosen
-        cmd.bot.log(f'Soloing "Voice of the Sea" with {chosen}')
+    async def farm_pass() -> None:
+        pick = await _pick_solo_class(cmd) or chosen
+        cmd.bot.log(f'Soloing "Voice of the Sea" with {pick}')
         # Adv.GearStore/EnhanceItem are skipped (GearStore is not ported), but
         # SmartEnhance is: it is what the source runs on the chosen class.
         cmd.add_drop(FIGHT_DROP)
-        await smart_enhance(cmd, chosen)
-        await cmd.equip_item(chosen)
+        await smart_enhance(cmd, pick)
+        await cmd.equip_item(pick)
         await kill_thing(cmd, MAP, item, VIGIL_ITEM_ID, quant, is_temp=True)
 
+    await farm_quest_reward(cmd, FIGHT_QUEST, item, quant, farm_pass,
+                            is_temp=True)
     cmd.cancel_registered_quests()
 
 
@@ -125,8 +126,7 @@ async def _find_ingredients(cmd: Command, item_id, name: str,
         return
 
     if name == "Dark Elf Pearl":
-        await cmd.register_quest(DARK_PEARL_QUEST)
-        while cmd.is_still_connected() and not await cmd.has_item(name, quant):
+        async def farm_pass() -> None:
             await equip_class(cmd, solo=True)
             await hunt_item(cmd, DARK_PEARL_SOLO[0], DARK_PEARL_SOLO[2],
                             "trenchobserve", monster_name=DARK_PEARL_SOLO[1],
@@ -135,37 +135,43 @@ async def _find_ingredients(cmd: Command, item_id, name: str,
                 await hunt_item(cmd, entry, qty, "trenchobserve",
                                 monster_name=monster, is_temp=True)
             await _kill_once(cmd, "trenchobserve", DARK_PEARL_KILL)
+
+        await farm_quest_reward(cmd, DARK_PEARL_QUEST, name, quant, farm_pass)
         cmd.cancel_registered_quests()
         return
 
     if name == "Water Elf Pearl":
-        await cmd.register_quest(WATER_PEARL_QUEST)
-        while cmd.is_still_connected() and not await cmd.has_item(name, quant):
+        async def farm_pass() -> None:
             await equip_class(cmd, solo=True)
             for entry, monster, qty in WATER_PEARL_HUNTS:
                 await hunt_item(cmd, entry, qty, "midnightzone",
                                 monster_name=monster, is_temp=True)
+
+        await farm_quest_reward(cmd, WATER_PEARL_QUEST, name, quant, farm_pass)
         cmd.cancel_registered_quests()
         return
 
     if name == "Water Elf Antler":
-        await cmd.register_quest(ANTLER_QUEST)
-        while cmd.is_still_connected() and not await cmd.has_item(name, quant):
+        async def farm_pass() -> None:
             await equip_class(cmd, solo=True)
             for entry, monster, qty in ANTLER_HUNTS:
                 await hunt_item(cmd, entry, qty, "abyssalzone",
                                 monster_name=monster, is_temp=True)
             await _kill_once(cmd, "abyssalzone", ANTLER_KILL)
+
+        await farm_quest_reward(cmd, ANTLER_QUEST, name, quant, farm_pass)
         cmd.cancel_registered_quests()
         return
 
     if name == "Sundered Tentacle":
         await equip_class(cmd)
-        await cmd.register_quest(TENTACLE_QUEST)
-        while cmd.is_still_connected() and not await cmd.has_item(name, quant):
+
+        async def farm_pass() -> None:
             for entry, monster, qty in TENTACLE_HUNTS:
                 await hunt_item(cmd, entry, qty, TENTACLE_MAP,
                                 monster_name=monster, is_temp=True)
+
+        await farm_quest_reward(cmd, TENTACLE_QUEST, name, quant, farm_pass)
         cmd.cancel_registered_quests()
         return
 

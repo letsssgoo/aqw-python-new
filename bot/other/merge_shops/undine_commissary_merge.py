@@ -9,7 +9,7 @@ The lead-in is ``AoR.SunlightZone()``, ported as
 """
 from typing import Optional, Sequence
 
-from bot.core_advanced import start_buy_all_merge
+from bot.core_advanced import farm_quest_reward, start_buy_all_merge
 from bot.story.age_of_ruin.core_aor import sunlight_zone
 from core.command import Command
 from templates.hunt import hunt_item
@@ -45,11 +45,12 @@ async def _find_ingredients(cmd: Command, item_id, name: str,
         return
 
     if name == "Sun Zone Chit":
-        await cmd.register_quest(CHIT_QUEST)
-        while cmd.is_still_connected() and not await cmd.has_item(name, quant):
+        async def farm_pass() -> None:
             for item, monster, qty in CHIT_HUNTS:
                 await hunt_item(cmd, item, qty, MAP, monster_name=monster,
                                 is_temp=True)
+
+        await farm_quest_reward(cmd, CHIT_QUEST, name, quant, farm_pass)
         cmd.cancel_registered_quests()
         return
 

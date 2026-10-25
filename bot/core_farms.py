@@ -763,6 +763,7 @@ async def chronospan_rep(cmd: Command, rank: int = 10) -> None:
     cmd.bot.log(f"[farm] farming ChronoSpan reputation to rank {rank}")
     await equip_class(cmd)
     await cmd.register_quest(2204)
+    guard = cmd.pass_guard(f"ChronoSpan rank {rank} (quest 2204)")
 
     while (cmd.is_still_connected()
            and cmd.get_faction_rank("ChronoSpan") < rank):
@@ -772,6 +773,8 @@ async def chronospan_rep(cmd: Command, rank: int = 10) -> None:
                         pad="Left", monster_name="Minx Fairy", is_temp=False)
         await hunt_item(cmd, "Tog Fang", 4, "thespan", cell="r4", pad="Left",
                         monster_name="Tog", is_temp=False)
+        if not await guard.tick():
+            break
 
     cmd.cancel_registered_quests()
 
@@ -1157,6 +1160,9 @@ async def blacksmithing_rep(cmd: Command, rank: int = 10, use_gold: bool = False
 
     cmd.bot.log("Using Non-Gold Method")
     await cmd.register_quest(BLACKSMITHING_STARTER_QUEST)
+    starter_guard = cmd.pass_guard(
+        f"{BLACKSMITHING} rank {BLACKSMITHING_STARTER_RANK} "
+        f"(quest {BLACKSMITHING_STARTER_QUEST})")
     while (cmd.is_still_connected()
            and cmd.get_faction_rank(BLACKSMITHING) < BLACKSMITHING_STARTER_RANK
            and not use_gold):
@@ -1164,10 +1170,14 @@ async def blacksmithing_rep(cmd: Command, rank: int = 10, use_gold: bool = False
                         monster_name="Wolf")
         await hunt_item(cmd, "Slimy Lost Sock", 5, "greenguardwest",
                         monster_name="Slime")
+        if not await starter_guard.tick():
+            break
     cmd.cancel_registered_quests()
 
     await cmd.register_quest(BLACKSMITHING_QUEST)
     await equip_class(cmd, solo=True)
+    guard = cmd.pass_guard(f"{BLACKSMITHING} rank {rank} "
+                           f"(quest {BLACKSMITHING_QUEST})")
     while (cmd.is_still_connected()
            and cmd.get_faction_rank(BLACKSMITHING) < rank
            and not use_gold):
@@ -1177,4 +1187,6 @@ async def blacksmithing_rep(cmd: Command, rank: int = 10, use_gold: bool = False
                         monster_name="Creature Creation", is_temp=False)
         await hunt_item(cmd, "Monster Trophy", 15, "towerofdoom",
                         monster_name="Dread Klunk", is_temp=False)
+        if not await guard.tick():
+            break
     cmd.cancel_registered_quests()

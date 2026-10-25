@@ -45,31 +45,41 @@ def _held_count(cmd: Command, item_name: str, is_temp: bool) -> int:
 
 
 def _fighting(cmd: Command, monster_name: str) -> bool:
-    """Whether the hunt has something to hit where the player is standing.
+    """Whether the hunt's *own* target is alive where the player is standing.
 
-    Used by the stall timer: attacking a monster is progress even when nothing
+    Used by the stall timer: attacking the target is progress even when nothing
     drops, so a rare drop's dry spell must not look like a stuck bot.
 
-    ``IS_IN_COMBAT`` used to be enough on its own, and that is what let a hunt
-    go silent: the flag is only refreshed by a combat tick (``ct``), so once the
-    last fight ends it stays ``True``.  The stall timer then read "still
-    fighting" on every pass and never looked for the target again -- the bot
-    stood at Enter until the 15-minute session watchdog relogged it into the
-    same spot.  A live monster in the player's own cell answers the same
-    question from data a re-join can refresh.
+    Two things must not count as a fight.  ``IS_IN_COMBAT`` alone used to: the
+    flag is only refreshed by a combat tick (``ct``), so once the last fight
+    ends it stays ``True`` and the stall timer never looked for the target
+    again.  And so must not *any* monster sharing the player's cell: every map's
+    Enter cell carries spawns of its own, so a bot that respawned there while
+    hunting a cell-bound monster looked busy for as long as it stood there --
+    /ashray's "stuck at Enter" after the fisherman's cell was done.  Only a live
+    monster that matches the hunt's own name (or any monster, for ``*``) counts.
     """
-    try:
-        if cmd.is_monster_alive(monster_name):
-            return True
-    except Exception:
-        pass
+    names = [t.strip().lower() for t in str(monster_name or "*").split(',')
+             if t.strip()] or ["*"]
     try:
         cell = str(cmd.bot.player.CELL or "").lower()
-        return any(str(mon.frame or "").lower() == cell and mon.is_alive
-                   and mon.current_hp > 0
-                   for mon in (getattr(cmd.bot, "monsters", None) or []))
+        for mon in (getattr(cmd.bot, "monsters", None) or []):
+            if not (getattr(mon, "is_alive", False) and mon.current_hp > 0):
+                continue
+            if str(getattr(mon, "frame", "") or "").lower() != cell:
+                continue
+            if "*" in names:
+                return True
+            mon_name = (mon.mon_name or "").lower()
+            mon_id = str(mon.mon_map_id)
+            for target in names:
+                if target.startswith("id.") and target.split(".", 1)[-1] == mon_id:
+                    return True
+                if target in (mon_id, mon_name):
+                    return True
     except Exception:
         return False
+    return False
 
 
 def _has_target(cmd: Command, monster_name: str) -> bool:

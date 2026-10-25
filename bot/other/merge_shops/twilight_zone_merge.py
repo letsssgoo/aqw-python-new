@@ -15,7 +15,7 @@ Note:
 """
 from typing import Optional, Sequence
 
-from bot.core_advanced import start_buy_all_merge
+from bot.core_advanced import farm_quest_reward, start_buy_all_merge
 from bot.core_bots import equip_class
 from bot.story.age_of_ruin.core_aor import twilight_zone
 from core.command import Command
@@ -63,11 +63,13 @@ async def _find_ingredients(cmd: Command, item_id, name: str,
 
     if name == "Sundered Tentacle":
         await equip_class(cmd)
-        await cmd.register_quest(TENTACLE_QUEST)
-        while cmd.is_still_connected() and not await cmd.has_item(name, quant):
+
+        async def farm_pass() -> None:
             for item, monster, qty in TENTACLE_HUNTS:
                 await hunt_item(cmd, item, qty, MAP, monster_name=monster,
                                 is_temp=True)
+
+        await farm_quest_reward(cmd, TENTACLE_QUEST, name, quant, farm_pass)
         cmd.cancel_registered_quests()
         return
 

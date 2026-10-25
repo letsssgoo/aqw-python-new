@@ -34,6 +34,7 @@ async def FrozenSpiderSilk(bot: Bot, cmd: Command, qty: int):
 
     await cmd.register_quest(10018)
 
+    guard = cmd.pass_guard(item_name)
     while cmd.is_still_connected():
         if cmd.is_in_inventory(item_name, qty, ">="):
             break
@@ -48,6 +49,8 @@ async def FrozenSpiderSilk(bot: Bot, cmd: Command, qty: int):
             monster_name="*",
             farming_logger=True
         )
+        if not await guard.tick():
+            break
 
 async def IceVapor(bot: Bot, cmd: Command, qty: int):
     item_name = "Ice Vapor"
@@ -57,6 +60,7 @@ async def IceVapor(bot: Bot, cmd: Command, qty: int):
     if bot.farmClass:
         await cmd.equip_item(bot.farmClass)
 
+    guard = cmd.pass_guard(item_name)
     while cmd.is_still_connected():
         if cmd.is_in_inventory(item_name, qty, ">="):
             break
@@ -72,4 +76,6 @@ async def IceVapor(bot: Bot, cmd: Command, qty: int):
             monster_name="*",
             farming_logger=True
         )
+        if not await guard.tick():
+            break
     

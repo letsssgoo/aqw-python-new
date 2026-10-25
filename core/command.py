@@ -50,6 +50,70 @@ def check_alive(func):
     # Check if the function is async and use the appropriate wrapper
     return async_wrapper if iscoroutinefunction(func) else sync_wrapper
 
+#: How many passes a farm loop may change nothing before it gives up.
+QUIET_PASSES = 3
+
+
+def world_signature(cmd: 'Command') -> tuple:
+    """Cheap fingerprint of a farm pass: carried stock, temp items, gold, rep."""
+    player = getattr(getattr(cmd, "bot", None), "player", None)
+    if player is None:
+        player = getattr(cmd, "player", None)
+    if player is None:
+        return ()
+    carried = sum(int(getattr(item, "qty", 0) or 0)
+                  for item in getattr(player, "INVENTORY", []) or [])
+    temp = sum(int(getattr(item, "qty", 0) or 0)
+               for item in getattr(player, "TEMPINVENTORY", []) or [])
+    # Reputation is the only progress a rep quest gives, so a farm that turns
+    # its quest in for rep alone would otherwise look like it changed nothing.
+    rep = sum(int(getattr(faction, "rep", 0) or 0)
+              for faction in getattr(player, "FACTIONS", []) or [])
+    return (carried, temp, int(getattr(player, "GOLD", 0) or 0),
+            int(getattr(player, "LEVEL", 0) or 0), rep)
+
+
+class PassGuard:
+    """Stops a farm loop that is no longer changing anything.
+
+    A loop built only from calls that return before their first ``await`` never
+    yields: the whole event loop stops with it -- the packet reader, every task,
+    the auto quest turn-in and the session watchdog included.  Nothing is
+    printed, no packet moves and the character stands where it was, which is the
+    "stuck at Enter with no sign of life".  ``tick`` is called once per pass: it
+    yields, and after ``max_quiet_passes`` passes with no change at all it says
+    so and reports False, so the loop ends instead of freezing.
+
+    Use :meth:`Command.pass_guard` to build one.
+    """
+
+    def __init__(self, cmd: 'Command', label: str,
+                 max_quiet_passes: int = QUIET_PASSES):
+        self.cmd = cmd
+        self.label = label
+        self.max_quiet_passes = max_quiet_passes
+        self.quiet = 0
+        self.seen = world_signature(cmd)
+
+    async def tick(self) -> bool:
+        """Yield once and report whether the loop should keep going."""
+        # A full second, not just a yield: the auto quest turn-in runs on this
+        # same loop and needs the pass to give it room before the next one.
+        await self.cmd.sleep(1000)
+        now = world_signature(self.cmd)
+        if now == self.seen:
+            self.quiet += 1
+            if self.quiet >= self.max_quiet_passes:
+                self.cmd.bot.log(f"[farm] {self.label}: {self.quiet} passes "
+                                 f"changed nothing; stopping instead of "
+                                 f"spinning without yielding.")
+                return False
+        else:
+            self.quiet = 0
+            self.seen = now
+        return True
+
+
 class SkillMode(Enum):
     BUFF_ONLY = 1    # using buff type skill only 
     ATTACK_ONLY = 2  # using attack type skill only
@@ -2218,7 +2282,18 @@ class Command:
     async def sleep(self,  milliseconds: int) -> None:
         """Asynchronously sleep for the requested number of milliseconds."""
         await asyncio.sleep(milliseconds/1000)
-        
+
+    def pass_guard(self, label: str,
+                   max_quiet_passes: int = QUIET_PASSES) -> 'PassGuard':
+        """A yield-and-bound guard for a ``while`` farm loop.
+
+        Args:
+            label (str): What the loop farms, quoted in the give-up message.
+            max_quiet_passes (int): Stop after this many passes that changed
+                nothing at all.
+        """
+        return PassGuard(self, label, max_quiet_passes)
+
     def subscribe(self, callback):
         """Register a server message/response handler."""
         self.bot.subscribe(callback)
