@@ -1080,6 +1080,32 @@ finally:
     nation_mod.kill_escherion = real_escherion
     restore(farms_mod, leaf)
 
+# ============================================================================
+# 14. CoreVHL: the rank-up goes through the ported RankUpClass
+# ============================================================================
+from bot.nation.vhl import core_vhl as vhl  # noqa: E402
+
+vhl_ranked = []
+real_vhl_rank = vhl.rank_up
+
+
+async def spy_vhl_rank(cmd, name="", item_id=0, gear_restore=True):
+    vhl_ranked.append(name)
+
+
+vhl.rank_up = spy_vhl_rank
+try:
+    owned = [ItemInventory({"sName": "Void Highlord", "sES": "ar",
+                            "ItemID": 1, "iQty": 1})]
+    run(vhl.get_vhl(Cand(owned)))
+    check("vhl: owned -> the class is ranked", vhl_ranked, ["Void Highlord"])
+
+    vhl_ranked.clear()
+    run(vhl.get_vhl(Cand(owned), rank_up_class=False))
+    check("vhl: rank_up_class=False -> no rank-up", vhl_ranked, [])
+finally:
+    vhl.rank_up = real_vhl_rank
+
 print(f"passed {passed}   failed {len(failures)}")
 if failures:
     for line in failures:

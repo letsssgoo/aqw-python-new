@@ -186,11 +186,20 @@ async def farm_until(
     if drops:
         cmd.add_drop(list(drops))
 
+    # ``Core.SavedState(true, map)``: the hop to /whitemap is how the reference
+    # saves a long farm's progress, so it is armed for the loop and disarmed
+    # after it, exactly as there.
+    saved_state(cmd, True, map_name)
+
     while cmd.is_still_connected() and not done():
+        if check_save_state(cmd):
+            await execute_save_state(cmd)
         can_we_aggro(cmd)
         await cmd.use_next_skill(DEFAULT_SKILL_LIST, monster, hunt)
         if each is not None:
             await each()
+
+    saved_state(cmd, False)
 
     if quests:
         cmd.cancel_registered_quests()
@@ -774,9 +783,12 @@ async def chronospan_rep(cmd: Command, rank: int = 10) -> None:
     await equip_class(cmd)
     await cmd.register_quest(2204)
     guard = cmd.pass_guard(f"ChronoSpan rank {rank} (quest 2204)")
+    saved_state(cmd, True, "thespan")
 
     while (cmd.is_still_connected()
            and cmd.get_faction_rank("ChronoSpan") < rank):
+        if check_save_state(cmd):
+            await execute_save_state(cmd)
         await hunt_item(cmd, "Tin of Ghost Dust", 2, "thespan", cell="r6",
                         pad="Left", monster_name="Moglin Ghost", is_temp=False)
         await hunt_item(cmd, "8 oz Fairy Glitter", 3, "thespan", cell="r4",
@@ -786,6 +798,7 @@ async def chronospan_rep(cmd: Command, rank: int = 10) -> None:
         if not await guard.tick():
             break
 
+    saved_state(cmd, False)
     cmd.cancel_registered_quests()
 
 
@@ -814,13 +827,17 @@ async def craggle_rock_rep(cmd: Command, rank: int = 10) -> None:
     cmd.add_drop("Empowered Voidstone")
     await cmd.register_quest(7277)
     await equip_class(cmd, solo=True)
+    saved_state(cmd, True, "wanders")
 
     while (cmd.is_still_connected()
            and cmd.get_faction_rank("CraggleRock") < rank):
+        if check_save_state(cmd):
+            await execute_save_state(cmd)
         monster = monster_by_definition_id(cmd, CRAGGLE_ROCK_ID)
         if monster is None:
             cmd.bot.log(f"[farm] monster id {CRAGGLE_ROCK_ID} is not in /wanders, so "
                   f"CraggleRock cannot be farmed. Stopping.")
+            saved_state(cmd, False)
             cmd.cancel_registered_quests()
             return
         while cmd.is_still_connected() and cmd.is_not_in_cell(monster.frame):
@@ -829,6 +846,7 @@ async def craggle_rock_rep(cmd: Command, rank: int = 10) -> None:
         await cmd.use_next_skill(DEFAULT_SKILL_LIST,
                                 f"id.{monster.mon_map_id}")
 
+    saved_state(cmd, False)
     cmd.cancel_registered_quests()
 
 
@@ -982,7 +1000,10 @@ async def somnia_rep(cmd: Command, rank: int = 10) -> None:
 
     await equip_class(cmd)
     cmd.bot.log(f"Farming rank {rank}")
+    saved_state(cmd, True, SOMNIA_MAP)
     while cmd.is_still_connected() and cmd.get_faction_rank("Somnia") < rank:
+        if check_save_state(cmd):
+            await execute_save_state(cmd)
         for quest_id in SOMNIA_QUESTS:
             await cmd.ensure_accept_quest(quest_id)
         for item, monster, qty in SOMNIA_HUNTS:
@@ -990,6 +1011,7 @@ async def somnia_rep(cmd: Command, rank: int = 10) -> None:
                             is_temp=True)
         for quest_id in SOMNIA_QUESTS:
             await cmd.ensure_turn_in_quest(quest_id)
+    saved_state(cmd, False)
 
 
 #: Faction name -> the ported method, mirroring ``CoreFarms.<Name>REP``.
@@ -1130,8 +1152,11 @@ async def blacksmithing_rep(cmd: Command, rank: int = 10, use_gold: bool = False
 
     if use_gold:
         cmd.bot.log("Using Gold Method")
+        saved_state(cmd, True, "alchemyacademy")
         while (cmd.is_still_connected()
                and cmd.get_faction_rank(BLACKSMITHING) < rank):
+            if check_save_state(cmd):
+                await execute_save_state(cmd)
             await cmd.ensure_accept_quest(BLACKSMITHING_GOLD_QUEST)
 
             remaining = remaining_faction_xp(cmd, BLACKSMITHING)
@@ -1166,6 +1191,7 @@ async def blacksmithing_rep(cmd: Command, rank: int = 10, use_gold: bool = False
                            map_name="alchemyacademy")
             await cmd.ensure_turn_in_quest(BLACKSMITHING_GOLD_QUEST,
                                            amount=items_needed)
+        saved_state(cmd, False)
         return
 
     cmd.bot.log("Using Non-Gold Method")
@@ -1173,24 +1199,31 @@ async def blacksmithing_rep(cmd: Command, rank: int = 10, use_gold: bool = False
     starter_guard = cmd.pass_guard(
         f"{BLACKSMITHING} rank {BLACKSMITHING_STARTER_RANK} "
         f"(quest {BLACKSMITHING_STARTER_QUEST})")
+    saved_state(cmd, True, "greenguardwest")
     while (cmd.is_still_connected()
            and cmd.get_faction_rank(BLACKSMITHING) < BLACKSMITHING_STARTER_RANK
            and not use_gold):
+        if check_save_state(cmd):
+            await execute_save_state(cmd)
         await hunt_item(cmd, "Furry Lost Sock", 2, "greenguardeast",
                         monster_name="Wolf")
         await hunt_item(cmd, "Slimy Lost Sock", 5, "greenguardwest",
                         monster_name="Slime")
         if not await starter_guard.tick():
             break
+    saved_state(cmd, False)
     cmd.cancel_registered_quests()
 
     await cmd.register_quest(BLACKSMITHING_QUEST)
     await equip_class(cmd, solo=True)
     guard = cmd.pass_guard(f"{BLACKSMITHING} rank {rank} "
                            f"(quest {BLACKSMITHING_QUEST})")
+    saved_state(cmd, True, "hydrachallenge")
     while (cmd.is_still_connected()
            and cmd.get_faction_rank(BLACKSMITHING) < rank
            and not use_gold):
+        if check_save_state(cmd):
+            await execute_save_state(cmd)
         await hunt_item(cmd, "Hydra Scale Piece", 75, "hydrachallenge",
                         monster_name="Hydra Head 25", is_temp=False)
         await hunt_item(cmd, "Creature Shard", 1, "maul",
@@ -1199,6 +1232,7 @@ async def blacksmithing_rep(cmd: Command, rank: int = 10, use_gold: bool = False
                         monster_name="Dread Klunk", is_temp=False)
         if not await guard.tick():
             break
+    saved_state(cmd, False)
     cmd.cancel_registered_quests()
 
 

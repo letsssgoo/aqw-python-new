@@ -67,6 +67,16 @@ class _Player:
         self.GOLD = gold
         self._by_id = {str(k): v for k, v in (items_by_id or {}).items()}
         self._bank_by_id = {str(k): v for k, v in (bank_by_id or {}).items()}
+        #: ``rank_up_class`` walks the inventory by name; the stub keeps its
+        #: items id-keyed, so a name lookup simply finds nothing.
+        self.INVENTORY = []
+        self.BANK = []
+
+    def get_item_inventory(self, name):
+        return None
+
+    def get_item_bank(self, name):
+        return None
 
     def get_item_inventory_by_id(self, item_id):
         return self._by_id.get(str(item_id))
@@ -117,6 +127,7 @@ class Stub:
         self.player = _Player(member, items_by_id, level, gold,
                               bank_by_id=bank_by_id)
         self.bot = _Bot(others)
+        self.bot.player = self.player
         self.bank = dict(bank or {})
         self._completed = set(completed)
         self._connected = connected
@@ -822,9 +833,10 @@ def main() -> None:
     assert core_vhl.SPARROW_ELDERS_BLOOD_ID == 5586
     assert core_vhl.SWINDLE_REWARD_ID == 57446
 
-    # holding the class -> nothing to farm, rank-up aside
+    # holding the class -> nothing to farm; the rank-up itself is covered in
+    # test_core_helpers, which stubs RankUpClass (it needs a real player object)
     have_class = Stub(all_owned=True)
-    asyncio.run(core_vhl.get_vhl(have_class))
+    asyncio.run(core_vhl.get_vhl(have_class, rank_up_class=False))
     assert have_class.calls == [], have_class.calls
     print("vhl        : the class is already held -> no calls at all")
 
