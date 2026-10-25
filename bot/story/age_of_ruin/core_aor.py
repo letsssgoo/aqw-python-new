@@ -12,6 +12,7 @@ and ``Story.PreLoad`` (the guards do its work).
 """
 from core.command import Command
 from core.bot import CustomError
+from model.inventory import ScrollType
 from bot.core_advanced import buy_item
 from bot.core_bots import equip_class
 from bot.core_story import kill_quest, map_item_quest
@@ -531,11 +532,14 @@ SEAVOICE_MAP = "seavoice"
 VIGIL_SHOP = 2320
 VIGIL_SHOP_ITEM_ID = 12023
 VIGIL = "Vigil"
+#: Inventory id of the Vigil: a potion, so it is equipped through ``geia``
+#: (``equip_scroll``) and used with the item packet, not as a class skill.
+VIGIL_ITEM_ID = 78994
 VIGIL_QTY = 1000
 #: ``KillThing``'s fight parameters for this region.
 KILL_THING_ITEM = "Voice in the Sea Defeated"
 KILL_THING_CELL, KILL_THING_PAD = "r2", "Left"
-#: The aura the boss applies, and the skill slot that cleanses it.
+#: The aura the boss applies, and the item slot that cleanses it.
 OXIDIZE = "Oxidize"
 CLEANSE_SLOT = 5
 
@@ -549,11 +553,29 @@ def _has_aura(cmd: Command, name: str) -> bool:
     """
     for aura in getattr(cmd.bot.player, "AURAS", []) or []:
         if isinstance(aura, dict):
-            if str(aura.get("name", "")).lower() == name.lower():
-                return True
-        elif str(getattr(aura, "name", "")).lower() == name.lower():
-            return True
+            aura_name = str(aura.get("name", ""))
+        else:
+            aura_name = str(getattr(aura, "name", ""))
+        if aura_name.lower() != name.lower():
+            continue
+        # An aura that has run out is not there any more, and the Vigil only
+        # lasts 6 s: trusting a stale entry would skip the cleanse and kill the
+        # fight.  Dict entries (other builds) carry no expiry and are trusted.
+        is_expired = getattr(aura, "is_expired", None)
+        if callable(is_expired) and is_expired():
+            continue
+        return True
     return False
+
+
+def _item_slot_tgt(cmd: Command) -> str:
+    """The server's ``tgt`` for the potion slot, or ``""`` when there is none.
+
+    Slot 5 only exists once ``sAct``/``seia`` has described it; an equipped
+    potion is confirmed by ``seia`` filling this in.
+    """
+    skills = getattr(cmd.bot.player, "SKILLS", []) or []
+    return skills[5].get("tgt", "") if len(skills) > 5 else ""
 
 
 async def kill_thing(cmd: Command, map_name: str, item: str, item_used: int,
@@ -561,9 +583,10 @@ async def kill_thing(cmd: Command, map_name: str, item: str, item_used: int,
     """``CoreAOR.KillThing``: the Vigil fight that a boss mechanic needs.
 
     This is not a plain hunt.  The boss applies the ``Oxidize`` aura and only the
-    equipped Vigil cleanses it, through skill slot 5; that is why the reference
-    buys a thousand Vigils, equips one, holds cell ``r2/Left`` and drives the
-    skills itself instead of using its usual combat loop.
+    equipped Vigil cleanses it.  The Vigil is a *potion*: it sits in item slot 5,
+    is used with ``i1>p:<charId>%78994%`` and is consumed one per cast -- which
+    is why the reference buys a thousand, equips one, holds cell ``r2/Left`` and
+    drives the skills itself instead of using its usual combat loop.
 
     Where this engine cannot follow, it says so: ``SetSpawnPoint()`` is not
     ported (a stopped decision -- it only changes where you come back after a
@@ -584,8 +607,26 @@ async def kill_thing(cmd: Command, map_name: str, item: str, item_used: int,
 
     held = cmd.bot.player.get_item_inventory_by_id(item_used)
     if held is not None and getattr(held, "item_name", ""):
-        await cmd.equip_item(held.item_name)
-        cmd.bot.log(f"{item_used} [Vigil] equipped")
+        # A potion is equipped with `geia` (slot, sMeta, item id) -- `equipItem`
+        # does not fill the potion slot, and `equip_scroll` is what records the
+        # id that slot 5 then uses.  The server answers with a `seia` push;
+        # clearing `tgt` first makes that answer observable, so a rejected equip
+        # is reported instead of quietly sending `i1>p:` for an item that is
+        # not really in the slot.
+        skills = cmd.bot.player.SKILLS
+        if len(skills) > 5:
+            skills[5]["tgt"] = ""
+        await cmd.equip_scroll(held.item_name, ScrollType.POTION)
+        for _ in range(4):
+            if _item_slot_tgt(cmd):
+                break
+            await cmd.sleep(500)
+        if not _item_slot_tgt(cmd):
+            cmd.bot.log("[aor] the server never confirmed the potion slot "
+                        f"(no seia for item {item_used}); the Oxidize cleanse "
+                        "will not fire.")
+        else:
+            cmd.bot.log(f"{item_used} [Vigil] equipped")
     else:
         cmd.bot.log(f"[aor] item id {item_used} (the Vigil) is not in the "
                     f"inventory; the fight will go badly without it.")
@@ -624,7 +665,8 @@ async def sea_voice(cmd: Command) -> None:
 
     if await cmd.ensure_accept_quest(SEAVOICE_LAST) is False:
         raise CustomError(f"quest {SEAVOICE_LAST} could not be accepted")
-    await kill_thing(cmd, SEAVOICE_MAP, KILL_THING_ITEM, VIGIL, is_temp=True)
+    await kill_thing(cmd, SEAVOICE_MAP, KILL_THING_ITEM, VIGIL_ITEM_ID,
+                     is_temp=True)
     if await cmd.ensure_turn_in_quest(SEAVOICE_LAST) is False:
         raise CustomError(f"quest {SEAVOICE_LAST} could not be turned in")
     await cmd.sell_item(VIGIL, VIGIL_QTY)

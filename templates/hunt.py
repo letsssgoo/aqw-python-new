@@ -384,7 +384,14 @@ async def kill_quest(
         if await cmd.ensure_turn_in_quest(quest_id) is False:
             raise CustomError(f"quest {quest_id} could not be turned in")
         return
-    
+
+    if getattr(cmd, "accept_was_resumed", False):
+        # A quest resumed after a relog keeps its progress on the server while
+        # the client's temp items are gone, so hunting would never fill them.
+        # One turn-in packet settles it instead of looping on nothing.
+        if await cmd.ensure_turn_in_quest(quest_id):
+            return
+
     if cmd.is_not_in_map(map_name):
         await cmd.join_map(map_name, room_number)
     

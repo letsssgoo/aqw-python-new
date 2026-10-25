@@ -144,6 +144,12 @@ class Stub:
         self.owned_ids = set()
 
     # --- sync -----------------------------------------------------------
+    def get_loaded_quest(self, quest_id):
+        return None
+
+    def get_quest_rewards(self, quest_id):
+        return []
+
     def kinds(self):
         return [c[0] for c in self.calls]
 

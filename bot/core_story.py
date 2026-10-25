@@ -148,9 +148,13 @@ async def map_item_quest(cmd: Command, quest_id: int, map_name: str,
     while cmd.is_still_connected() and cmd.is_not_in_map(map_name):
         await cmd.join_map(map_name)
     for item_id, count in wanted:
-        for _ in range(count):
-            await cmd.get_map_item(item_id)
+        await cmd.get_map_item(item_id, count)
     if await cmd.ensure_turn_in_quest(quest_id) is False:
+        quest = cmd.bot.get_loaded_quest(quest_id)
+        if quest is not None:
+            for name, count, _ in pending_requirements(cmd, quest):
+                cmd.bot.log(f"[story] quest {quest_id}: still missing "
+                            f"{name} x{count}")
         raise CustomError(f"quest {quest_id} could not be turned in")
 
 
