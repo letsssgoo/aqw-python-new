@@ -82,6 +82,7 @@
                                     <th width="44" style="text-align: center;"><input type="checkbox" id="chk-select-all" title="Select All"></th>
                                     <th style="min-width: 170px;">Account</th>
                                     <th width="125">Class</th>
+                                    <th width="140">Master</th>
                                     <th width="85" style="text-align: center; position: relative;">
                                         <div style="display: inline-flex; align-items: center; gap: 4px; justify-content: center; cursor: pointer;" id="th-taunt-click">
                                             <span>Taunt</span>
@@ -153,9 +154,9 @@
             <div class="modal-tab-content active" id="tab-settings-connection">
                 <div class="form-row">
                     <div class="form-group flex-2">
-                        <label for="input-follow-player">Master Player Username</label>
+                        <label for="input-follow-player">Default Master Username</label>
                         <input type="text" id="input-follow-player" placeholder="e.g. MasterAccount">
-                        <span class="help-text">Username of the character that all slaves will follow.</span>
+                        <span class="help-text">Default master. Accounts with their own master in the table ignore this.</span>
                     </div>
                     <div class="form-group flex-1">
                         <label for="select-server">Target Server</label>
@@ -240,7 +241,7 @@
 
     <!-- ==================== ADD / EDIT SLAVE ACCOUNT MODAL ==================== -->
     <div id="add-slave-form" class="modal-overlay hidden">
-        <div class="modal-card">
+        <div class="modal-card" style="max-height: 90vh; overflow-y: auto;">
             <button type="button" class="btn-close-modal" id="btn-close-slave-modal">&times;</button>
             <div class="modal-header-section">
                 <span class="modal-badge-tag">ACCOUNT</span>
@@ -280,6 +281,13 @@
                         <input type="text" id="slave-skills" placeholder="e.g. 1,2,3,4" value="1,2,3,4"
                             style="width: 100%;">
                     </div>
+                </div>
+
+                <!-- Section 2b: Master this account follows -->
+                <div class="form-group">
+                    <label for="slave-master">Master to follow (optional)</label>
+                    <input type="text" id="slave-master" placeholder="Empty = use the global master" style="width: 100%;">
+                    <span class="help-text" style="margin-top: 4px;">Leave empty to follow the master set in Global Settings. Fill it in to give this account its own master.</span>
                 </div>
 
                 <!-- Section 3: Extra Logic / Switch -->

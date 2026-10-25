@@ -434,7 +434,7 @@ class BotThread(threading.Thread):
             self.loop.close()
 
 class SlaveBotThread(threading.Thread):
-    def __init__(self, username, password, char_class, config, callback, skills="1,2,3,4", hp_operator="<", hp_threshold=0, hp_skills="", mp_operator="<", mp_threshold=0, mp_skills="", taunter=False, taunt_coordinator=None):
+    def __init__(self, username, password, char_class, config, callback, skills="1,2,3,4", hp_operator="<", hp_threshold=0, hp_skills="", mp_operator="<", mp_threshold=0, mp_skills="", taunter=False, taunt_coordinator=None, follow_player=None):
         super().__init__()
         self.username = username
         self.password = password
@@ -450,6 +450,10 @@ class SlaveBotThread(threading.Thread):
         self.mp_skills = mp_skills
         self.taunter = taunter
         self.taunt_coordinator = taunt_coordinator
+        #: Master this account follows, already resolved by the caller: its own
+        #: entry, else the global setting.
+        self.follow_player = (follow_player if follow_player is not None
+                              else config.get("follow_player", ""))
         self.bot_instance = None
         self.loop = None
         self.daemon = True
@@ -469,7 +473,7 @@ class SlaveBotThread(threading.Thread):
                 showDebug=False,
                 showChat=True,
                 isScriptable=True,
-                followPlayer=self.config.get("follow_player", ""),
+                followPlayer=self.follow_player,
                 farmClass=self.char_class,
                 autoRelogin=True,
                 muteSpamWarning=True,
@@ -1202,6 +1206,20 @@ class AqwSoloApi:
             return {"running": False, "error": str(e),
                     "inventory": [], "bank": [], "temp": []}
 
+def resolve_master(slave, config):
+    """The master an account follows: its own entry, else the global setting.
+
+    Args:
+        slave (dict | None): The account's entry in the config's ``slaves``.
+        config (dict): Global settings, whose ``follow_player`` is the default.
+
+    Returns:
+        str: Character name to follow, '' when neither is set.
+    """
+    return ((slave or {}).get("follow_player") or
+            config.get("follow_player", "") or "")
+
+
 class SlaveryApi:
     def __init__(self):
         self._window = None
@@ -1265,7 +1283,6 @@ class SlaveryApi:
             for username, thread in self.active_threads.items():
                 if thread.bot_instance:
                     thread.bot_instance.default_room_number = int(config.get("room_number", 9099))
-                    thread.bot_instance.follow_player = config.get("follow_player", "")
                     thread.bot_instance.targets_priority = config.get("targets_priority", "")
                     thread.bot_instance.copy_walk = config.get("copy_walk", True)
                     thread.bot_instance.auto_zone = config.get("auto_zone", "none")
@@ -1273,6 +1290,11 @@ class SlaveryApi:
                     thread.bot_instance.itemsDropWhiteList = config.get("whitelist", [])
 
                     slave_config = next((s for s in config.get("slaves", []) if s.get("username") == username), None)
+                    # Its own master wins; empty means "follow the global one",
+                    # so editing the global setting must not overwrite a slave
+                    # that was given a master of its own.
+                    thread.bot_instance.follow_player = resolve_master(
+                        slave_config, config)
                     if slave_config:
                         thread.bot_instance.taunter = slave_config.get("taunter", False)
             return {"success": True}
@@ -1303,7 +1325,9 @@ class SlaveryApi:
                 mp_threshold = slave.get("mp_threshold", 0)
                 mp_skills = slave.get("mp_skills", "")
                 taunter = slave.get("taunter", False)
-                
+                # The account's own master, or the global one when it has none.
+                master = resolve_master(slave, config)
+
                 thread = SlaveBotThread(
                     username=username,
                     password=password,
@@ -1318,6 +1342,7 @@ class SlaveryApi:
                     mp_threshold=mp_threshold,
                     mp_skills=mp_skills,
                     taunter=taunter,
+                    follow_player=master,
                     taunt_coordinator=self.taunt_coordinator
                 )
                 self.active_threads[username] = thread
