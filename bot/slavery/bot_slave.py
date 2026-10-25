@@ -148,7 +148,7 @@ async def main(cmd: Command):
                         elif x is not None and y is not None and (x != 0 or y != 0):
                             asyncio.create_task(cmd.walk_to(int(x), int(y)))
                 except Exception as e:
-                    bot.log(f"Error handling uotls: {e}")
+                    cmd.bot.log(f"Error handling uotls: {e}")
                 
         if is_valid_json(message):
             try:
@@ -162,7 +162,7 @@ async def main(cmd: Command):
 
                 if cmdData == "event":
                     args = data.get("args")
-                    bot.log(f"[{cmd.bot.username}] Event packet. auto_zone='{auto_zone}', args={args}")
+                    cmd.bot.log(f"[{cmd.bot.username}] Event packet. auto_zone='{auto_zone}', args={args}")
                     if args and "zoneSet" in args:
                         zone = args["zoneSet"]
                         if auto_zone == "Astral Empyrean":
@@ -225,7 +225,7 @@ async def main(cmd: Command):
     cmd.subscribe(handle_message)
     
     async def goto_master():
-        bot.log(f"[{cmd.bot.username}] goto master...")
+        cmd.bot.log(f"[{cmd.bot.username}] goto master...")
         await cmd.goto_player(f_player)
         await cmd.sleep(200)
         if cmd.get_player_in_map(f_player):
@@ -245,12 +245,12 @@ async def main(cmd: Command):
                 "icestormunder",
             ]
         for map_name in map_to_check:
-            bot.log(f"[{cmd.bot.username}] checking {map_name}...")
+            cmd.bot.log(f"[{cmd.bot.username}] checking {map_name}...")
             await cmd.join_map(map_name, roomNumber=room_num)
             while cmd.is_not_in_map(map_name):
                 await cmd.sleep(100)
             if cmd.get_player_in_map(f_player):
-                bot.log(f"[{cmd.bot.username}] stopped at {map_name}...")
+                cmd.bot.log(f"[{cmd.bot.username}] stopped at {map_name}...")
                 cmd.bot.checking_locked_zone = False
                 await cmd.sleep(1000)
                 break
@@ -437,8 +437,8 @@ if __name__ == "__main__":
 
     # Check if we have both slave number and follow player
     if len(input_parts) < 2:
-        bot.log("Error: Input format should be: <slave_number> <player_name>")
-        bot.log("Example: 2 cysero")
+        print("Error: Input format should be: <slave_number> <player_name>")
+        print("Example: 2 cysero")
         sys.exit(1)
 
     # The first part should be the slave number
@@ -446,8 +446,8 @@ if __name__ == "__main__":
         input_int = int(input_parts[0])
         selected_slave = slaves[input_int - 1]
     except (ValueError, IndexError) as e:
-        bot.log(f"Error: Invalid slave selection '{input_parts[0]}'")
-        bot.log(f"Please enter a number between 1 and {len(slaves)}")
+        print(f"Error: Invalid slave selection '{input_parts[0]}'")
+        print(f"Please enter a number between 1 and {len(slaves)}")
         sys.exit(1)
 
     # The second part is the follow player name
