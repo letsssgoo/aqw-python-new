@@ -88,6 +88,7 @@ import random
 from typing import List, Optional, Sequence, Tuple
 
 from bot import core_bots as _core_bots
+from bot.core_advanced import farm_quest_reward
 from bot.core_bots import buy_item
 from bot.core_farms import (farm_experience, farm_faction, farm_gold)
 from core.command import Command
@@ -390,11 +391,9 @@ async def blood_from_the_void(cmd: Command, quant: int = 300) -> None:
 
     cmd.add_drop("Blood From the Void")
     await equip_class(cmd, solo=True)
-    await cmd.register_quest(10583 if cmd.get_player().is_member else 10582)
     cmd.farming_logger("Blood From the Void", quant)
 
-    while (cmd.is_still_connected()
-           and not await cmd.has_item("Blood From the Void", quant)):
+    async def farm_pass() -> None:
         await hunt_item(cmd, "Rodeleros' Blade Shard", 1, "tercesinvasion",
                         monster_name="Archfiend Rodeleros", is_temp=True)
         await hunt_item(cmd, "Vigneron's Chalice", 1, "tercesinvasion",
@@ -402,6 +401,8 @@ async def blood_from_the_void(cmd: Command, quant: int = 300) -> None:
         await hunt_item(cmd, "Casimir's Pinky", 1, "tercesinvasion",
                         monster_name="Archfiend Casimir", is_temp=True)
 
+    quest = 10583 if cmd.get_player().is_member else 10582
+    await farm_quest_reward(cmd, quest, "Blood From the Void", quant, farm_pass)
     cmd.cancel_registered_quests()
 
 
@@ -1861,10 +1862,8 @@ async def emblem_of_nulgath(cmd: Command, quant: int = 500) -> None:
     cmd.add_drop(BAG_DROPS)
     await equip_class(cmd)
     cmd.farming_logger("Emblem of Nulgath", quant)
-    await cmd.register_quest(4748)
 
-    while (cmd.is_still_connected()
-           and not await cmd.has_item("Emblem of Nulgath", quant)):
+    async def farm_pass() -> None:
         await hunt_item(cmd, "Gem of Domination", 1, "shadowblast",
                         monster_name="Shadowrise Guard", is_temp=False)
         # The reference has both routes for this item; the cell one is the one
@@ -1873,6 +1872,8 @@ async def emblem_of_nulgath(cmd: Command, quant: int = 500) -> None:
         # "Fiend Seal", 10, false)``.
         await hunt_item(cmd, "Fiend Seal", 25, "shadowblast", cell="r13",
                         pad="Left", monster_name="*", is_temp=False)
+
+    await farm_quest_reward(cmd, 4748, "Emblem of Nulgath", quant, farm_pass)
 
 
 async def swindle_return(cmd: Command, item: Optional[str] = None,
@@ -2427,10 +2428,9 @@ async def dwobo_coin(cmd: Command, quant: int) -> None:
     cmd.bot.log(f"[nation] farming {quant} Dwobo Coins (quest "
           f"{4798 if member else 4797})")
     cmd.farming_logger("Dwobo Coin", quant)
-    await cmd.register_quest(4798 if member else 4797)
     cmd.add_drop("Dwobo Coin")
 
-    while cmd.is_still_connected() and not await cmd.has_item("Dwobo Coin", quant):
+    async def farm_pass() -> None:
         await hunt_item(cmd, "Ancient Treasure", treasure, "crashruins",
                         cell="r2", pad="Left", monster_name="Unlucky Explorer",
                         is_temp=False)
@@ -2440,6 +2440,8 @@ async def dwobo_coin(cmd: Command, quant: int) -> None:
         await hunt_item(cmd, "Idol Heart", 1, "crashruins",
                         monster_name="Cluckmoo Idol", is_temp=False)
 
+    await farm_quest_reward(cmd, 4798 if member else 4797, "Dwobo Coin", quant,
+                            farm_pass)
     cmd.cancel_registered_quests()
 
 

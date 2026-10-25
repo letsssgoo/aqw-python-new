@@ -9,7 +9,7 @@ The lead-in is ``AoR.MidnightZone()``, ported as
 """
 from typing import Optional, Sequence
 
-from bot.core_advanced import start_buy_all_merge
+from bot.core_advanced import farm_quest_reward, start_buy_all_merge
 from bot.core_bots import equip_class
 from bot.story.age_of_ruin.core_aor import midnight_zone
 from core.command import Command
@@ -63,8 +63,7 @@ async def _find_ingredients(cmd: Command, item_id, name: str,
         return
 
     if name == "Water Elf Pearl":
-        await cmd.register_quest(PEARL_QUEST)
-        while cmd.is_still_connected() and not await cmd.has_item(name, quant):
+        async def farm_pass() -> None:
             await equip_class(cmd, solo=True)
             await hunt_item(cmd, PEARL_SOLO[0], 1, MAP,
                             monster_name=PEARL_SOLO[1], is_temp=True)
@@ -73,6 +72,8 @@ async def _find_ingredients(cmd: Command, item_id, name: str,
                 await hunt_item(cmd, item, qty, MAP, monster_name=monster,
                                 is_temp=True)
             await _kill_once(cmd, MAP, PEARL_KILL)
+
+        await farm_quest_reward(cmd, PEARL_QUEST, name, quant, farm_pass)
         cmd.cancel_registered_quests()
         return
 

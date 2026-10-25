@@ -14,8 +14,9 @@ Note:
     engine lower-cases both sides when it matches a monster, so all three match
     the same one.
 """
-from core.command import Command
+from bot.core_advanced import farm_quest_reward
 from bot.core_bots import equip_class
+from core.command import Command
 from templates.hunt import hunt_item, hunt_item_by_id
 
 #: The map, and the medal that gates the chain.
@@ -93,13 +94,13 @@ async def emblem_of_gravelyn(cmd: Command, quant: int = 100) -> None:
     cmd.add_drop(EMBLEM)
     # the reference logs the Diamond Token here too, in this routine
     cmd.farming_logger(DIAMOND_TOKEN, quant)
-    await cmd.register_quest(EMBLEM_QUEST)
 
-    while cmd.is_still_connected() and not await cmd.has_item(EMBLEM, quant):
+    async def farm_pass() -> None:
         for item, qty, monster in EMBLEM_DROPS:
             await hunt_item(cmd, item, qty, MAP_NAME, monster_name=monster,
                             is_temp=False)
 
+    await farm_quest_reward(cmd, EMBLEM_QUEST, EMBLEM, quant, farm_pass)
     cmd.cancel_registered_quests()
 
 
@@ -112,10 +113,8 @@ async def diamond_token_of_gravelyn(cmd: Command, quant: int = 100) -> None:
 
     cmd.add_drop(["Legion Token", DIAMOND_TOKEN])
     cmd.farming_logger(DIAMOND_TOKEN, quant)
-    await cmd.register_quest(EMBLEM_QUEST)
 
-    while cmd.is_still_connected() and not await cmd.has_item(DIAMOND_TOKEN,
-                                                              quant):
+    async def farm_pass() -> None:
         await equip_class(cmd)
         await hunt_item(cmd, *DIAMOND_FARM_STEP, is_temp=False)
 
@@ -132,6 +131,7 @@ async def diamond_token_of_gravelyn(cmd: Command, quant: int = 100) -> None:
             await hunt_item(cmd, item, 1, map_name, cell=cell, pad=pad,
                             monster_name=monster, is_temp=False)
 
+    await farm_quest_reward(cmd, EMBLEM_QUEST, DIAMOND_TOKEN, quant, farm_pass)
     cmd.cancel_registered_quests()
 
 

@@ -242,6 +242,12 @@ class Stub:
     async def sleep(self, ms):
         pass
 
+    def pass_guard(self, label, max_quiet_passes=None):
+        from core.command import PassGuard, QUIET_PASSES
+        return PassGuard(self, label,
+                         QUIET_PASSES if max_quiet_passes is None
+                         else max_quiet_passes)
+
     async def use_next_skill(self, *args, **kwargs):
         self.calls.append(("use_next_skill",))
         if self.fill_inventory_on_skill:

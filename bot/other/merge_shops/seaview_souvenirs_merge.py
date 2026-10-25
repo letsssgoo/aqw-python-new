@@ -11,7 +11,7 @@ real capture of this very shop.
 """
 from typing import Optional, Sequence
 
-from bot.core_advanced import start_buy_all_merge
+from bot.core_advanced import farm_quest_reward, start_buy_all_merge
 from bot.core_bots import equip_class
 from bot.story.age_of_ruin.core_aor import ashray_village
 from core.command import Command
@@ -51,8 +51,7 @@ async def _find_ingredients(cmd: Command, item_id, name: str,
         return
 
     if name == "Sur-gion Token":
-        await cmd.register_quest(TOKEN_QUEST)
-        while cmd.is_still_connected() and not await cmd.has_item(name, quant):
+        async def farm_pass() -> None:
             await equip_class(cmd)
             for item, monster, qty, cell, pad in TOKEN_FARM:
                 await hunt_item(cmd, item, qty, MAP, cell=cell, pad=pad,
@@ -60,6 +59,8 @@ async def _find_ingredients(cmd: Command, item_id, name: str,
             await equip_class(cmd, solo=True)
             await hunt_item(cmd, TOKEN_SOLO[0], 1, MAP,
                             monster_name=TOKEN_SOLO[1], is_temp=True)
+
+        await farm_quest_reward(cmd, TOKEN_QUEST, name, quant, farm_pass)
         cmd.cancel_registered_quests()
         return
 

@@ -238,6 +238,12 @@ class Stub:
     async def sleep(self, ms):
         pass
 
+    def pass_guard(self, label, max_quiet_passes=None):
+        from core.command import PassGuard, QUIET_PASSES
+        return PassGuard(self, label,
+                         QUIET_PASSES if max_quiet_passes is None
+                         else max_quiet_passes)
+
     async def register_quest(self, quest_id):
         self.calls.append(("register_quest", quest_id))
 
@@ -1126,6 +1132,33 @@ def main() -> None:
     assert stale.jumps == 4, stale.calls
     assert ("join_map", "battleon") in stale.calls, stale.calls
     print("hunt       : a stale monster cell -> walk twice, then re-join the map")
+
+    # A live monster in the player's cell is not progress unless it is the hunt's
+    # own target: every Enter cell carries spawns, so a bot respawned there while
+    # the item waited in another cell looked busy for as long as it stood there.
+    class _WrongMon:
+        mon_name = "Kitefin Shark Bait"
+        mon_map_id = "9001"
+        frame = "Enter"
+        is_alive = True
+        current_hp = 500
+
+    wrong = _Stuck(disconnect_after_jumps=4, connect_after=0)
+    wrong.bot.monsters = [_WrongMon()]
+    assert hunt._fighting(wrong, "Seafoam Elemental") is False, \
+        "another monster in the cell is not the target"
+    assert hunt._fighting(wrong, "Kitefin Shark Bait") is True
+    assert hunt._fighting(wrong, "*") is True
+
+    hunt.STALL_CHECK_S, hunt.STALL_GIVE_UP_S = 0.0, 60.0
+    try:
+        asyncio.run(hunt_item(wrong, "Seafoam Bubbles", 1, "ashray",
+                              monster_name="Seafoam Elemental", is_temp=True))
+    finally:
+        hunt.STALL_CHECK_S, hunt.STALL_GIVE_UP_S = saved_check, saved_give
+    assert wrong.jumps > 1, wrong.calls
+    assert any("no target" in line for line in wrong.bot.logs), wrong.bot.logs
+    print("hunt       : a bystander monster does not pass for the target -> walks back")
 
     # and when there is nothing to walk to either, it gives up rather than spin
     alone = _Stuck(connect_after=0)

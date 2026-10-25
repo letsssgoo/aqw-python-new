@@ -2,10 +2,13 @@ import socket
 from core.command import Command
 from core.player import Player
 from core.utils import normalize
+import faulthandler
 import json
 import zlib
 import base64
 import time
+import threading
+import weakref
 from typing import Awaitable, Callable, List, Optional
 from xml.etree import ElementTree
 import xml.etree.ElementTree as ET
@@ -62,6 +65,60 @@ READ_FAIL_FAST_S = 0.5
 #: back on a dead socket is what let one orphaned reader eat a core.
 READ_FAILURES_BEFORE_DROP = 3
 
+#: A script that spins without awaiting freezes the whole event loop: the packet
+#: reader, every task and ``_watch_loop`` (itself a task) stop with it, so the
+#: 15-minute stall detector can never fire and the log says nothing at all --
+#: the "stuck at Enter with no sign of life" a farm loop that never yields
+#: produces.  Only another thread still runs, so one reports the freeze and
+#: dumps the stack of the thread that is spinning.  ``0`` turns it off.
+LOOP_FREEZE_SECONDS = 60.0
+
+#: Bots the freeze reporter watches; weak so a discarded bot costs nothing.
+_BOTS: 'weakref.WeakSet[Bot]' = weakref.WeakSet()
+_freeze_thread_started = False
+
+
+def _freeze_watch() -> None:
+    """Report bots whose event loop has stopped ticking (a loop with no await)."""
+    seen: dict[int, tuple[int, float]] = {}
+    while True:
+        time.sleep(max(1.0, LOOP_FREEZE_SECONDS / 4.0))
+        now = time.time()
+        for bot in list(_BOTS):
+            if not bot.is_client_connected:
+                seen.pop(id(bot), None)
+                continue
+            key = id(bot)
+            ticks = bot.loop_ticks
+            previous = seen.get(key)
+            if previous is None or previous[0] != ticks:
+                seen[key] = (ticks, now)
+                continue
+            frozen = now - previous[1]
+            if frozen < LOOP_FREEZE_SECONDS:
+                continue
+            if now - bot.freeze_reported < LOOP_FREEZE_SECONDS:
+                continue
+            bot.freeze_reported = now
+            try:
+                where = f"{bot.strMapName}/{bot.player.CELL}"
+            except Exception:
+                where = "?"
+            print(f"[watch] {bot.username or 'bot'}: no task has run for "
+                  f"{frozen:.0f}s in {where}; the event loop is blocked by a "
+                  f"loop that never awaits. Thread stacks:", flush=True)
+            faulthandler.dump_traceback(all_threads=True)
+
+
+def _start_freeze_watch() -> None:
+    """Start the freeze reporter once per process."""
+    global _freeze_thread_started
+    if _freeze_thread_started or LOOP_FREEZE_SECONDS <= 0:
+        return
+    _freeze_thread_started = True
+    threading.Thread(target=_freeze_watch, name="loop-freeze-watch",
+                     daemon=True).start()
+
 
 class Bot:
     #: See RELOGIN_DELAY_S: an attribute so a test can shorten it.
@@ -101,6 +158,13 @@ class Bot:
         self.showChat = showChat
         #: The stall/heartbeat task of the current session.
         self.watch_task = None
+        #: Bumped once a second by ``_tick_loop``.  The freeze reporter thread
+        #: reads it: a number that stops moving means the event loop itself is
+        #: blocked by a script spinning without an await, which no task on that
+        #: loop -- the stall detector included -- can notice or report.
+        self.loop_ticks = 0
+        #: Last time the freeze reporter spoke about this bot.
+        self.freeze_reported = 0.0
         #: Time of the last packet the server sent, and of the last one we sent,
         #: plus how many arrived/sent since the last heartbeat.  The stall
         #: detector and the heartbeat read these: sending nothing is what a stuck
@@ -335,6 +399,8 @@ class Bot:
 
                 self._cancel_task("watch_task")
                 self.watch_task = asyncio.create_task(self._watch_loop())
+                self._cancel_task("tick_task")
+                self.tick_task = asyncio.create_task(self._tick_loop())
 
                 # The script runs in its own task so a dropped connection can
                 # end it.  Waiting on it directly was the reason a peer reset
@@ -393,6 +459,9 @@ class Bot:
         self.registered_auto_quest_ids = []
         self.check_spam_time = None
         self.spam_backoff_ms = 0
+
+        _BOTS.add(self)
+        _start_freeze_watch()
 
     def _progress_signature(self):
         """A cheap fingerprint of "the world moved", for the stall detector.
@@ -484,6 +553,17 @@ class Bot:
                       f"stuck); re-establishing the session")
                 self.request_relogin(f"no progress {quiet_work / 60:.0f} min")
                 return
+
+    async def _tick_loop(self) -> None:
+        """Bump ``loop_ticks`` every second while the session is up.
+
+        Nothing else depends on the number: it exists so the freeze reporter
+        thread can tell a busy loop from a frozen event loop.  One wake-up a
+        second costs nothing next to the socket reader.
+        """
+        while self.is_client_connected:
+            self.loop_ticks += 1
+            await asyncio.sleep(1.0)
 
     def _resolve_script_arg(self, botMain):
         """Pass the object the script's ``main`` expects.

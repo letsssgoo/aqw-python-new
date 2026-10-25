@@ -27,7 +27,7 @@ from typing import Optional, Union
 
 from bot.core_bots import _find_shop, load_shop_entry, points_to_level
 from bot.core_farms import farm_experience, farm_faction, farm_gold
-from core.command import Command
+from core.command import Command, QUIET_PASSES
 
 #: ``GetItemReq`` caps its gold farm here (``Math.Min(cost * quant, 100000000)``).
 GOLD_FARM_CAP = 100_000_000
@@ -135,6 +135,44 @@ def _merge_entry(shop, item_id):
 async def _merge_requirements(cmd: Command, entry):
     """``(item_id, name, qty)`` rows of an entry's merge recipe."""
     return [(iid, name, qty) for iid, name, qty in entry.merge_requirements]
+
+
+async def farm_quest_reward(cmd: Command, quest_id: int, item_name: str,
+                            qty: int, farm_pass,
+                            max_quiet_passes: int = QUIET_PASSES,
+                            is_temp: bool = False) -> bool:
+    """``register_quest`` then run ``farm_pass`` until its reward is held.
+
+    Every merge shop and story step needs at least one item it cannot buy, and
+    the reference farms it with ``while (!CheckInventory(reward)) { ... }``.
+    Ported literally that deadlocks: once the ingredients are complete every
+    step of the pass returns before its first ``await``, so the loop never
+    yields and the auto turn-in that grants the reward can never run.  The pass
+    is yielded and bounded through :class:`PassGuard`, which names the quest, so
+    a refused or already-completed one is visible instead of silent.
+
+    Args:
+        cmd (Command): Facade to act through.
+        quest_id (int): Quest whose turn-in gives the item.
+        item_name (str): Reward to wait for.
+        qty (int): How many are needed.
+        farm_pass (Callable): ``async () -> None``, one full pass of the farm.
+        max_quiet_passes (int): Give up after this many passes that changed
+            nothing at all.
+        is_temp (bool): The reward lands in the temporary bag.
+
+    Returns:
+        bool: True when the item is held.
+    """
+    await cmd.register_quest(quest_id)
+    guard = cmd.pass_guard(f'"{item_name}" x{qty} (quest {quest_id})',
+                           max_quiet_passes)
+    while (cmd.is_still_connected()
+           and not await cmd.has_item(item_name, qty, isTemp=is_temp)):
+        await farm_pass()
+        if not await guard.tick():
+            return False
+    return True
 
 
 async def start_buy_all_merge(cmd: Command, map_name: str, shop_id: int,

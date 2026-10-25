@@ -99,6 +99,103 @@ def main() -> int:
         check(f"{mod_name} hook (cmd, item_id, name, quant)", ok, True)
 
     print()
+    print("-" * 74)
+    print("loop reward: yield tiap pass, berhenti kalau tidak ada kemajuan")
+
+    import asyncio
+    from core.command import PassGuard
+    from bot.core_advanced import QUIET_PASSES, farm_quest_reward
+
+    class _Item:
+        def __init__(self, qty):
+            self.qty = qty
+
+    class _Player:
+        def __init__(self):
+            self.INVENTORY = []
+            self.TEMPINVENTORY = []
+            self.GOLD = 0
+
+    class _Bot:
+        def __init__(self):
+            self.player = _Player()
+            self.lines = []
+
+        def log(self, text):
+            self.lines.append(str(text))
+
+    class _Cmd:
+        def __init__(self, reward_after=None):
+            self.bot = _Bot()
+            self.reward_after = reward_after
+            self.passes = 0
+            self.quest = None
+
+        def is_still_connected(self):
+            return True
+
+        async def sleep(self, ms):
+            await asyncio.sleep(0)
+
+        def pass_guard(self, label, max_quiet_passes=QUIET_PASSES):
+            return PassGuard(self, label, max_quiet_passes)
+
+        async def register_quest(self, quest_id):
+            self.quest = quest_id
+
+        async def has_item(self, name, qty=1, **kwargs):
+            return (self.reward_after is not None
+                    and self.passes >= self.reward_after)
+
+    async def quiet_scenario():
+        cmd = _Cmd()
+        ticks = []
+
+        async def farm_pass():
+            cmd.passes += 1
+
+        async def other_work():
+            while True:
+                ticks.append(1)
+                await asyncio.sleep(0)
+
+        watcher = asyncio.create_task(other_work())
+        try:
+            got = await asyncio.wait_for(
+                farm_quest_reward(cmd, 9235, "Sur-gion Token", 5, farm_pass),
+                timeout=5)
+        finally:
+            watcher.cancel()
+        return cmd, got, len(ticks)
+
+    quiet, got, ticks = asyncio.run(quiet_scenario())
+    check("pass tanpa hasil berhenti, tidak menggantung", got, False)
+    check("berhenti setelah QUIET_PASSES pass", quiet.passes, QUIET_PASSES)
+    check("quest-nya disebut di log",
+          any("9235" in line for line in quiet.bot.lines), True)
+    check("event loop tetap jalan selama loop", ticks > 0, True)
+
+    async def success_scenario():
+        cmd = _Cmd(reward_after=2)
+
+        async def farm_pass():
+            cmd.passes += 1
+            await asyncio.sleep(0)
+
+        got = await farm_quest_reward(cmd, 9235, "Sur-gion Token", 5, farm_pass)
+        return cmd, got
+
+    done, got = asyncio.run(success_scenario())
+    check("reward datang -> loop selesai", got, True)
+    check("berhenti begitu reward ada", done.passes, 2)
+
+    merge_dir = REPO / "bot" / "other" / "merge_shops"
+    raw = [path.name for path in merge_dir.glob("*.py")
+           if "while cmd.is_still_connected() and not await cmd.has_item"
+           in path.read_text(encoding="utf-8")]
+    check("tidak ada loop reward mentah di merge shop", raw, [])
+
+    print()
     print("=" * 74)
     print(f"passed {PASS}   failed {FAIL}")
     print("=" * 74)
