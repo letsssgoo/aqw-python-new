@@ -663,12 +663,15 @@ class Bot:
         self.aggro_mons_id = []
         # The stall/heartbeat watcher belongs to the session that is ending.
         self._cancel_task("watch_task")
+        # Mark the session dead *before* the socket goes: the reader thread is
+        # parked in recv and wakes up on a closed handle (WinError 10038), which
+        # only reads as a deliberate shutdown when this flag is already down.
+        self.is_client_connected = False
         if self.client_socket:
             try:
                 self.client_socket.close()
             except Exception as e:
                 print(f"Error closing socket: {e}")
-        self.is_client_connected = False
         print(f"[{datetime.now().strftime('%H:%M:%S')}] Bot stopped")
 
     def debug(self, *args):
@@ -1552,6 +1555,15 @@ class Bot:
                 print("Connection reset by peer")
                 self.is_client_connected = False
                 break
+
+            except OSError as e:
+                # stop_bot() closes the socket while this thread is parked in
+                # recv, which surfaces as WinError 10038.  That is a deliberate
+                # shutdown, not a socket fault, so it is not reported.
+                if not self.is_client_connected:
+                    return []
+                print("Unexpected socket error:", e)
+                return []
 
             except Exception as e:
                 print("Unexpected socket error:", e)
