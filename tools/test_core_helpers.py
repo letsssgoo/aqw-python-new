@@ -103,6 +103,18 @@ class Cand:
         self.calls = []
 
     # --- CoreBots surface ---
+    def is_in_inventory(self, name, qty=1, operator=">=", isTemp=False):
+        return self.bot.player.get_item_inventory(name) is not None
+
+    def is_in_bank(self, name, qty=1, operator=">="):
+        return False
+
+    def add_drop(self, item):
+        self.calls.append(("drop", item))
+
+    def cancel_registered_quests(self):
+        self.calls.append(("cancel_quests",))
+
     async def ensure_accept_quest(self, quest):
         self.calls.append(("accept", quest))
         return self.accept
@@ -385,6 +397,50 @@ try:
           [("gear_store", False), ("gear_store", True)])
 finally:
     restore(adv, saved)
+
+# ============================================================================
+# 8. the SeaVoice merge waits in the regular inventory
+# ----------------------------------------------------------------------------
+# Bioluminessence and its three siblings are inventory items ("add items ..."
+# with a CharItemID), so an ``isTemp=True`` wait never ends -- the fight ran
+# past x30 and kept going.  The reference passes ``isTemp: true``; this port
+# does not.
+# ============================================================================
+from bot.other.merge_shops import sea_voice_merge as svm  # noqa: E402
+
+waits = []
+
+
+async def fake_farm(cmd, quest, item, qty, farm_pass, is_temp=False, **_kw):
+    waits.append(("farm_quest_reward", item, qty, is_temp))
+    await farm_pass()
+
+
+async def fake_kill(cmd, map_name, item, item_used, quant=1, is_temp=False):
+    waits.append(("kill_thing", item, quant, is_temp))
+
+
+async def fake_equip(cmd, solo=False):
+    return True
+
+
+async def fake_smart(cmd, name):
+    return None
+
+
+saved = patch(svm, farm_quest_reward=fake_farm, kill_thing=fake_kill,
+              equip_class=fake_equip, smart_enhance=fake_smart)
+try:
+    cmd = Cand([Item("Chaos Avenger", slot="ar", item_id=1)])
+    run(svm._attack_voice_in_the_sea(cmd, "Bioluminessence", 30))
+    check("seavoice: the fight waits in the inventory",
+          [c for c in waits if c[0] == "kill_thing"],
+          [("kill_thing", "Bioluminessence", 30, False)])
+    check("seavoice: the quest reward waits there too",
+          [(c[1], c[2], c[3]) for c in waits if c[0] == "farm_quest_reward"],
+          [("Bioluminessence", 30, False)])
+finally:
+    restore(svm, saved)
 
 print(f"passed {passed}   failed {len(failures)}")
 if failures:
