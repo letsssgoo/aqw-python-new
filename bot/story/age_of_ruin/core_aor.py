@@ -5,10 +5,10 @@ the chain outwards: ``TerminaTemple`` is what ``KathoolAdeptPrerequisite`` needs
 (via the merge shops' ``AOR`` calls), and ``TwilightZone`` -- the merge shop whose
 port already exists -- sits three links up from it.
 
-``CoreSoW.ManaCradle`` is the story lead-in, and it is ported.  Two things are
-not, and are reported rather than skipped quietly: the ``seaVoice`` and
-``coldThunder`` branches (each needs another AOR region that is not ported yet),
-and ``Story.PreLoad`` (the guards do its work).
+``CoreSoW.ManaCradle`` is the story lead-in, and it is ported, as is the
+``seaVoice`` branch.  Two things are not, and are reported rather than skipped
+quietly: the ``coldThunder`` branch (needs another AOR region) and
+``Story.PreLoad`` (the guards do its work).
 """
 from core.command import Command
 from core.bot import CustomError
@@ -115,9 +115,7 @@ async def termina_temple(cmd: Command, sea_voice: bool = False,
     # gates is still unfinished.
     if sea_voice or (cold_thunder
                      and not await cmd.is_completed_before(SEAVOICE_GATE)):
-        cmd.bot.log("[aor] the SeaVoice branch needs the SeaVoice region, which "
-                    "is not ported yet; Termina Temple's own quests are done.")
-        return
+        await _sea_voice_story(cmd)
 
     # Mopping Up (9351)
     await map_item_quest(cmd, 9351, TERMINA_TEMPLE_MAP, (12050, 12051), 1)
@@ -670,3 +668,8 @@ async def sea_voice(cmd: Command) -> None:
     if await cmd.ensure_turn_in_quest(SEAVOICE_LAST) is False:
         raise CustomError(f"quest {SEAVOICE_LAST} could not be turned in")
     await cmd.sell_item(VIGIL, VIGIL_QTY)
+
+
+#: ``termina_temple`` takes a ``sea_voice`` flag, which shadows the story
+#: function of the same name inside it; the branch calls it through this alias.
+_sea_voice_story = sea_voice

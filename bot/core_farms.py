@@ -9,10 +9,10 @@ and let the auto-quest task (``handlers/register_quest.py``) accept and turn the
 in between kills, which is what its own auto-quest task does.  What differs is
 noted where it happens:
 
-* ``Core.SavedState`` / ``CheckSaveState`` / ``ExecuteSaveState`` are not ported.
-  They exist in the reference to put the character back after a death; this
-  engine's ``check_alive`` waits for the respawn and its ``death_handler`` owns
-  it, so there is nothing for a save state to repair.
+* ``Core.SavedState`` / ``CheckSaveState`` / ``ExecuteSaveState`` live in
+  :mod:`bot.core_bots` now, where the reference keeps them; the farms here do not
+  call them, because this engine's ``check_alive`` waits for the respawn and its
+  ``death_handler`` owns the recovery a save state would otherwise repair.
 * Boosts are not available: ``CoreFarms.ToggleBoost`` drives Skua's boost
   items, which this engine has no support for.  The reference keeps every boost
   switched **off** by default, so leaving the calls out changes nothing today --
