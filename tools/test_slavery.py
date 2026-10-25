@@ -14,6 +14,7 @@ import asyncio
 import json
 import os
 import pathlib
+import re
 import shutil
 import sys
 import tempfile
@@ -89,6 +90,35 @@ def bare_bot_lines():
                         and isinstance(child.ctx, ast.Load)):
                     hits.append(child.lineno)
     return sorted(set(hits))
+
+
+def bridge_checks():
+    """Every bridge call the slavery page makes must be wired in the app.
+
+    The page is loaded inside an iframe whose ``window.pywebview.api`` is a
+    hand-written forwarder; a method left out of it is silently ``undefined``,
+    which is what made the telemetry modal sit at "Offline" with zeroes.
+    """
+    js = (REPO_ROOT / "app" / "web_dashboard" / "slavery" / "main.js").read_text(
+        encoding="utf-8")
+    used = set(re.findall(r"window\.pywebview\.api\.(\w+)", js))
+    assert "get_telemetry" in used, sorted(used)
+
+    hub = (REPO_ROOT / "app" / "build_hub_app.py").read_text(encoding="utf-8")
+    parts = hub.split('elif bot_type == "slavery":')
+    assert len(parts) == 2, "slavery bridge not found in build_hub_app.py"
+    block = parts[1].split("</script>")[0]
+    pairs = re.findall(r"(\w+):\s*\([^)]*\)\s*=>\s*topApi\.(\w+)", block)
+    exposed = {name for name, _ in pairs}
+
+    missing = sorted(used - exposed)
+    assert missing == [], f"bridge does not forward {missing}"
+    print("bridge     : every api call the page makes is forwarded")
+
+    top_api_defs = set(re.findall(r"^    def (\w+)\(", hub, re.M))
+    unknown = sorted(target for _, target in pairs if target not in top_api_defs)
+    assert unknown == [], f"bridge forwards to missing TopApi methods {unknown}"
+    print("bridge     : and every forwarded name exists on TopApi")
 
 
 def override_checks():
@@ -209,6 +239,7 @@ def main():
     print("slave      : an event packet is logged, not swallowed as a NameError")
 
     override_checks()
+    bridge_checks()
 
     print("\nslavery tests OK")
 

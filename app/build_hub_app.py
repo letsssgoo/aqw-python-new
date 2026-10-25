@@ -3154,6 +3154,8 @@ def serve_injected_html(filepath, bot_type):
                             stop_slaves: () => topApi.stop_slaves(),
                             toggle_pause_slaves: (p) => topApi.toggle_pause_slaves(p),
                             update_slave_taunter: (u, t) => topApi.update_slave_taunter(u, t),
+                            get_telemetry: (u) => topApi.slavery_get_telemetry(u),
+                            pickup_drop: (u, itemId) => topApi.pickup_drop(u, itemId),
                             get_version: () => topApi.get_version(),
                             list_players: () => topApi.players_list()
                         }
