@@ -815,7 +815,8 @@ class Command:
     async def equip_enhancement(self, enhancement: Union[int, str],
                                 slot: Optional[str] = None, *,
                                 level: Optional[int] = None,
-                                rarity: Optional[int] = None) -> bool:
+                                rarity: Optional[int] = None,
+                                enhance_if_missing: bool = False) -> bool:
         """Equip whatever item has a given enhancement socketed.
 
         This is the "which weapon do I want" selector: pick the enhancement and
@@ -839,13 +840,22 @@ class Command:
                 when ``enhancement`` is an id, since an id is already unique.
             rarity (int): Further narrows a ``level`` lookup.  Needed only at
                 the cap, where level 100 exists at both rarity 5 and 6.
+            enhance_if_missing (bool): When the account owns no item carrying
+                this enhancement, socket it into whatever is already equipped
+                in that slot instead of failing.  This is the other half of the
+                same intent -- "use this enhancement" rather than "use the item
+                that has it" -- and is what a fresh account needs, since it
+                owns no enhanced gear yet.  The tier is picked from the shop
+                data, at or under the equipped item's level.
 
         Returns:
             bool: True when a matching item was found and the equip packet was
-                sent.  False means *nothing matched* -- unknown name, empty
-                inventory, ambiguous target with no slot, a ``level`` the shop
-                does not sell, or no owned item -- and prints why, so callers
-                fail loudly instead of silently doing nothing.
+                sent, or when ``enhance_if_missing`` socketed the enhancement
+                onto the equipped item.  False means *nothing matched* --
+                unknown name, empty inventory, ambiguous target with no slot, a
+                ``level`` the shop does not sell, no owned item, or nothing
+                equipped to socket into -- and prints why, so callers fail
+                loudly instead of silently doing nothing.
 
         Example::
 
@@ -857,6 +867,8 @@ class Command:
                                         level=100)       # basic, by tier
             await cmd.equip_enhancement("Wizard Armor Enhancement",
                                         level=100, rarity=6)  # -> 52276
+            await cmd.equip_enhancement("Valiance",
+                                        enhance_if_missing=True)  # socket it
 
         Note:
             Passing a raw pattern id (the old ``enh_pattern_id=`` style) is
@@ -972,6 +984,9 @@ class Command:
             items.sort(key=lambda i: (
                 tier_by_id[i.enh_id].rarity, i.enh_id), reverse=True)
         if not items:
+            if enhance_if_missing and await self._socket_enhancement(
+                    records, wanted_slot, level, rarity):
+                return True
             label = records[0].name if len(records) == 1 else str(enhancement)
             tier = f" (level {level})" if level is not None else ""
             scope = (f" in slot "
@@ -1017,6 +1032,73 @@ class Command:
               f"(EnhID {chosen.enh_id})" + Fore.RESET)
 
         await self.equip_item(chosen.item_name)
+        return True
+
+    async def _socket_enhancement(self, records: List,
+                                  wanted_slot: Optional[str],
+                                  level: Optional[int],
+                                  rarity: Optional[int]) -> bool:
+        """Socket an enhancement into the item already worn in its slot.
+
+        The fallback behind ``equip_enhancement(..., enhance_if_missing=True)``:
+        when no owned item carries the enhancement, pick the enhancement that
+        fits the slot and apply it to whatever is equipped there now, so the
+        bot runs with the requested enhancement instead of in plain gear.
+
+        Args:
+            records (List): Registry rows for the requested enhancement.
+            wanted_slot (Optional[str]): ``sES`` code the enhancement fits.
+            level (Optional[int]): Tier the caller asked for, when given.
+            rarity (Optional[int]): Rarity the caller asked for, when given.
+
+        Returns:
+            bool: True when the packet went out, False when there is nothing to
+                socket into or the enhancement has no known shop entry.
+        """
+        from model import enhancement as enh
+
+        if not wanted_slot:
+            print(Fore.YELLOW +
+                  "[equip_enhancement] cannot socket it: the slot is unknown. "
+                  "Pass slot=." + Fore.RESET)
+            return False
+
+        equipped = next((i for i in self.bot.player.INVENTORY
+                         if i.is_equipped and
+                         str(i.s_es or "").lower() == wanted_slot.lower()),
+                        None)
+        if equipped is None:
+            print(Fore.YELLOW +
+                  f"[equip_enhancement] nothing is equipped in "
+                  f"{enh.SLOT_LABELS.get(wanted_slot, wanted_slot)}, so there "
+                  f"is no item to socket the enhancement into." + Fore.RESET)
+            return False
+
+        # Only a captured shop entry can be applied: the packet names the shop
+        # the enhancement is bought from.
+        candidates = [r for r in records
+                      if r.slot == wanted_slot and r.shop_id]
+        if level is not None:
+            candidates = [r for r in candidates if r.level == level] or candidates
+        if rarity is not None:
+            candidates = [r for r in candidates if r.rarity == rarity] or candidates
+        if not candidates:
+            print(Fore.YELLOW +
+                  "[equip_enhancement] this enhancement has no known shop "
+                  "entry, so it cannot be applied." + Fore.RESET)
+            return False
+
+        # An item can only take a tier it is high enough for; when its level is
+        # known, stay at or under it and take the best of that set.
+        fit = [r for r in candidates
+               if not equipped.level or r.level <= equipped.level]
+        rec = max(fit or candidates, key=lambda r: (r.rarity, r.level, r.item_id))
+        print(Fore.CYAN +
+              f"[equip_enhancement] no owned item carries this enhancement; "
+              f"socketing {rec.name} R{rec.rarity} (lvl {rec.level}, item "
+              f"{rec.item_id}, shop {rec.shop_id}) into "
+              f"{equipped.item_name!r}" + Fore.RESET)
+        await self.enhance_item(equipped.item_id, rec.item_id, rec.shop_id)
         return True
 
     def add_drop(self, itemName: Union[str, List[str]]) -> None:

@@ -1054,6 +1054,91 @@ def main() -> None:
     assert "Daily: Elders' Blood" in blood.bot.logs, blood.bot.logs
     print("elders     : quest 802 in /arcangrove LeftBack for the one Blood")
 
+    # --- a hunt nobody moves for must not go silent ---------------------
+    # The bot stands at Enter, the client still says "in combat" from the last
+    # fight, and the map carries nothing to hit.  The stall timer used to trust
+    # that flag, so it never looked again and the run sat there for good -- the
+    # AOR / AFDL "stops at Enter" report.
+    import templates.hunt as hunt
+
+    class _Stuck(Stub):
+        """At Enter, no monster anywhere, ``IS_IN_COMBAT`` stuck on."""
+
+        def __init__(self, disconnect_after_jumps=2, **kwargs):
+            super().__init__(**kwargs)
+            self.player.CELL = "Enter"
+            self.player.PAD = "Spawn"
+            self.player.IS_IN_COMBAT = True
+            self.bot.player = self.player
+            self.bot.monsters = []
+            self.jumps = 0
+            self._jump_limit = disconnect_after_jumps
+
+        def is_monster_alive(self, monster="*"):
+            return False
+
+        async def join_map(self, map_name, room=None, safe_leave=True):
+            self.calls.append(("join_map", map_name))
+            self._map = map_name
+
+        async def jump_to_monster(self, *args, **kwargs):
+            self.jumps += 1
+            self.calls.append(("jump_to_monster",))
+            if self.jumps >= self._jump_limit:
+                self._connected = False
+
+    stuck = _Stuck(connect_after=0)
+    assert hunt._fighting(stuck, "*") is False, "IS_IN_COMBAT alone is not a fight"
+    stuck.player.IS_IN_COMBAT = False
+    assert hunt._fighting(stuck, "*") is False, "an empty cell is not a fight"
+
+    from templates.hunt import hunt_item
+
+    saved_check, saved_give = hunt.STALL_CHECK_S, hunt.STALL_GIVE_UP_S
+    hunt.STALL_CHECK_S, hunt.STALL_GIVE_UP_S = 0.0, 60.0
+    try:
+        asyncio.run(hunt_item(stuck, "Bone Dust", 1, "battleunderb",
+                              monster_name="Big Foot"))
+    finally:
+        hunt.STALL_CHECK_S, hunt.STALL_GIVE_UP_S = saved_check, saved_give
+    assert stuck.jumps > 0, stuck.calls
+    assert any("no target" in line for line in stuck.bot.logs), stuck.bot.logs
+    print("hunt       : at Enter with the combat flag stuck -> walks back, not silent")
+
+    # A monster list that keeps pointing somewhere else gets re-joined after a
+    # few looks: only a fresh area packet rewrites it.
+    class _Mon:
+        mon_name = "Big Foot"
+        mon_map_id = "1"
+        frame = "r1"
+        is_alive = True
+        current_hp = 10
+
+    stale = _Stuck(disconnect_after_jumps=4, connect_after=0)
+    stale.bot.monsters = [_Mon()]
+    hunt.STALL_CHECK_S, hunt.STALL_GIVE_UP_S = 0.0, 60.0
+    try:
+        asyncio.run(hunt_item(stale, "Bone Dust", 1, "battleunderb",
+                              monster_name="Big Foot"))
+    finally:
+        hunt.STALL_CHECK_S, hunt.STALL_GIVE_UP_S = saved_check, saved_give
+    # one jump to start the hunt, then walk twice, then the re-join
+    assert stale.jumps == 4, stale.calls
+    assert ("join_map", "battleon") in stale.calls, stale.calls
+    print("hunt       : a stale monster cell -> walk twice, then re-join the map")
+
+    # and when there is nothing to walk to either, it gives up rather than spin
+    alone = _Stuck(connect_after=0)
+    hunt.STALL_CHECK_S, hunt.STALL_GIVE_UP_S = 0.0, 0.0
+    try:
+        asyncio.run(hunt_item(alone, "Bone Dust", 1, "battleunderb",
+                              monster_name="Big Foot"))
+    finally:
+        hunt.STALL_CHECK_S, hunt.STALL_GIVE_UP_S = saved_check, saved_give
+    assert any("stopping the hunt" in line for line in alone.bot.logs), \
+        alone.bot.logs
+    print("hunt       : nothing to hit and no target in the map -> stops and says so")
+
     print("\nfarm tests OK")
 
 

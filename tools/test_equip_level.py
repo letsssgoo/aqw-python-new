@@ -104,6 +104,9 @@ class StubCommand(Command):
     def is_still_connected(self):
         return True
 
+    async def sleep(self, ms):
+        return None
+
 
 def equipped_name(bot):
     for it in bot.player.INVENTORY:
@@ -197,6 +200,46 @@ def main() -> int:
     check("id + level still succeeds", ok, True)
     check("...and equips the R5 class", equipped_name(bot),
           "wizard robe of testing", str(equipped_name(bot)))
+
+    print("\n-- enhance_if_missing: socket it into what is already worn --")
+    # A fresh account: a plain weapon is worn and nothing carries Valiance.
+    for it in items:
+        it.is_equipped = False
+    sword = items[3]                       # plain sword, Weapon, lvl 100
+    sword.is_equipped = True
+    bot.sent.clear()
+    ok = asyncio.run(cmd.equip_enhancement("Valiance",
+                                          enhance_if_missing=True))
+    check("nothing carries Valiance -> socketed instead", ok, True)
+    check("...one enhanceItemShop packet", len(bot.sent), 1, str(bot.sent))
+    fields = bot.sent[-1].split("%")[5:8] if bot.sent else []
+    check("...onto the worn weapon, Valiance R7 from shop 2142", fields,
+          [str(sword.item_id), "70752", "2142"],
+          str(bot.sent[-1]) if bot.sent else "no packet")
+
+    print("\n-- nothing worn in that slot -> refuse, no packet --")
+    for it in items:
+        it.is_equipped = False
+    bot.sent.clear()
+    ok = asyncio.run(cmd.equip_enhancement("Valiance",
+                                          enhance_if_missing=True))
+    check("no item in the slot -> False", ok, False)
+    check("...and nothing was sent", bot.sent, [])
+
+    print("\n-- the socketed tier stays at or under the item's level --")
+    for it in items:
+        it.is_equipped = False
+    helm = items[2]                        # omni cowl, Helm
+    helm.level = 70
+    helm.is_equipped = True
+    bot.sent.clear()
+    ok = asyncio.run(cmd.equip_enhancement("Wizard Helm Enhancement",
+                                          enhance_if_missing=True))
+    check("helm at lvl 70 still succeeds", ok, True)
+    fields = bot.sent[-1].split("%")[5:8] if bot.sent else []
+    check("...and takes the lvl-70 R5 tier (39731), not lvl 100", fields,
+          [str(helm.item_id), "39731", "765"],
+          str(bot.sent[-1]) if bot.sent else "no packet")
 
     print()
     print("=" * 74)
