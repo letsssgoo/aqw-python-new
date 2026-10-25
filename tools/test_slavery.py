@@ -91,25 +91,53 @@ def bare_bot_lines():
     return sorted(set(hits))
 
 
-def master_checks():
-    """Per-account master: its own entry wins, empty follows the global one."""
-    from app.build_hub_app import SlaveBotThread, SlaveryApi, resolve_master
+def override_checks():
+    """Every global setting can be pinned per account; empty means inherit."""
+    from app.build_hub_app import (OVERRIDABLE_SETTINGS, SlaveBotThread,
+                                   SlaveryApi, resolve_setting,
+                                   slave_config_for)
 
-    global_cfg = {"follow_player": "GLOBAL"}
-    assert resolve_master({"follow_player": "OWN"}, global_cfg) == "OWN"
-    assert resolve_master({"follow_player": ""}, global_cfg) == "GLOBAL"
-    assert resolve_master({}, global_cfg) == "GLOBAL"
-    assert resolve_master(None, {"follow_player": ""}) == ""
-    print("master     : own entry wins, empty falls back to the global one")
+    global_cfg = {
+        "server": "Artix",
+        "room_number": 9099,
+        "follow_player": "GLOBAL",
+        "copy_walk": True,
+        "auto_zone": "none",
+        "targets_priority": "Global Target",
+        "whitelist": ["Treasure Chest"],
+        "locked_zones": ["doomvault"],
+    }
+
+    # an override wins, an emptied field falls back to the global value
+    own = {"overrides": {"follow_player": "OWN", "copy_walk": False,
+                         "room_number": 1234, "whitelist": []}}
+    assert resolve_setting(own, global_cfg, "follow_player") == "OWN"
+    assert resolve_setting(own, global_cfg, "room_number") == 1234
+    assert resolve_setting(own, global_cfg, "copy_walk") is False   # off is a choice
+    assert resolve_setting(own, global_cfg, "whitelist") == ["Treasure Chest"]
+    assert resolve_setting(own, global_cfg, "auto_zone") == "none"
+    assert resolve_setting({"overrides": {"follow_player": ""}}, global_cfg,
+                           "follow_player") == "GLOBAL"
+    assert resolve_setting({"overrides": {"room_number": None}}, global_cfg,
+                           "room_number") == 9099
+    assert resolve_setting(None, global_cfg, "server") == "Artix"
+    print("override   : an account's own value wins, an empty one inherits")
+
+    effective = slave_config_for(own, global_cfg)
+    assert effective["follow_player"] == "OWN"
+    assert effective["copy_walk"] is False
+    assert effective["server"] == "Artix"
+    assert effective["targets_priority"] == "Global Target"
+    assert global_cfg["follow_player"] == "GLOBAL"      # the globals are untouched
+    assert set(effective) >= set(OVERRIDABLE_SETTINGS)
+    print("override   : the thread config is the globals with the account's on top")
 
     thread = SlaveBotThread(username="a", password="b", char_class="c",
-                            config=global_cfg, callback=None,
-                            follow_player="OWN")
-    assert thread.follow_player == "OWN", thread.follow_player
-    fallback = SlaveBotThread(username="a", password="b", char_class="c",
-                              config=global_cfg, callback=None)
-    assert fallback.follow_player == "GLOBAL", fallback.follow_player
-    print("master     : the slave thread keeps the master it was handed")
+                            config=slave_config_for(own, global_cfg),
+                            callback=None)
+    assert thread.config["follow_player"] == "OWN"
+    assert thread.config["room_number"] == 1234
+    print("override   : the slave thread carries the resolved settings")
 
     temp_dir = tempfile.mkdtemp(prefix="slavery_test_")
     try:
@@ -127,20 +155,41 @@ def master_checks():
         saved = api.save_config({
             "room_number": 9099,
             "follow_player": "NEWGLOBAL",
-            "whitelist": [],
+            "whitelist": ["Void Aura"],
+            "copy_walk": True,
             "slaves": [
-                {"username": "own", "follow_player": "OWN", "taunter": True},
-                {"username": "global", "follow_player": ""},
+                {"username": "own", "taunter": True,
+                 "overrides": {"follow_player": "OWN", "room_number": 1234,
+                               "copy_walk": False, "whitelist": ["Keep Me"]}},
+                {"username": "global", "overrides": {}},
             ],
         })
         assert saved["success"], saved
-        assert api.active_threads["own"].bot_instance.follow_player == "OWN"
-        assert (api.active_threads["global"].bot_instance.follow_player
-                == "NEWGLOBAL")
-        assert api.active_threads["own"].bot_instance.taunter is True
+        mine = api.active_threads["own"].bot_instance
+        theirs = api.active_threads["global"].bot_instance
+        # saving the globals must not flatten an account's own settings
+        assert mine.follow_player == "OWN", mine.follow_player
+        assert mine.default_room_number == 1234, mine.default_room_number
+        assert mine.copy_walk is False, mine.copy_walk
+        assert mine.itemsDropWhiteList == ["Keep Me"], mine.itemsDropWhiteList
+        assert mine.taunter is True
+        # and an account without overrides moves with the globals
+        assert theirs.follow_player == "NEWGLOBAL", theirs.follow_player
+        assert theirs.default_room_number == 9099, theirs.default_room_number
+        assert theirs.itemsDropWhiteList == ["Void Aura"], theirs.itemsDropWhiteList
+
+        # the master used to be a field of its own: an old config is migrated
+        with open(api.config_path, "w") as f:
+            json.dump({"server": "Twilly",
+                       "slaves": [{"username": "old", "follow_player": "OWN"}]}, f)
+        migrated = api.load_config()
+        old = migrated["slaves"][0]
+        assert "follow_player" not in old, old
+        assert old["overrides"]["follow_player"] == "OWN", old
+        assert migrated["server"] == "Twilly"
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
-    print("master     : saving the global master leaves an account's own alone")
+    print("override   : saving the globals leaves every account's own settings alone")
 
 
 def main():
@@ -159,7 +208,7 @@ def main():
     assert any("Event packet" in line for line in cmd.bot.logs), cmd.bot.logs
     print("slave      : an event packet is logged, not swallowed as a NameError")
 
-    master_checks()
+    override_checks()
 
     print("\nslavery tests OK")
 
