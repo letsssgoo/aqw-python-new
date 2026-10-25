@@ -107,10 +107,15 @@ async def _attack_voice_in_the_sea(cmd: Command, item: str,
         cmd.add_drop(FIGHT_DROP)
         await smart_enhance(cmd, pick)
         await cmd.equip_item(pick)
-        await kill_thing(cmd, MAP, item, VIGIL_ITEM_ID, quant, is_temp=True)
+        # These four are regular inventory items, not quest-progress items:
+        # "Bioluminessence" arrives as "add items ..." with a CharItemID.  The
+        # reference passes ``isTemp: true`` here, and a temp-only wait never
+        # ends for an item that is not in the temp bag -- the fight ran past its
+        # own target and kept going.
+        await kill_thing(cmd, MAP, item, VIGIL_ITEM_ID, quant, is_temp=False)
 
     await farm_quest_reward(cmd, FIGHT_QUEST, item, quant, farm_pass,
-                            is_temp=True)
+                            is_temp=False)
     cmd.cancel_registered_quests()
 
 
