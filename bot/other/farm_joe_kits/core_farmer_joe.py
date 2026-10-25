@@ -54,6 +54,7 @@ from bot.other.classes.dragonslayer_general import get_ds_general
 from bot.other.classes.rep_based.master_ranger import get_mr
 from bot.other.classes.scarlet_sorceress import get_ssorc
 from bot.other.free_boosts import get_boosts_select
+from bot.other.merge_shops.synderes_merge import no_bots_armor
 from bot.other.weapons.burning_blade import get_burning_blade
 from bot.story.mazumi import mazumi_quests
 from bot.story.tutorial import badges as tutorial_badges
@@ -292,15 +293,9 @@ async def servers_are_down(cmd: Command) -> None:
 
 
 async def shirt_and_hat(cmd: Command) -> None:
-    """``CoreFarmerJoe.ShirtAndHat``: the NO BOTS Armor and the Scarecrow Hat.
-
-    The armor comes out of ``SynderesMerge``, which needs the merge framework and
-    is not ported; the hat is a plain purchase from Yulgar.
-    """
+    """``CoreFarmerJoe.ShirtAndHat``: the NO BOTS Armor and the Scarecrow Hat."""
     farming_logger(cmd, "NO BOTS Armor", 1)
-    report_once(cmd, "shirt",
-                "ShirtAndHat's \"NO BOTS Armor\" comes from SynderesMerge "
-                "(the merge framework), which is not ported.")
+    await no_bots_armor(cmd)
     farming_logger(cmd, "Scarecrow Hat", 1)
     await adv_buy_item(cmd, 16, "Scarecrow Hat", map_name="yulgar")
 

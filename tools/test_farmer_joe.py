@@ -510,6 +510,24 @@ def main() -> None:
         assert line in fresh.bot.logs, fresh.bot.logs
     print("beginner   : fresh account -> Oracle slots, Rogue, Rogue ranked, Mage")
 
+    # --- ShirtAndHat: the merge for the armor, the hat from Yulgar -------
+    shirt = Stub(shops=[_Shop(16, ["Scarecrow Hat"])])
+    merged = []
+    real_merge = joe.no_bots_armor
+
+    async def spy_merge(cmd):
+        merged.append(1)
+
+    joe.no_bots_armor = spy_merge
+    try:
+        asyncio.run(joe.shirt_and_hat(shirt))
+    finally:
+        joe.no_bots_armor = real_merge
+    assert merged == [1], merged
+    assert ("buy_item", 16, "scarecrow hat", 1, 0) in shirt.calls, shirt.calls
+    assert "Farming NO BOTS Armor (0/1)" in shirt.bot.logs, shirt.bot.logs
+    print("shirt      : NO BOTS Armor from the merge, the hat from Yulgar")
+
     # --- bracket handlers: what runs, what is reported -------------------
     h70 = Stub(solo="King's Echo", classes_held=["King's Echo"],
                shops=[_Shop(308, ["Horc Evader"])])

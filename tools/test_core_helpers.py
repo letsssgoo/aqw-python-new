@@ -1810,6 +1810,39 @@ try:
 finally:
     pass
 
+# ============================================================================
+# 21. SynderesMerge
+# ============================================================================
+from bot.other.merge_shops import synderes_merge as sy  # noqa: E402
+
+merged = []
+
+
+async def sy_merge(cmd, map_name, shop_id, find_ingredients=None,
+                   buy_only_this=None, item_blacklist=(), shop_item_id=0):
+    merged.append((map_name, shop_id, buy_only_this))
+
+
+leaf = patch(sy, start_buy_all_merge=sy_merge)
+try:
+    cmd = Cand()
+    run(sy.no_bots_armor(cmd))
+    check("synderes: the armor is the only entry asked for", merged,
+          [("enemyforest", 332, "NO BOTS Armor")])
+
+    cmd = Cand([ItemInventory({"sName": "NO BOTS Armor", "iQty": 1})])
+    merged.clear()
+    run(sy.no_bots_armor(cmd))
+    check("synderes: an owned armor merges nothing", merged, [])
+
+    cmd = Cand()
+    await_unknown = run(sy.find_ingredients(cmd, 1, "Some Other Item", 1))
+    check("synderes: an unknown ingredient says so",
+          "The bot hasn't been taught how to get Some Other Item."
+          in cmd.bot.logs, True)
+finally:
+    restore(sy, leaf)
+
 print(f"passed {passed}   failed {len(failures)}")
 if failures:
     for line in failures:
