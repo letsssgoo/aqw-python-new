@@ -396,7 +396,8 @@ def main() -> None:
     mc = body[body.index("async def mana_cradle("):]
     mc_ids = [m.group(1) for m in _re.finditer(
         r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", mc)]
-    assert mc_ids == ["9116", "9117", "9118", "9118", "9120", "9121", "9122"], mc_ids
+    assert mc_ids == ["9116", "9117", "9118", "9120", "9121", "9122"], mc_ids
+    assert "((11268, 3), (11269, 3))" in mc
     assert [q for q, _, _ in core_sow.MANACRADLE_HANDS] == [9119, 9123]
     assert core_sow.MANACRADLE_BOSSES == ((9124, "Malgor"), (9125, "The Mainyu"))
     assert core_sow.MANACRADLE_LAST == 9126
@@ -443,8 +444,11 @@ def main() -> None:
     assert core_aor.SUNLIGHT_LAST == 9251
 
     tw2 = aor_body[aor_body.index("async def twilight_zone("):aor_body.index("YULGAR_ARIA_LAST")]
-    assert _order(tw2) == ["9258", "9259", "9260", "9260", "9261", "9262",
+    assert _order(tw2) == ["9258", "9259", "9260", "9261", "9262",
                            "9263", "9264", "9265", "9266", "9267"], tw2
+    # The reference splits 9260 over two MapItemQuest calls; this port turns a
+    # call in, so both of its items have to come from one call.
+    assert "((11749, 1), (11750, 4))" in tw2
     assert list(core_aor.TWILIGHT_HANDS) == [9261, 9266, 9267]
     assert core_aor.TWILIGHT_LAST == 9268
     print("AOR zones  : SunlightZone 9242-9251, TwilightZone 9258-9268")
@@ -456,7 +460,8 @@ def main() -> None:
 
     mz = aor_body[aor_body.index("async def midnight_zone("):aor_body.index("ABYSSAL_LAST")]
     assert _order(mz) == ["9292", "9293", "9294", "9295", "9296", "9297",
-                          "9298", "9299", "9300", "9300"], mz
+                          "9298", "9299", "9300"], mz
+    assert "((11849, 4), (11850, 1))" in mz
     assert list(core_aor.MIDNIGHT_HANDS) == [9293, 9294, 9295, 9296, 9297, 9299]
     assert core_aor.MIDNIGHT_BOSS == ("Sparagmos A.I. Defeated", "Sparagmos")
     assert core_aor.MIDNIGHT_LAST == 9301
@@ -465,18 +470,21 @@ def main() -> None:
     az = aor_body[aor_body.index("async def abyssal_zone("):aor_body.index("DEEPWATER_LAST")]
     assert [m.group(1) for m in _re.finditer(
         r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", az)] == [
-        "9307", "9307", "9308", "9312", "9312", "9313"]
+        "9307", "9308", "9312", "9313"]
+    assert "((11893, 6), (11894, 1))" in az
+    assert "((11897, 6), (11898, 1))" in az
     assert sorted(core_aor.ABYSSAL_HANDS) == [9306, 9309, 9310, 9311,
                                               9314, 9315]
     assert core_aor.ABYSSAL_LAST == 9315
     hands = [int(m.group(1)) for m in _re.finditer(r"await hand\((\d+)\)", az)]
     assert hands == [9306, 9309, 9310, 9311, 9314, 9315], hands
-    print("AOR abyss  : 9306-9315, 9307 and 9312 take two map-item calls")
+    print("AOR abyss  : 9306-9315, 9307 and 9312 take two items in one call")
 
     dw = aor_body[aor_body.index("async def deep_water("):]
     assert [m.group(1) for m in _re.finditer(
         r"(?:kill_quest|map_item_quest)\(\s*cmd,\s*(\d+)", dw)] == [
-        "9331", "9334", "9334", "9335", "9336"]
+        "9331", "9334", "9335", "9336"]
+    assert "((11979, 1), (11981, 1), (11980, 2))" in dw
     assert sorted(core_aor.DEEPWATER_HANDS) == [9329, 9330, 9333, 9337, 9338]
     assert core_aor.DEEPWATER_EARLY_STOP == 9332
     assert core_aor.DEEPWATER_LAST == 9338

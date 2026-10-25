@@ -252,8 +252,10 @@ async def twilight_zone(cmd: Command, sea_voice: bool = False,
     """``CoreAOR.TwilightZone``: quests 9258-9268 in /twilightzone.
 
     This is the region the ``TwilightZoneMerge`` shop calls, and the map its
-    ``/twilightzone`` merge lives in.  9260 is two map-item calls for one quest,
-    as the source has it; 9267 is fought in the solo class.
+    ``/twilightzone`` merge lives in.  The source splits 9260 into two map-item
+    calls; they are one call here, because this port turns each call in and the
+    first one would then be refused for missing the second item.  9267 is fought
+    in the solo class.
     """
     if await cmd.is_completed_before(TWILIGHT_LAST):
         return
@@ -278,8 +280,7 @@ async def twilight_zone(cmd: Command, sea_voice: bool = False,
 
     await kill_quest(cmd, 9258, TWILIGHT_MAP, "Whale Louse")
     await kill_quest(cmd, 9259, TWILIGHT_MAP, "Polymelia Lamprey")
-    await map_item_quest(cmd, 9260, TWILIGHT_MAP, 11749, 1)
-    await map_item_quest(cmd, 9260, TWILIGHT_MAP, 11750, 4)
+    await map_item_quest(cmd, 9260, TWILIGHT_MAP, ((11749, 1), (11750, 4)))
     await hand(9261)
     await map_item_quest(cmd, 9262, TWILIGHT_MAP, (11751, 11752), 1)
     await kill_quest(cmd, 9263, TWILIGHT_MAP, "Decay Spirit")
@@ -387,8 +388,7 @@ async def midnight_zone(cmd: Command, sea_voice: bool = False,
     await hand(9297)
     await kill_quest(cmd, 9298, MIDNIGHT_MAP, "Venerated Wraith")
     await hand(9299)
-    await map_item_quest(cmd, 9300, MIDNIGHT_MAP, 11849, 4)
-    await map_item_quest(cmd, 9300, MIDNIGHT_MAP, 11850, 1)
+    await map_item_quest(cmd, 9300, MIDNIGHT_MAP, ((11849, 4), (11850, 1)))
 
     await equip_class(cmd, solo=True)
     if await cmd.ensure_accept_quest(MIDNIGHT_LAST) is False:
@@ -447,14 +447,12 @@ async def abyssal_zone(cmd: Command, sea_voice: bool = False,
             raise CustomError(f"quest {quest_id} could not be turned in")
 
     await hand(9306)
-    await map_item_quest(cmd, 9307, ABYSSAL_MAP, 11893, 6)
-    await map_item_quest(cmd, 9307, ABYSSAL_MAP, 11894, 1)
+    await map_item_quest(cmd, 9307, ABYSSAL_MAP, ((11893, 6), (11894, 1)))
     await kill_quest(cmd, 9308, ABYSSAL_MAP, "Blighted Water")
     await hand(9309)
     await hand(9310)
     await hand(9311)
-    await map_item_quest(cmd, 9312, ABYSSAL_MAP, 11897, 6)
-    await map_item_quest(cmd, 9312, ABYSSAL_MAP, 11898, 1)
+    await map_item_quest(cmd, 9312, ABYSSAL_MAP, ((11897, 6), (11898, 1)))
     await kill_quest(cmd, 9313, ABYSSAL_MAP, "Necro Adipocere")
     await hand(9314)
     await hand(9315)
@@ -519,8 +517,8 @@ async def deep_water(cmd: Command, panopticon_merge: bool = False,
         return
 
     await hand(9333)
-    await map_item_quest(cmd, 9334, DEEPWATER_MAP, (11979, 11981), 1)
-    await map_item_quest(cmd, 9334, DEEPWATER_MAP, 11980, 2)
+    await map_item_quest(cmd, 9334, DEEPWATER_MAP,
+                         ((11979, 1), (11981, 1), (11980, 2)))
     await kill_quest(cmd, 9335, DEEPWATER_MAP, "Sea Spirit")
     await kill_quest(cmd, 9336, DEEPWATER_MAP, "Necro Adipocere")
     await hand(9337)

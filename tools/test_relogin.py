@@ -267,6 +267,61 @@ def main() -> None:
           bot10.relogin_reason)
     print("  -> nothing changing is enough, packets or not")
 
+    # --- 8. the freeze reporter must survive the app's log redirector ---
+    # ``faulthandler`` writes to ``sys.stderr`` and needs a real ``fileno()``;
+    # the app replaces both streams with one that has none, so dumping the
+    # stacks raised AttributeError and killed the reporter exactly when it was
+    # needed.  It now formats the stacks itself.
+    print("\n-- the freeze reporter behind the app's redirector --")
+    import io
+    import threading
+
+    from core import bot as core_bot
+
+    class _RedirectedStream(io.StringIO):
+        def fileno(self):
+            raise AttributeError(
+                "'UnifiedThreadRedirector' object has no attribute 'fileno'")
+
+    class _LiveTask:
+        def done(self):
+            return False
+
+    class _StuckBot:
+        is_client_connected = True
+        tick_task = _LiveTask()
+        loop_ticks = 7
+        freeze_reported = 0.0
+        strMapName = "twilightzone"
+        username = "yuvy"
+        player = type("_Player", (), {"CELL": "Enter"})()
+
+    stuck = _StuckBot()
+    core_bot._BOTS.add(stuck)
+    old_out, old_err = sys.stdout, sys.stderr
+    old_seconds = core_bot.LOOP_FREEZE_SECONDS
+    stream = _RedirectedStream()
+    core_bot.LOOP_FREEZE_SECONDS = 0.3
+    sys.stdout = sys.stderr = stream
+    reporter = threading.Thread(target=core_bot._freeze_watch, daemon=True)
+    try:
+        reporter.start()
+        deadline = time.time() + 4.0
+        while time.time() < deadline and "[watch]" not in stream.getvalue():
+            time.sleep(0.1)
+    finally:
+        sys.stdout, sys.stderr = old_out, old_err
+        core_bot.LOOP_FREEZE_SECONDS = old_seconds
+        core_bot._BOTS.discard(stuck)
+    report = stream.getvalue()
+    check("the reporter outlived a stream without fileno()",
+          reporter.is_alive(), True)
+    check("it named the frozen bot and its map",
+          "twilightzone/Enter" in report, True)
+    check("it printed each thread's stack itself",
+          "--- thread" in report, True)
+    print("  -> no faulthandler: stacks are formatted and logged")
+
     print()
     print("=" * 74)
     print(f"passed {PASS}   failed {FAIL}")

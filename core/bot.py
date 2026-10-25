@@ -2,8 +2,8 @@ import socket
 from core.command import Command
 from core.player import Player
 from core.utils import normalize
-import faulthandler
 import json
+import sys
 import zlib
 import base64
 import time
@@ -78,36 +78,60 @@ _BOTS: 'weakref.WeakSet[Bot]' = weakref.WeakSet()
 _freeze_thread_started = False
 
 
+def _thread_stacks() -> str:
+    """Every live thread's Python stack, as one block of text.
+
+    ``faulthandler`` needs a stream with a real ``fileno()``.  The app replaces
+    ``sys.stderr`` with a redirector that has none, so the dump meant to name the
+    spinning line raised ``AttributeError`` and killed the reporter instead.
+    """
+    names = {thread.ident: thread.name for thread in threading.enumerate()}
+    blocks = []
+    for ident, frame in sys._current_frames().items():
+        blocks.append(f"\n--- thread {names.get(ident, ident)} ---\n")
+        blocks.append("".join(traceback.format_stack(frame)))
+    return "".join(blocks)
+
+
 def _freeze_watch() -> None:
     """Report bots whose event loop has stopped ticking (a loop with no await)."""
     seen: dict[int, tuple[int, float]] = {}
     while True:
-        time.sleep(max(1.0, LOOP_FREEZE_SECONDS / 4.0))
-        now = time.time()
-        for bot in list(_BOTS):
-            if not bot.is_client_connected:
-                seen.pop(id(bot), None)
-                continue
-            key = id(bot)
-            ticks = bot.loop_ticks
-            previous = seen.get(key)
-            if previous is None or previous[0] != ticks:
-                seen[key] = (ticks, now)
-                continue
-            frozen = now - previous[1]
-            if frozen < LOOP_FREEZE_SECONDS:
-                continue
-            if now - bot.freeze_reported < LOOP_FREEZE_SECONDS:
-                continue
-            bot.freeze_reported = now
-            try:
-                where = f"{bot.strMapName}/{bot.player.CELL}"
-            except Exception:
-                where = "?"
-            print(f"[watch] {bot.username or 'bot'}: no task has run for "
-                  f"{frozen:.0f}s in {where}; the event loop is blocked by a "
-                  f"loop that never awaits. Thread stacks:", flush=True)
-            faulthandler.dump_traceback(all_threads=True)
+        try:
+            time.sleep(max(1.0, LOOP_FREEZE_SECONDS / 4.0))
+            now = time.time()
+            for bot in list(_BOTS):
+                ticks_task = getattr(bot, "tick_task", None)
+                if (not bot.is_client_connected or ticks_task is None
+                        or ticks_task.done()):
+                    # Not running: either the session is down or the loop has
+                    # already been closed, which is not a freeze.
+                    seen.pop(id(bot), None)
+                    continue
+                key = id(bot)
+                ticks = bot.loop_ticks
+                previous = seen.get(key)
+                if previous is None or previous[0] != ticks:
+                    seen[key] = (ticks, now)
+                    continue
+                frozen = now - previous[1]
+                if frozen < LOOP_FREEZE_SECONDS:
+                    continue
+                if now - bot.freeze_reported < LOOP_FREEZE_SECONDS:
+                    continue
+                bot.freeze_reported = now
+                try:
+                    where = f"{bot.strMapName}/{bot.player.CELL}"
+                except Exception:
+                    where = "?"
+                print(f"[watch] {bot.username or 'bot'}: no task has run for "
+                      f"{frozen:.0f}s in {where}; the event loop is blocked by a "
+                      f"loop that never awaits. Python stacks:"
+                      + _thread_stacks(), flush=True)
+        except Exception:
+            # The reporter has to outlive whatever it reports; one bad frame or
+            # an unusable log sink must not end the thread.
+            pass
 
 
 def _start_freeze_watch() -> None:
@@ -399,8 +423,7 @@ class Bot:
 
                 self._cancel_task("watch_task")
                 self.watch_task = asyncio.create_task(self._watch_loop())
-                self._cancel_task("tick_task")
-                self.tick_task = asyncio.create_task(self._tick_loop())
+                self._start_tick_loop()
 
                 # The script runs in its own task so a dropped connection can
                 # end it.  Waiting on it directly was the reason a peer reset
@@ -409,21 +432,25 @@ class Bot:
                 # and the relogin below was never reached.
                 script = asyncio.create_task(
                     self.bot_main(self._resolve_script_arg(self.bot_main)))
-                while self.is_client_connected and not script.done():
-                    await asyncio.sleep(0.2)
-                if not script.done():
-                    print("Connection lost while the script was running; "
-                          "stopping it and relogging.")
-                    script.cancel()
-                    try:
-                        await script
-                    except asyncio.CancelledError:
-                        pass
-                elif not script.cancelled() and script.exception() is not None:
-                    # let the traceback out through the task machinery
-                    script.result()
-
-                self.stop_bot()
+                try:
+                    while self.is_client_connected and not script.done():
+                        await asyncio.sleep(0.2)
+                    if not script.done():
+                        print("Connection lost while the script was running; "
+                              "stopping it and relogging.")
+                        script.cancel()
+                        try:
+                            await script
+                        except asyncio.CancelledError:
+                            pass
+                    elif not script.cancelled() and script.exception() is not None:
+                        # let the traceback out through the task machinery
+                        script.result()
+                finally:
+                    # A script that raised used to skip this, leaving the socket
+                    # open: the pane went dead but the character stayed in the
+                    # game, so the restart logged into a session still in use.
+                    self.stop_bot()
             return True
 
         await self.run_commands()
@@ -553,6 +580,14 @@ class Bot:
                       f"stuck); re-establishing the session")
                 self.request_relogin(f"no progress {quiet_work / 60:.0f} min")
                 return
+
+    def _start_tick_loop(self) -> None:
+        """(Re)start the one-second tick the freeze reporter watches."""
+        task = getattr(self, "tick_task", None)
+        if task is not None and not task.done():
+            return
+        self.loop_ticks = 0
+        self.tick_task = asyncio.create_task(self._tick_loop())
 
     async def _tick_loop(self) -> None:
         """Bump ``loop_ticks`` every second while the session is up.
@@ -685,6 +720,10 @@ class Bot:
             self.client_socket.connect((host_ip, port))
             self.write_message("<policy-file-request/>")
             self.is_client_connected = True
+            # The freeze reporter watches this tick, so it has to run from the
+            # moment the socket is up: login and the bank load can take a while,
+            # and ticks that have never started look like a frozen loop.
+            self._start_tick_loop()
             print(f"{Fore.GREEN}Connected to {hostname}:{port}{Fore.RESET}")
         except (socket.error, ConnectionRefusedError) as e:
             self.is_client_connected = False

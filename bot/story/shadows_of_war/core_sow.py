@@ -301,8 +301,7 @@ async def mana_cradle(cmd: Command) -> None:
 
     await kill_quest(cmd, 9116, MANACRADLE_MAP, "Elemental Attempt")
     await kill_quest(cmd, 9117, MANACRADLE_MAP, "Crystalized Mana")
-    await map_item_quest(cmd, 9118, MANACRADLE_MAP, 11268, 3)
-    await map_item_quest(cmd, 9118, MANACRADLE_MAP, 11269, 3)
+    await map_item_quest(cmd, 9118, MANACRADLE_MAP, ((11268, 3), (11269, 3)))
 
     for quest_id, map_items, hunts in MANACRADLE_HANDS:
         if await cmd.is_completed_before(quest_id):
