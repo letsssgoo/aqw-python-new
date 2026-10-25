@@ -17,6 +17,11 @@ call live here so far:
 ``register_quests``     ``CoreBots.RegisterQuests``, the plural form
 ``saved_state``         ``CoreBots.SavedState`` / ``CheckSaveState`` /
                         ``ExecuteSaveState``
+``farming_logger``      ``CoreBots.FarmingLogger``
+``equip_items``         ``CoreBots.Equip``, the array form
+``quest_rewards``       ``CoreBots.QuestRewards``, the plural form
+``chain_complete``      ``CoreBots.ChainComplete``
+``ensure_complete_choose``  ``CoreBots.EnsureCompleteChoose``
 ======================  ==================================================
 
 ``bot.nation.core_nation`` re-exports ``equip_class`` and ``can_we_aggro`` from

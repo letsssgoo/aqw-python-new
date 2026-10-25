@@ -14,7 +14,7 @@ from core.command import Command
 from core.bot import CustomError
 from model.inventory import ScrollType
 from bot.core_advanced import buy_item
-from bot.core_bots import equip_class
+from bot.core_bots import dynamic_quant, equip_class
 from bot.core_story import kill_quest, map_item_quest
 from bot.story.shadows_of_war.core_sow import mana_cradle
 from templates.hunt import hunt_item
@@ -64,9 +64,10 @@ async def termina_temple(cmd: Command, sea_voice: bool = False,
 
     Args:
         cmd (Command): Facade to act through.
-        sea_voice (bool): The reference's ``seaVoice`` option; its branch needs
-            the ``SeaVoice`` region, which is not ported.
-        cold_thunder (bool): The reference's ``coldThunder`` option; likewise.
+        sea_voice (bool): The reference's ``seaVoice`` option; runs the
+            ``SeaVoice`` region before 9351.
+        cold_thunder (bool): The reference's ``coldThunder`` option; its region
+            is not ported, so that branch reports and stops.
 
     The 9213 pass keeps the source's map reset (leave to ``whitemap-100000`` and
     come back) because, as its own log line says, the mobs there can bug out and
@@ -667,7 +668,11 @@ async def sea_voice(cmd: Command) -> None:
                      is_temp=True)
     if await cmd.ensure_turn_in_quest(SEAVOICE_LAST) is False:
         raise CustomError(f"quest {SEAVOICE_LAST} could not be turned in")
-    await cmd.sell_item(VIGIL, VIGIL_QTY)
+    # ``SellItem("Vigil", all: true)``: whatever is left, not the thousand that
+    # was bought -- every cleanse consumes one.
+    held = dynamic_quant(cmd, VIGIL)
+    if held:
+        await cmd.sell_item(VIGIL, held)
 
 
 #: ``termina_temple`` takes a ``sea_voice`` flag, which shadows the story
