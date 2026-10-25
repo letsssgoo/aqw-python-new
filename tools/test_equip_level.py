@@ -81,8 +81,11 @@ class StubBot:
         self.strMapName = "yulgar"
         self.areaId = "yulgar-1"
         self.user_id = 1
+        self.map_name = "yulgar"
+        self.joined: list[str] = []
+        self.shops_loaded: list[int] = []
 
-    async def ensure_leave_from_combat(self):
+    async def ensure_leave_from_combat(self, always=False):
         return None
 
     def write_message(self, msg):
@@ -98,14 +101,29 @@ class StubBot:
 class StubCommand(Command):
     """Command with the decorators that need a live connection stubbed out."""
 
-    def __init__(self, bot):
+    def __init__(self, bot, locked=()):
         self.bot = bot
+        self.locked = set(locked)
 
     def is_still_connected(self):
         return True
 
     async def sleep(self, ms):
         return None
+
+    def is_not_in_map(self, map_name):
+        return self.bot.map_name != map_name
+
+    async def join_map(self, map_name, room=None, safe_leave=True):
+        self.bot.map_name = map_name
+        self.bot.joined.append(map_name)
+
+    async def ensure_load_shop(self, shop_id):
+        self.bot.shops_loaded.append(shop_id)
+        return True
+
+    async def is_completed_before(self, quest_id, timeout_sec=3.0):
+        return int(quest_id) not in self.locked
 
 
 def equipped_name(bot):
@@ -134,6 +152,8 @@ def main() -> int:
 
     def run(coro):
         bot.sent.clear()
+        bot.joined.clear()
+        bot.shops_loaded.clear()
         for it in items:
             it.is_equipped = False
         return asyncio.run(coro)
@@ -205,22 +225,44 @@ def main() -> int:
     # A fresh account: a plain weapon is worn and nothing carries Valiance.
     for it in items:
         it.is_equipped = False
+    bot.sent.clear()
+    bot.joined.clear()
+    bot.shops_loaded.clear()
     sword = items[3]                       # plain sword, Weapon, lvl 100
     sword.is_equipped = True
-    bot.sent.clear()
     ok = asyncio.run(cmd.equip_enhancement("Valiance",
                                           enhance_if_missing=True))
     check("nothing carries Valiance -> socketed instead", ok, True)
+    check("...joins /forge first (the shop lives there)", bot.joined, ["forge"],
+          str(bot.joined))
+    check("...opens shop 2142 before the packet", bot.shops_loaded, [2142],
+          str(bot.shops_loaded))
     check("...one enhanceItemShop packet", len(bot.sent), 1, str(bot.sent))
     fields = bot.sent[-1].split("%")[5:8] if bot.sent else []
     check("...onto the worn weapon, Valiance R7 from shop 2142", fields,
           [str(sword.item_id), "70752", "2142"],
           str(bot.sent[-1]) if bot.sent else "no packet")
 
+    print("\n-- a locked forge enhancement is refused, not sent --")
+    for it in items:
+        it.is_equipped = False
+    sword.is_equipped = True
+    bot.sent.clear()
+    bot.joined.clear()
+    bot.shops_loaded.clear()
+    locked = StubCommand(bot, locked=(8741,))
+    ok = asyncio.run(locked.equip_enhancement("Valiance",
+                                             enhance_if_missing=True))
+    check("quest 8741 not done -> False", ok, False)
+    check("...and nothing was sent", bot.sent, [])
+    check("...and no shop was opened", bot.shops_loaded, [])
+
     print("\n-- nothing worn in that slot -> refuse, no packet --")
     for it in items:
         it.is_equipped = False
     bot.sent.clear()
+    bot.joined.clear()
+    bot.shops_loaded.clear()
     ok = asyncio.run(cmd.equip_enhancement("Valiance",
                                           enhance_if_missing=True))
     check("no item in the slot -> False", ok, False)
@@ -229,10 +271,12 @@ def main() -> int:
     print("\n-- the socketed tier stays at or under the item's level --")
     for it in items:
         it.is_equipped = False
+    bot.sent.clear()
+    bot.joined.clear()
+    bot.shops_loaded.clear()
     helm = items[2]                        # omni cowl, Helm
     helm.level = 70
     helm.is_equipped = True
-    bot.sent.clear()
     ok = asyncio.run(cmd.equip_enhancement("Wizard Helm Enhancement",
                                           enhance_if_missing=True))
     check("helm at lvl 70 still succeeds", ok, True)
@@ -240,6 +284,10 @@ def main() -> int:
     check("...and takes the lvl-70 R5 tier (39731), not lvl 100", fields,
           [str(helm.item_id), "39731", "765"],
           str(bot.sent[-1]) if bot.sent else "no packet")
+    check("...a basic enhancement stays in the current map", bot.joined, [],
+          str(bot.joined))
+    check("...but its shop is opened too", bot.shops_loaded, [765],
+          str(bot.shops_loaded))
 
     print()
     print("=" * 74)

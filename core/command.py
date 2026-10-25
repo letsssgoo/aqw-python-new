@@ -1093,11 +1093,47 @@ class Command:
         fit = [r for r in candidates
                if not equipped.level or r.level <= equipped.level]
         rec = max(fit or candidates, key=lambda r: (r.rarity, r.level, r.item_id))
+
+        # A forge enhancement is locked behind its quest line and the server
+        # applies nothing while it is locked.  The reference checks this first
+        # (``CoreAdvanced.uValiance`` is "quest 8741 completed"), so it is
+        # checked here too -- otherwise a run says "socketed" and nothing
+        # changes.
+        forge_map = None
+        if rec.source == "forge":
+            from bot import core_advanced as adv
+            tables = {"Weapon": adv.WEAPON_UNLOCK, "ba": adv.CAPE_UNLOCK,
+                      "he": adv.HELM_UNLOCK}
+            key = (rec.name.replace(" ", "").replace("'", "")
+                   .replace("_", "").lower())
+            flag = next((f for special, f in tables.get(wanted_slot, {}).items()
+                         if special.replace("_", "").lower() == key), None)
+            if flag and not await adv.enhancement_unlocked(self, flag):
+                quests = adv.UNLOCKS[flag][0]
+                print(Fore.YELLOW +
+                      f"[equip_enhancement] {rec.name} is not unlocked yet "
+                      f"(quest {'/'.join(str(q) for q in quests)}); cannot "
+                      f"socket it into {equipped.item_name!r}." + Fore.RESET)
+                return False
+            forge_map = adv.FORGE_MAP
+
         print(Fore.CYAN +
               f"[equip_enhancement] no owned item carries this enhancement; "
               f"socketing {rec.name} R{rec.rarity} (lvl {rec.level}, item "
               f"{rec.item_id}, shop {rec.shop_id}) into "
               f"{equipped.item_name!r}" + Fore.RESET)
+
+        # The reference enhances from an *open* shop: it joins the shop's map
+        # and loads it before the packet, and the server applies nothing for a
+        # shop it did not just serve.  Sending the packet alone looked like it
+        # worked and changed nothing.
+        if forge_map and self.is_not_in_map(forge_map):
+            await self.join_map(forge_map)
+        if not await self.ensure_load_shop(rec.shop_id):
+            print(Fore.YELLOW +
+                  f"[equip_enhancement] shop {rec.shop_id} did not load; not "
+                  f"sending the enhancement." + Fore.RESET)
+            return False
         await self.enhance_item(equipped.item_id, rec.item_id, rec.shop_id)
         return True
 
