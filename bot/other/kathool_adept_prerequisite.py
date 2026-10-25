@@ -81,9 +81,10 @@ async def kathool_adept_prerequisite(cmd: Command,
 
 
 async def main(cmd: Command):
-    await cmd.equip_enhancement("Valiance")
-    await cmd.equip_enhancement("Vainglory")
-    await cmd.equip_enhancement("Wizard Helm Enhancement")
+    await cmd.equip_enhancement("Valiance", enhance_if_missing=True)
+    await cmd.equip_enhancement("Vainglory", enhance_if_missing=True)
+    await cmd.equip_enhancement("Wizard Helm Enhancement",
+                                enhance_if_missing=True)
 
     await kathool_adept_prerequisite(cmd)
     await fishing_rep(cmd)

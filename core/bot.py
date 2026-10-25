@@ -123,6 +123,12 @@ class Bot:
         self.anti_mod = antiMod
         #: Total deaths this session; the ultra party reads the delta to spot wipes.
         self.deaths = 0
+        #: Where the player stood when it died: ``(map, cell, pad)``.  The death
+        #: handler respawns the character a few seconds later, by which time the
+        #: server has already moved it to the map's own spawn (cell
+        #: ``Enter``) -- reading ``player.CELL`` there sends the bot back to
+        #: Enter instead of the farm.
+        self.death_cell_pad = None
 
         # autoRelogin is honoured as passed: the old force-disable only dodged a
         # stop_bot() in read_server_in_background() that read_batch() can never reach.
@@ -987,6 +993,10 @@ class Bot:
                     print(Fore.RED + "DEATH" + Fore.WHITE)
                     self.player.ISDEAD = True
                     self.deaths += 1
+                    # Remember the farm, not the spawn cell the server is about
+                    # to move the character to.
+                    self.death_cell_pad = (self.strMapName, self.player.CELL,
+                                           self.player.PAD)
                     if self.isScriptable:
                         self.run_death_hanlder_task()
             elif cmd == "getQuests":

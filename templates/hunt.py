@@ -25,6 +25,11 @@ CELL_ATTEMPTS: int = 5
 #: seconds, and how long it keeps that up before reporting and stopping.
 STALL_CHECK_S: float = 60.0
 STALL_GIVE_UP_S: float = 15 * 60.0
+#: How many stall checks may end in "walk to the target" before the map itself
+#: is re-joined.  One is enough when the player was merely displaced; a list
+#: that keeps pointing at a cell with nothing in it only a fresh area packet
+#: can fix.
+REJOIN_AFTER_LOOKS: int = 3
 
 
 def _held_count(cmd: Command, item_name: str, is_temp: bool) -> int:
@@ -40,18 +45,29 @@ def _held_count(cmd: Command, item_name: str, is_temp: bool) -> int:
 
 
 def _fighting(cmd: Command, monster_name: str) -> bool:
-    """Whether the hunt is actually hitting something right now.
+    """Whether the hunt has something to hit where the player is standing.
 
     Used by the stall timer: attacking a monster is progress even when nothing
     drops, so a rare drop's dry spell must not look like a stuck bot.
+
+    ``IS_IN_COMBAT`` used to be enough on its own, and that is what let a hunt
+    go silent: the flag is only refreshed by a combat tick (``ct``), so once the
+    last fight ends it stays ``True``.  The stall timer then read "still
+    fighting" on every pass and never looked for the target again -- the bot
+    stood at Enter until the 15-minute session watchdog relogged it into the
+    same spot.  A live monster in the player's own cell answers the same
+    question from data a re-join can refresh.
     """
     try:
-        if cmd.bot.player.IS_IN_COMBAT:
+        if cmd.is_monster_alive(monster_name):
             return True
     except Exception:
         pass
     try:
-        return cmd.is_monster_alive(monster_name)
+        cell = str(cmd.bot.player.CELL or "").lower()
+        return any(str(mon.frame or "").lower() == cell and mon.is_alive
+                   and mon.current_hp > 0
+                   for mon in (getattr(cmd.bot, "monsters", None) or []))
     except Exception:
         return False
 
@@ -231,6 +247,7 @@ async def hunt_item(
     last_progress = time.monotonic()
     last_count = _held_count(cmd, item_name, is_temp)
     last_look = last_progress
+    looks = 0                       # stall checks since the last real progress
 
     while cmd.is_still_connected():
         if cmd.is_in_inventory(item_name, item_qty, operator=">=") or cmd.is_in_inventory(item_name, item_qty, operator=">=", isTemp=True):
@@ -241,6 +258,7 @@ async def hunt_item(
         if held != last_count:
             last_count = held
             last_progress = now
+            looks = 0
         elif _fighting(cmd, monster_name):
             # Attacking something is progress even when nothing drops: the item
             # may be a rare drop, and a long dry spell while the fight is running
@@ -248,6 +266,7 @@ async def hunt_item(
             # still with nothing to hit counts as stalled.
             last_progress = now
             last_look = now
+            looks = 0
         elif now - last_progress >= STALL_GIVE_UP_S:
             cmd.bot.log(f"[hunt] {item_name}: no progress for "
                         f"{STALL_GIVE_UP_S / 60:.0f} min in {map_name} "
@@ -255,16 +274,28 @@ async def hunt_item(
                         f"stopping the hunt.")
             return
         elif now - last_look >= STALL_CHECK_S:
-            # Look for the target again: re-join if the map carries no matching
-            # monster at all (its cell list is built from the area packet), then
-            # walk to whichever cell does have it.
+            # Look for the target again.  Anything that moves the player behind
+            # the hunt's back -- a death respawn back to Enter, a server move --
+            # leaves the loop casting at an empty cell, so the spot is
+            # re-taken here rather than only after giving up.
             last_look = now
+            looks += 1
             cmd.bot.log(f"[hunt] {item_name}: still at "
                         f"{cmd.bot.player.CELL} with {held}/{item_qty} and no "
-                        f"target; looking for {monster_name} again")
-            await _refresh_map(cmd, map_name, room_number, item_name,
-                               monster_name)
-            await cmd.jump_to_monster(monster_name, most_monster)
+                        f"target; going back to the hunt's spot")
+            if cell:
+                await move_to_cell(cmd, cell, pad, item_name)
+            elif _has_target(cmd, monster_name) and looks < REJOIN_AFTER_LOOKS:
+                # The map still lists the target, so the player is simply not
+                # in its cell: walking is enough, no need to bounce the map.
+                await cmd.jump_to_monster(monster_name, most_monster)
+            else:
+                # Either the list has no match, or walking to it twice did not
+                # help -- the list itself is stale, and only a fresh area
+                # packet rewrites it.
+                await _refresh_map(cmd, map_name, room_number, item_name,
+                                   monster_name)
+                await cmd.jump_to_monster(monster_name, most_monster)
             continue
         playerclass = cmd.get_equipped_class()
         playerclass = playerclass.item_name if playerclass else ""

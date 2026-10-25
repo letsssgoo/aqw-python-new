@@ -13,10 +13,18 @@ async def death_handler_task(bot: 'Bot'):
         await asyncio.sleep(1)
     bot.debug(Fore.MAGENTA + "respawned" + Fore.WHITE)
     bot.write_message(f"%xt%zm%resPlayerTimed%{bot.areaId}%{bot.user_id}%")
-    if bot.respawn_cell_pad:
-        bot.jump_cell(bot.respawn_cell_pad[0], bot.respawn_cell_pad[1])
+    # ``player.CELL`` is read *after* the respawn request, so by then the
+    # server has usually put the character back on the map's spawn cell
+    # ("Enter") -- jumping to it is what left farms standing there.  Use the
+    # place the player died in, when it was the same map.
+    died_at = getattr(bot, "death_cell_pad", None)
+    if died_at and died_at[0] == bot.strMapName:
+        cell, pad = died_at[1], died_at[2]
+    elif bot.respawn_cell_pad:
+        cell, pad = bot.respawn_cell_pad[0], bot.respawn_cell_pad[1]
     else:
-        bot.jump_cell(bot.player.CELL, bot.player.PAD)
+        cell, pad = bot.player.CELL, bot.player.PAD
+    bot.jump_cell(cell, pad)
     bot.player.ISDEAD = False
     bot.player.IS_IN_COMBAT = False
     bot.player.CURRENT_HP = bot.player.MAX_HP
