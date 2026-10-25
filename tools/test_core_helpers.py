@@ -1106,6 +1106,86 @@ try:
 finally:
     vhl.rank_up = real_vhl_rank
 
+# ============================================================================
+# 15. Lair and Dragonslayer
+# ============================================================================
+from bot.story import lair as lair_mod  # noqa: E402
+from bot.other.classes import dragonslayer as dsl  # noqa: E402
+
+lair_order = []
+
+
+async def lair_kill(cmd, quest, map_name, monster):
+    lair_order.append(f"kill{quest}")
+
+
+async def lair_map(cmd, quest, map_name, item_ids, qty=1):
+    lair_order.append(f"map{quest}")
+
+
+async def lair_chain(cmd, quest, item_id=-1):
+    lair_order.append(f"chain{quest}")
+    return True
+
+
+leaf = patch(lair_mod, kill_quest=lair_kill, map_item_quest=lair_map,
+             chain_complete=lair_chain)
+try:
+    cmd = Cand()
+    cmd.completed = {169}
+    lair_order.clear()
+    run(lair_mod.galanoth(cmd))
+    check("lair: 169 done -> the line is skipped", lair_order, [])
+
+    cmd = Cand()
+    lair_order.clear()
+    run(lair_mod.do_all(cmd))
+    check("lair: the source's order", lair_order, [
+        "kill165", "kill166", "kill167", "kill168",
+        "kill1492", "map1493", "kill1494", "map1495",
+        "chain1502", "map1503", "kill1504", "kill1505", "kill1506", "kill1507"])
+
+    cmd = Cand()
+    cmd.bot.player.is_member = False
+    lair_order.clear()
+    run(lair_mod.duncan(cmd))
+    check("lair: Duncan is members only", lair_order, [])
+    check("lair: says so", any("Member" in line for line in cmd.bot.logs), True)
+finally:
+    restore(lair_mod, leaf)
+
+dsl_order = []
+
+
+async def dsl_gal(cmd):
+    dsl_order.append("galanoth")
+
+
+async def dsl_buy(cmd, shop, item, qty=1, map_name=None, shop_item_id=0):
+    dsl_order.append(("buy", shop, item, map_name))
+
+
+async def dsl_rank(cmd, name="", item_id=0, gear_restore=True):
+    dsl_order.append(("rank", name))
+
+
+leaf = patch(dsl, galanoth=dsl_gal, buy_item=dsl_buy, advance_class=dsl_rank)
+try:
+    cmd = Cand([ItemInventory({"sName": "Dragonslayer", "ItemID": 1,
+                               "iQty": 1})])
+    dsl_order.clear()
+    run(dsl.get_dragonslayer(cmd))
+    check("dragonslayer: owned -> ranked", dsl_order,
+          [("rank", "Dragonslayer")])
+
+    cmd = Cand()
+    dsl_order.clear()
+    run(dsl.get_dragonslayer(cmd, rank_up_class=False))
+    check("dragonslayer: Galanoth then the shop", dsl_order,
+          ["galanoth", ("buy", 38, "Dragonslayer", "lair")])
+finally:
+    restore(dsl, leaf)
+
 print(f"passed {passed}   failed {len(failures)}")
 if failures:
     for line in failures:

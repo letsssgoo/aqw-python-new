@@ -35,6 +35,10 @@ class _Item:
         self.s_es = slot or ItemType.CLASS.value
         self.qty = qty
         self.is_equipped = False
+        #: Read by ``core_advanced.rank_up_class`` when a class is resolved.
+        self.item_id = "0"
+        self.is_upgrade = False
+        self.enh_level = 100
 
 
 class _Player:
@@ -236,6 +240,16 @@ class Stub:
 def main() -> None:
     joe._reported.clear()
 
+    # ``rank_up_class`` drives the arena and probes enhancement unlocks; the
+    # rank-up itself is covered in test_core_helpers, so here it is recorded.
+    ranked_classes: list = []
+    real_rank_up = joe.rank_up_class
+
+    async def spy_rank_up(cmd, name="", item_id=0, gear_restore=True):
+        ranked_classes.append(name or item_id)
+
+    joe.rank_up_class = spy_rank_up
+
     # --- AnyRank10 ------------------------------------------------------
     ranked = Stub(classes_held={"Master Ranger": joe.RANK_10_CLASS_POINTS})
     assert joe.any_rank10(ranked, ["Master Ranger"]) is True
@@ -270,7 +284,8 @@ def main() -> None:
     assert ("equip_item", "King's Echo") in stub.calls, stub.calls
     assert any("SoloClass resolved -> King's Echo" == line
                for line in stub.bot.logs), stub.bot.logs
-    print("setclass   : resolves both pools and equips the solo one")
+    assert ranked_classes == ["King's Echo", "Legion Revenant"], ranked_classes
+    print("setclass   : resolves both pools, ranks them, equips the solo one")
 
     # nothing changed -> nothing redone (the reference's ShouldSkipSetClass)
     before = len(stub.calls)
@@ -337,7 +352,7 @@ def main() -> None:
                     ("forge_helm_enhancement", "lacerate", "smite", "afdl",
                      "smart_enhance", "vim", "pneuma", "examen", "anima",
                      "get_ds_general", "get_burning_blade", "blade_of_awe_rep",
-                     "get_ssorc", "get_blaze_binder")}
+                     "get_ssorc", "get_blaze_binder", "get_dragonslayer")}
 
     async def fake_exp(cmd, level=100, rank_up_class=False):
         levels.append(level)
@@ -540,6 +555,7 @@ def main() -> None:
     forges = []
     real_forge_helm = joe.forge_helm_enhancement
     real_boa = joe.blade_of_awe_rep
+    real_ds = joe.get_dragonslayer
 
     async def spy_forge_helm(cmd):
         forges.append("helm")
@@ -547,20 +563,25 @@ def main() -> None:
     async def spy_boa(cmd, *args, **kwargs):
         forges.append("boa")
 
+    async def spy_ds(cmd, *args, **kwargs):
+        forges.append("ds")
+
     joe.forge_helm_enhancement = spy_forge_helm
     joe.blade_of_awe_rep = spy_boa
+    joe.get_dragonslayer = spy_ds
     try:
         asyncio.run(joe._handle_level_30(h30))
     finally:
         joe.forge_helm_enhancement = real_forge_helm
         joe.blade_of_awe_rep = real_boa
+        joe.get_dragonslayer = real_ds
     assert ("sell_item", "Venom Head") in h30.calls, h30.calls
     assert ("buy_item", 631, "awethur's accoutrements", 1, 0) in h30.calls, \
         h30.calls
-    assert forges == ["boa", "helm"], forges
+    assert forges == ["ds", "boa", "helm"], forges
     assert any(line.startswith("Level 30: Farming Blade of Awe Rep")
                for line in h30.bot.logs), h30.bot.logs
-    print("bracket30  : sells the Venom Head, buys Awethur's, helm + BoA rep")
+    print("bracket30  : Dragonslayer, Blade of Awe rep, Awethur's, helm unlock")
 
     h80 = Stub(solo="King's Echo", classes_held=["King's Echo"],
                inventory={"Void Highlord": 1})
@@ -605,11 +626,13 @@ def main() -> None:
                        _Shop(631, ["Awethur's Accoutrements"])])
     joe.forge_helm_enhancement = spy_forge_helm
     joe.blade_of_awe_rep = spy_boa
+    joe.get_dragonslayer = spy_ds
     try:
         asyncio.run(joe._handle_level_30(h30b))
     finally:
         joe.forge_helm_enhancement = real_forge_helm
         joe.blade_of_awe_rep = real_boa
+        joe.get_dragonslayer = real_ds
     assert ("buy_item", 242, "master ranger", 1, 5682) in h30b.calls, h30b.calls
     print("bracket30  : Master Ranger comes from the ported kit now")
 
@@ -660,6 +683,7 @@ def main() -> None:
     assert calls[-2] == ("pets", joe.PET_AKRILOTH), calls[-2]
     print("doall      : snapshot, brackets, outfit, pets, then restore")
 
+    joe.rank_up_class = real_rank_up
     print("\nfarmer joe tests OK")
 
 

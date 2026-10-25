@@ -23,19 +23,6 @@ DARKNESS_SIGIL, FLAME_SIGIL = "Darkness Sigil", "Flame Sigil"
 POINT_MAP = "Noobshire"
 
 
-async def _kill_one(cmd: Command) -> None:
-    """``Bot.Kill.Monster("*")``: attack the cell until nothing in it is alive."""
-    for _ in range(POINT_ATTACK_TRIES):
-        cell = str(getattr(cmd.bot.player, "CELL", "") or "").lower()
-        alive = [mon for mon in cmd.bot.monsters
-                 if str(mon.frame or "").lower() == cell and mon.is_alive
-                 and mon.current_hp > 0]
-        if not alive:
-            return
-        await cmd.use_next_skill(DEFAULT_SKILL_LIST, "*")
-    cmd.bot.log(f"[blazebinder] nothing died in /{POINT_MAP}; carrying on.")
-
-
 async def get_class(cmd: Command, rank_up_class: bool = True) -> None:
     """``BlazeBinder.GetClass``.
 
