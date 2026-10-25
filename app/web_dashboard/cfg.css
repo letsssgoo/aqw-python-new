@@ -72,6 +72,79 @@ body.cfg-page {
 .slot-status { margin-top: 10px; font-size: .78rem; color: var(--text-secondary, #94A3B8); display: flex; gap: 10px; flex-wrap: wrap; }
 .slot-status .pill { padding: 3px 9px; border-radius: 999px; background: rgba(148, 163, 184, .12); }
 
+/* Skill cooldown badges, same look as the slave table. */
+.slot-skills {
+    margin-top: 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.slot-skills-label {
+    font-size: .68rem;
+    color: var(--text-muted, #64748B);
+    text-transform: uppercase;
+    letter-spacing: .05em;
+}
+
+.slot-muted { font-size: .72rem; color: var(--text-muted, #64748B); }
+
+.cooldowns-grid {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+}
+
+.skill-cd-badge {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    transition: all .2s ease;
+    line-height: 1.1;
+    padding: 3px 0;
+}
+
+.skill-cd-badge .skill-idx { font-size: .75rem; font-weight: 700; }
+.skill-cd-badge .skill-cd-val { font-size: .625rem; font-weight: 500; }
+
+.skill-cd-badge.ready {
+    background: rgba(16, 185, 129, .1);
+    color: var(--success-color, #34d399);
+    border-color: rgba(16, 185, 129, .2);
+}
+
+.skill-cd-badge.ready .skill-cd-val { color: rgba(16, 185, 129, .6); }
+
+.skill-cd-badge.on-cooldown {
+    background: rgba(255, 255, 255, .03);
+    color: var(--text-muted, #64748B);
+    border-color: rgba(255, 255, 255, .08);
+}
+
+.skill-cd-badge.on-cooldown .skill-cd-val { color: var(--warning-color, #fbbf24); }
+
+.skill-cd-badge.skill-5-badge.ready {
+    background: rgba(59, 130, 246, .15);
+    color: #3b82f6;
+    border-color: rgba(59, 130, 246, .3);
+}
+
+.skill-cd-badge.skill-5-badge.ready .skill-cd-val { color: rgba(59, 130, 246, .6); }
+
+.skill-cd-badge.skill-5-badge.on-cooldown {
+    background: rgba(59, 130, 246, .05);
+    color: rgba(59, 130, 246, .5);
+    border-color: rgba(59, 130, 246, .15);
+}
+
+.skill-cd-badge.skill-5-badge.on-cooldown .skill-cd-val { color: #3b82f6; }
+
 .role-info {
     margin-top: 8px;
     font-size: .74rem;

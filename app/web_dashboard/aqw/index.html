@@ -6,6 +6,7 @@
     <title>AQW Solo Bot</title>
     <link rel="stylesheet" href="/temple/style.css">
     <link rel="stylesheet" href="/cfg.css">
+    <link rel="stylesheet" href="/telemetry.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
     <script src="/components.js"></script>
 </head>
@@ -45,6 +46,7 @@
                     </div>
                     <div style="display:flex;align-items:center;gap:8px">
                         <div class="status-badge" id="editor-badge">Offline</div>
+                        <button class="btn btn-secondary btn-small" id="btn-telemetry" type="button">Telemetry</button>
                         <button class="btn btn-success btn-small" id="btn-account-toggle">START</button>
                     </div>
                 </div>
@@ -74,6 +76,10 @@
                         </div>
                     </div>
                     <div class="slot-status" id="editor-status" style="margin-top:10px"><span class="pill">idle</span></div>
+                    <div class="slot-skills" id="editor-cooldowns-row">
+                        <span class="slot-skills-label">Skill cooldowns</span>
+                        <div class="cooldowns-grid" id="editor-cooldowns"></div>
+                    </div>
                     <label class="chk-label" style="display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer;padding:7px 10px;border-radius:8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06)">
                         <input type="checkbox" id="chk-items" style="accent-color:var(--primary-color,#a855f7);cursor:pointer">
                         <span style="font-size:.8rem;color:#e2e8f0">Show item, bank, temp item</span>
@@ -115,6 +121,7 @@
     </div>
 
     <script src="/players_dropdown.js"></script>
+    <script src="/telemetry.js"></script>
     <script src="main.js"></script>
 </body>
 </html>

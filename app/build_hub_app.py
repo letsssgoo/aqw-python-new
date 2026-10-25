@@ -857,6 +857,110 @@ class PlayersApi:
         return self._write(players)
 
 
+def build_telemetry(bot, char_class=""):
+    """The live snapshot both telemetry modals render.
+
+    Args:
+        bot: A running ``Bot``; its ``player`` is only read, never written.
+        char_class (str): Class name to show. Empty falls back to the player's.
+
+    Returns:
+        dict: JSON-ready payload for ``telemetry.js``.  Raised on a bot that is
+        half-built (no player yet) -- callers check ``running`` first.
+    """
+    from datetime import datetime
+    now = datetime.now()
+    player = getattr(bot, "player", None)
+
+    hp_val = int(player.CURRENT_HP) if player and player.CURRENT_HP is not None else 0
+    max_hp_val = int(player.MAX_HP) if player and player.MAX_HP is not None else 0
+    mp_val = int(player.MANA) if player and player.MANA is not None else 0
+    max_mp_val = int(player.MAX_MP) if player and player.MAX_MP is not None else 0
+
+    target_info = None
+    last_target = getattr(player, "last_target", None) if player else None
+    if last_target and hasattr(last_target, "mon_name") and last_target.mon_name:
+        t_auras = []
+        if hasattr(last_target, "AURAS"):
+            for ta in last_target.AURAS:
+                if hasattr(ta, "is_expired") and not ta.is_expired():
+                    t_auras.append({
+                        "name": getattr(ta, "name", "Unknown"),
+                        "type": getattr(ta, "aura_type", "debuff") or "debuff",
+                        "stacks": ta.get_val() if hasattr(ta, "get_val") else 1,
+                        "remaining": round(max(0, (ta.expires_at - now).total_seconds()), 1) if hasattr(ta, "expires_at") else 0
+                    })
+        target_info = {
+            "name": last_target.mon_name,
+            "map_id": str(getattr(last_target, "mon_map_id", "")),
+            "hp": int(getattr(last_target, "current_hp", 0)),
+            "max_hp": int(getattr(last_target, "max_hp", 0)),
+            "is_alive": bool(getattr(last_target, "is_alive", True)),
+            "auras": t_auras
+        }
+
+    player_auras = []
+    if player and hasattr(player, "AURAS"):
+        for a in player.AURAS:
+            if hasattr(a, "is_expired") and not a.is_expired():
+                player_auras.append({
+                    "name": getattr(a, "name", "Unknown"),
+                    "type": getattr(a, "aura_type", "buff") or "buff",
+                    "stacks": a.get_val() if hasattr(a, "get_val") else 1,
+                    "duration": int(getattr(a, "duration", 0)),
+                    "remaining": round(max(0, (a.expires_at - now).total_seconds()), 1) if hasattr(a, "expires_at") else 0,
+                    "icon": str(getattr(a, "icon", "") or ""),
+                    "spell": str(getattr(a, "source_spell", "") or "")
+                })
+
+    return {
+        "running": True,
+        "username": str(getattr(player, "USER", "") or "") if player else "",
+        "char_class": str(char_class or (getattr(player, "s_es", "") if player else "") or ""),
+        "server": str(getattr(bot, "server", "Artix") or "Artix"),
+        "is_connected": bool(getattr(bot, "is_client_connected", False)),
+        "is_paused": bool(getattr(bot, "is_paused", False) or getattr(bot, "is_script_paused", False)),
+        "is_in_combat": bool(getattr(player, "IS_IN_COMBAT", False)) if player else False,
+        "is_dead": bool(getattr(player, "ISDEAD", False)) if player else False,
+        "hp": hp_val,
+        "max_hp": max_hp_val,
+        "mp": mp_val,
+        "max_mp": max_mp_val,
+        "map": str(getattr(bot, "strMapName", "-") or "-"),
+        "cell": str(player.CELL if player and player.CELL else "-"),
+        "pad": str(player.PAD if player and player.PAD else "-"),
+        "x": int(player.X if player and player.X is not None else 0),
+        "y": int(player.Y if player and player.Y is not None else 0),
+        "gold": int(player.GOLD if player and player.GOLD is not None else 0),
+        "gold_farmed": int(player.GOLDFARMED if player and player.GOLDFARMED is not None else 0),
+        "exp_farmed": int(player.EXPFARMED if player and player.EXPFARMED is not None else 0),
+        "cd_reduction": float(player.CDREDUCTION if player and player.CDREDUCTION is not None else 0),
+        "target": target_info,
+        "auras": player_auras,
+        "dropped_items": list(getattr(bot, "dropped_items", []))
+    }
+
+
+def request_drop(bot, item_id):
+    """Ask the server for one dropped item and mark it looted.
+
+    Args:
+        bot: The running ``Bot`` that saw the drop.
+        item_id: Drop id as the ``dropItem`` packet carried it.
+
+    Returns:
+        dict: ``{"success": True}`` or ``{"success": False, "error": ...}``.
+    """
+    try:
+        bot.get_drop(bot.username_id, str(item_id))
+        for d in getattr(bot, "dropped_items", []):
+            if str(d.get("item_id")) == str(item_id):
+                d["picked_up"] = True
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 class AqwSoloApi:
     def __init__(self):
         #: username -> {"thread", "instance", "config"}; one bot per account.
@@ -1203,6 +1307,27 @@ class AqwSoloApi:
             return {"running": False, "error": str(e),
                     "inventory": [], "bank": [], "temp": []}
 
+    def get_telemetry(self, key):
+        """Live player/target/aura/drop snapshot for one account."""
+        entry = self.bots.get(key)
+        if not entry or not entry["thread"].is_alive() or not entry.get("instance"):
+            return {"running": False, "username": key, "is_connected": False,
+                    "error": "Account is not running."}
+        try:
+            data = build_telemetry(entry["instance"])
+        except Exception as e:
+            return {"running": True, "username": key, "is_connected": False,
+                    "error": str(e)}
+        data["username"] = data["username"] or key
+        return data
+
+    def pickup_drop(self, key, item_id):
+        """Pick up one dropped item on that account."""
+        entry = self.bots.get(key)
+        if not entry or not entry.get("instance"):
+            return {"success": False, "error": "Account is not running."}
+        return request_drop(entry["instance"], item_id)
+
 #: Global settings an account may replace with its own value.  Everything else
 #: (accounts, theme, ...) stays global.
 OVERRIDABLE_SETTINGS = ("server", "room_number", "follow_player", "copy_walk",
@@ -1498,8 +1623,6 @@ class SlaveryApi:
         return "v1.1.0"
 
     def get_telemetry(self, username):
-        from datetime import datetime
-        now = datetime.now()
         target_name = str(username).strip()
         thread = self.active_threads.get(target_name)
         if not thread:
@@ -1517,81 +1640,14 @@ class SlaveryApi:
                 "error": "Account is not running."
             }
 
-        bot = thread.bot_instance
-        player = getattr(bot, "player", None)
-
-        hp_val = int(player.CURRENT_HP) if player and player.CURRENT_HP is not None else 0
-        max_hp_val = int(player.MAX_HP) if player and player.MAX_HP is not None else 0
-        mp_val = int(player.MANA) if player and player.MANA is not None else 0
-        max_mp_val = int(player.MAX_MP) if player and player.MAX_MP is not None else 0
-
-        # Target telemetry
-        target_info = None
-        last_target = getattr(player, "last_target", None) if player else None
-        if last_target and hasattr(last_target, "mon_name") and last_target.mon_name:
-            t_auras = []
-            if hasattr(last_target, "AURAS"):
-                for ta in last_target.AURAS:
-                    if hasattr(ta, "is_expired") and not ta.is_expired():
-                        t_auras.append({
-                            "name": getattr(ta, "name", "Unknown"),
-                            "type": getattr(ta, "aura_type", "debuff") or "debuff",
-                            "stacks": ta.get_val() if hasattr(ta, "get_val") else 1,
-                            "remaining": round(max(0, (ta.expires_at - now).total_seconds()), 1) if hasattr(ta, "expires_at") else 0
-                        })
-            target_info = {
-                "name": last_target.mon_name,
-                "map_id": str(getattr(last_target, "mon_map_id", "")),
-                "hp": int(getattr(last_target, "current_hp", 0)),
-                "max_hp": int(getattr(last_target, "max_hp", 0)),
-                "is_alive": bool(getattr(last_target, "is_alive", True)),
-                "auras": t_auras
-            }
-
-        # Player Auras
-        player_auras = []
-        if player and hasattr(player, "AURAS"):
-            for a in player.AURAS:
-                if hasattr(a, "is_expired") and not a.is_expired():
-                    player_auras.append({
-                        "name": getattr(a, "name", "Unknown"),
-                        "type": getattr(a, "aura_type", "buff") or "buff",
-                        "stacks": a.get_val() if hasattr(a, "get_val") else 1,
-                        "duration": int(getattr(a, "duration", 0)),
-                        "remaining": round(max(0, (a.expires_at - now).total_seconds()), 1) if hasattr(a, "expires_at") else 0,
-                        "icon": str(getattr(a, "icon", "") or ""),
-                        "spell": str(getattr(a, "source_spell", "") or "")
-                    })
-
-        # Dropped items
-        dropped_items = list(getattr(bot, "dropped_items", []))
-
-        return {
-            "running": True,
-            "username": target_name,
-            "char_class": str(getattr(thread, "char_class", "") or (getattr(player, "s_es", "") if player else "")),
-            "server": str(getattr(bot, "server", "Artix") or "Artix"),
-            "is_connected": bool(getattr(bot, "is_client_connected", False)),
-            "is_paused": bool(getattr(bot, "is_paused", False) or getattr(bot, "is_script_paused", False)),
-            "is_in_combat": bool(getattr(player, "IS_IN_COMBAT", False)) if player else False,
-            "is_dead": bool(getattr(player, "ISDEAD", False)) if player else False,
-            "hp": hp_val,
-            "max_hp": max_hp_val,
-            "mp": mp_val,
-            "max_mp": max_mp_val,
-            "map": str(getattr(bot, "strMapName", "-") or "-"),
-            "cell": str(player.CELL if player and player.CELL else "-"),
-            "pad": str(player.PAD if player and player.PAD else "-"),
-            "x": int(player.X if player and player.X is not None else 0),
-            "y": int(player.Y if player and player.Y is not None else 0),
-            "gold": int(player.GOLD if player and player.GOLD is not None else 0),
-            "gold_farmed": int(player.GOLDFARMED if player and player.GOLDFARMED is not None else 0),
-            "exp_farmed": int(player.EXPFARMED if player and player.EXPFARMED is not None else 0),
-            "cd_reduction": float(player.CDREDUCTION if player and player.CDREDUCTION is not None else 0),
-            "target": target_info,
-            "auras": player_auras,
-            "dropped_items": dropped_items
-        }
+        try:
+            data = build_telemetry(thread.bot_instance,
+                                   str(getattr(thread, "char_class", "") or ""))
+        except Exception as e:
+            return {"running": True, "username": target_name,
+                    "is_connected": False, "error": str(e)}
+        data["username"] = target_name
+        return data
 
     def pickup_drop(self, username, item_id):
         thread = self.active_threads.get(username)
@@ -1601,16 +1657,7 @@ class SlaveryApi:
                     thread = t
                     break
         if thread and thread.bot_instance:
-            bot = thread.bot_instance
-            try:
-                bot.get_drop(bot.username_id, str(item_id))
-                if hasattr(bot, "dropped_items"):
-                    for d in bot.dropped_items:
-                        if str(d.get("item_id")) == str(item_id):
-                            d["picked_up"] = True
-                return {"success": True}
-            except Exception as e:
-                return {"success": False, "error": str(e)}
+            return request_drop(thread.bot_instance, item_id)
         return {"success": False, "error": "Slave not running."}
 
 class TempleApi:
@@ -2885,6 +2932,12 @@ class CombinedApi:
     def aqw_stop_bots(self):
         return self._aqw_api.stop_bots()
 
+    def aqw_get_telemetry(self, key=""):
+        return self._aqw_api.get_telemetry(key)
+
+    def aqw_pickup_drop(self, key, item_id):
+        return self._aqw_api.pickup_drop(key, item_id)
+
     # --- NAMESPACED API FOR SLAVERY BOT (IFRAME) ---
     def slavery_load_config(self):
         return self._slavery_api.load_config()
@@ -3131,6 +3184,8 @@ def serve_injected_html(filepath, bot_type):
                             start_one: (acc) => topApi.aqw_start_one(acc),
                             stop_one: (k) => topApi.aqw_stop_one(k),
                             stop_bots: () => topApi.aqw_stop_bots(),
+                            get_telemetry: (k) => topApi.aqw_get_telemetry(k),
+                            pickup_drop: (k, itemId) => topApi.aqw_pickup_drop(k, itemId),
                             list_players: () => topApi.players_list()
                         }
                     };
@@ -3499,6 +3554,15 @@ def start_local_server(web_dashboard_dir, sub_apps, combined_api=None,
     @app.route('/web_api.js')
     def serve_web_api():
         return static_file('web_api.js', root=web_dashboard_dir)
+
+    @app.route('/telemetry.js')
+    def serve_telemetry_js():
+        return static_file('telemetry.js', root=web_dashboard_dir)
+
+    @app.route('/telemetry.css')
+    def serve_telemetry_css():
+        response.content_type = 'text/css'
+        return static_file('telemetry.css', root=web_dashboard_dir)
 
     @app.route(r'/<filename:re:[^/]+\.(png|jpg|jpeg|gif|ico|svg)>')
     def serve_dashboard_images(filename):

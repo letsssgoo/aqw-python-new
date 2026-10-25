@@ -303,6 +303,37 @@
         else { btn.textContent = 'START'; btn.className = 'btn btn-success btn-small'; }
     }
 
+    function renderCooldowns(s) {
+        // Same badges as the slave table: 0 is auto-attack, 5 is the scroll.
+        var box = el('editor-cooldowns');
+        if (!box) return;
+        if (!s) {
+            box.innerHTML = '<span class="slot-muted">idle</span>';
+            return;
+        }
+        var cds = s.cooldowns || {};
+        if (!Object.keys(cds).length) {
+            box.innerHTML = '<span class="slot-muted">waiting for skills</span>';
+            return;
+        }
+        var html = '';
+        for (var i = 0; i <= 5; i++) {
+            var cd = Number(cds[i] || 0);
+            var extra = i === 5 ? ' skill-5-badge' : (i === 0 ? ' skill-0-badge' : '');
+            var label = i === 0 ? 'AA' : i;
+            if (cd > 0) {
+                html += '<span class="skill-cd-badge on-cooldown' + extra + '" title="Skill ' + label + ' on cooldown">' +
+                    '<span class="skill-idx">' + label + '</span>' +
+                    '<span class="skill-cd-val">' + cd.toFixed(1) + 's</span></span>';
+            } else {
+                html += '<span class="skill-cd-badge ready' + extra + '" title="Skill ' + label + ' ready">' +
+                    '<span class="skill-idx">' + label + '</span>' +
+                    '<span class="skill-cd-val">&#10003;</span></span>';
+            }
+        }
+        box.innerHTML = html;
+    }
+
     function renderEditorStatus() {
         var a = current() || {};
         var user = (a.username || '').trim();
@@ -312,6 +343,7 @@
         var s = runningNames[user] ? runningStatus[user] : null;
         renderAccountToggle(!!s);
         setEditorDisabled(!!s);
+        renderCooldowns(s);
         if (!s) {
             badge.textContent = 'Offline'; badge.style.color = '';
             sub.textContent = 'not running';
@@ -473,6 +505,27 @@
         }
 
         el('btn-add').onclick = guard('add account', function () { addAccount(); });
+
+        // Live telemetry for the account on screen (same modal as the slave menu).
+        var telemetryBtn = el('btn-telemetry');
+        if (telemetryBtn) {
+            telemetryBtn.onclick = guard('telemetry', function () {
+                if (!window.AqwTelemetry) { msg('Telemetry module not loaded.', false); return; }
+                var acc = current() || {};
+                var key = (acc.username || '').trim();
+                if (!key) { msg('Fill in a username first.', false); return; }
+                var list = accounts.map(function (x) {
+                    var u = (x.username || '').trim();
+                    return u ? { key: u, label: u + (x.farm_class ? ' (' + x.farm_class + ')' : '') } : null;
+                }).filter(Boolean);
+                window.AqwTelemetry.open({
+                    key: key,
+                    accounts: list,
+                    get: function (k) { return a.get_telemetry(k); },
+                    pickup: function (k, itemId) { return a.pickup_drop(k, itemId); }
+                });
+            });
+        }
 
         el('btn-account-toggle').onclick = guard('account', function () {
             syncFromEditor();
