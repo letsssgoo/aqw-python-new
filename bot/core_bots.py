@@ -26,7 +26,7 @@ import json
 import random
 import time
 from enum import Enum
-from typing import Optional, Sequence, Tuple, Union
+from typing import List, Optional, Sequence, Tuple, Union
 
 from core.command import Command
 from core.utils import is_valid_json
@@ -627,3 +627,99 @@ async def hunt_monster_quest_single(cmd: Command,
         return False
     targets = [(map_name, monster, solo)] * len(_requirement_rows(quest))
     return await hunt_monster_quest(cmd, quest_id, *targets, log=log)
+
+
+# ---------------------------------------------------------------------------
+# FarmingLogger / Equip / QuestRewards / ChainComplete / EnsureCompleteChoose
+# ---------------------------------------------------------------------------
+def farming_logger(cmd: Command, item: str, quant: int = 1) -> None:
+    """``CoreBots.FarmingLogger``: how much of ``item`` is held, out of ``quant``.
+
+    The reference counts the temp bag as well, because quest progress items land
+    there; both bags are read here for the same reason.
+    """
+    held = 0
+    if item:
+        # ``Bot.TempInv.GetQuantity(item) + Bot.Inventory.GetQuantity(item)``:
+        # the temp half is what ``dynamic_quant`` already answers, the inventory
+        # half is the model's own lookup.
+        held = dynamic_quant(cmd, item, is_temp=True)
+        held += int(getattr(cmd.bot.player.get_item_inventory(item), "qty", 0)
+                    or 0)
+    cmd.bot.log(f"Farming {item} ({held}/{quant})")
+
+
+async def equip_items(cmd: Command, *gear: str) -> None:
+    """``CoreBots.Equip``: equip each named item, skipping what is already worn.
+
+    Args:
+        cmd (Command): Facade to act through.
+        gear (str): Item names, in order; empty entries are skipped.
+    """
+    for name in gear:
+        if not name or not name.strip():
+            continue
+        held = cmd.bot.player.get_item_inventory(name)
+        if held is not None and held.is_equipped:
+            continue
+        if not await cmd.has_item(name):
+            cmd.bot.log(f'Equipping Failed: "{name}" not found in Inventory or '
+                        f'Bank')
+            continue
+        if not await cmd.equip_item(name):
+            cmd.bot.log(f'Equipping Failed: "{name}" could not be equipped.')
+
+
+def quest_rewards(cmd: Command, *quest_ids: int) -> List[str]:
+    """``CoreBots.QuestRewards``: every reward name across the given quests."""
+    names: List[str] = []
+    for quest_id in quest_ids:
+        for name in cmd.get_quest_rewards(quest_id):
+            if name not in names:
+                names.append(name)
+    return names
+
+
+async def chain_complete(cmd: Command, quest: int,
+                         item_id: int = -1) -> bool:
+    """``CoreBots.ChainComplete``: accept and complete a no-requirement quest.
+
+    The reference's version exists for quests that only ask to be turned in
+    (592, 10047, 1213, 1238); ``item_id`` picks the reward when there is a
+    choice.
+    """
+    if not await cmd.ensure_accept_quest(quest):
+        cmd.bot.log(f"[core] quest {quest} cannot be accepted right now; "
+                    f"nothing completed.")
+        return False
+    if not await cmd.ensure_turn_in_quest(quest, item_id):
+        cmd.bot.log(f"[core] quest {quest} could not be turned in.")
+        return False
+    return True
+
+
+async def ensure_complete_choose(cmd: Command, quest_id: int,
+                                 *item_names: str) -> bool:
+    """``CoreBots.EnsureCompleteChoose``: turn in, picking one reward by name.
+
+    Args:
+        cmd (Command): Facade to act through.
+        quest_id (int): Quest whose reward choice is made.
+        item_names (str): Candidate rewards, in the caller's order; the first one
+            the quest actually offers is the one taken.
+
+    Returns:
+        bool: True when the turn-in went out.
+    """
+    quest = cmd.get_loaded_quest(quest_id)
+    if quest is None:
+        cmd.bot.log(f"[core] quest {quest_id} is not loaded, so no reward can "
+                    f"be chosen.")
+        return False
+    offered = {name: item_id for item_id, name, _max in quest.reward_entries}
+    for item_name in item_names:
+        if item_name in offered:
+            return await cmd.ensure_turn_in_quest(quest_id, offered[item_name])
+    cmd.bot.log(f"[core] quest {quest_id} offers none of "
+                f"{', '.join(item_names)}; not turned in.")
+    return False

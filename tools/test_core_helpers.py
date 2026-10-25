@@ -78,6 +78,12 @@ class Player:
     def get_item_temp_inventory_by_id(self, item_id):
         return self.temp.get(str(item_id))
 
+    def get_item_temp_inventory(self, name):
+        for item in self.temp.values():
+            if item.item_name.lower() == name.lower():
+                return item
+        return None
+
     def get_item_bank(self, name):
         return None
 
@@ -98,6 +104,7 @@ class Cand:
     def __init__(self, inventory=(), quests=None, accept=True, turn_in=True):
         self.bot = Bot(Player(inventory))
         self.quests = quests or {}
+        self.rewards = {}
         self.accept = accept
         self.turn_in = turn_in
         self.calls = []
@@ -126,6 +133,9 @@ class Cand:
     def get_loaded_quest(self, quest):
         return self.quests.get(quest)
 
+    def get_quest_rewards(self, quest):
+        return list(self.rewards.get(quest, []))
+
     async def join_map(self, name, room=None):
         self.calls.append(("join", name, room))
 
@@ -135,6 +145,9 @@ class Cand:
     async def register_quest(self, quest):
         self.calls.append(("register", quest))
         return True
+
+    async def has_item(self, name, qty=1, isTemp=False):
+        return self.bot.player.get_item_inventory(name) is not None
 
     async def jump_cell(self, cell, pad="Left"):
         self.calls.append(("cell", cell, pad))
@@ -441,6 +454,54 @@ try:
           [("Bioluminessence", 30, False)])
 finally:
     restore(svm, saved)
+
+# ============================================================================
+# 9. CoreBots helpers -- built on the real item/quest models
+# ============================================================================
+from model.inventory import ItemInventory  # noqa: E402
+from model.quest import Quest as ModelQuest  # noqa: E402
+
+sword = ItemInventory({"sName": "Sword", "sES": "Weapon", "ItemID": 1,
+                       "iQty": 1})
+helm = ItemInventory({"sName": "Helm", "sES": "he", "ItemID": 2, "iQty": 1,
+                      "bEquip": 1})
+check("weapon slot is a weapon", adv.is_weapon(sword), True)
+check("helm slot is not a weapon", adv.is_weapon(helm), False)
+
+cmd = Cand([sword, helm])
+cmd.bot.player.temp["9"] = ItemInventory({"sName": "Sword", "ItemID": 1,
+                                          "iQty": 2})
+bots.farming_logger(cmd, "Sword", 5)
+check("farming logger counts both bags", cmd.bot.logs[-1],
+      "Farming Sword (3/5)")
+
+run(bots.equip_items(cmd, "Helm", "Sword", "Missing"))
+check("equip skips what is already worn",
+      [c for c in cmd.calls if c[0] == "equip"], [("equip", "Sword")])
+check("equip reports what is missing",
+      any("not found" in line for line in cmd.bot.logs), True)
+
+cmd = Cand()
+cmd.rewards = {1: ["A", "B"], 2: ["B", "C"]}
+check("quest rewards are merged without duplicates",
+      bots.quest_rewards(cmd, 1, 2), ["A", "B", "C"])
+
+picker = ModelQuest.from_payload({
+    "QuestID": "777", "sName": "Pick One",
+    "reward": [{"ItemID": "10", "iQty": 1, "iType": 2}],
+    "oRewards": {"itemsC": [{"ItemID": "10", "sName": "Pick Me", "iStk": 1},
+                            {"ItemID": "11", "sName": "Other", "iStk": 1}]},
+})
+cmd = Cand(quests={777: picker})
+ok = run(bots.ensure_complete_choose(cmd, 777, "Nope", "Other"))
+check("choose turns in with the offered reward",
+      cmd.calls[-1], ("turnin", 777, 11))
+check("choose returned", ok, True)
+
+missing_name = run(bots.ensure_complete_choose(cmd, 777, "Nope"))
+check("choose with no matching reward stops", missing_name, False)
+check("choose says why",
+      any("offers none" in line for line in cmd.bot.logs), True)
 
 print(f"passed {passed}   failed {len(failures)}")
 if failures:

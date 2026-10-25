@@ -35,7 +35,8 @@ from datetime import datetime, timedelta
 from typing import Optional, Sequence
 
 from bot.core_advanced import buy_item
-from bot.core_bots import (equip_class, hunt_monster_quest,
+from bot.core_bots import (chain_complete, dynamic_quant, equip_class,
+                           farming_logger, hunt_monster_quest,
                            hunt_monster_quest_single, wait_for_item)
 from core.command import Command
 from templates.hunt import hunt_item
@@ -101,35 +102,9 @@ async def _reward_map(cmd: Command, quest: int) -> dict:
     return {name: item_id for item_id, name, _max in entries if name}
 
 
-async def chain_complete(cmd: Command, quest: int,
-                         item_id: int = -1) -> bool:
-    """``CoreBots.ChainComplete``: accept and complete a no-requirement quest.
-
-    The reference's version exists for quests that only ask to be turned in
-    (592, 10047, 1213, 1238); ``item_id`` picks the reward when there is a
-    choice.
-    """
-    if not await cmd.ensure_accept_quest(quest):
-        cmd.bot.log(f"[dailies] quest {quest} cannot be accepted right now; "
-                    f"nothing completed.")
-        return False
-    if not await cmd.ensure_turn_in_quest(quest, item_id):
-        cmd.bot.log(f"[dailies] quest {quest} could not be turned in.")
-        return False
-    return True
-
-
 def _held_inventory_or_bank(cmd: Command, item: str) -> int:
     """How many of ``item`` the account holds, inventory plus bank."""
-    player = getattr(cmd.bot, "player", None)
-    if player is None or not hasattr(player, "get_item_inventory"):
-        return 0
-    total = 0
-    for getter in (player.get_item_inventory, player.get_item_bank):
-        held = getter(item)
-        if held is not None:
-            total += int(held.qty)
-    return total
+    return dynamic_quant(cmd, item)
 
 
 async def check_dailyv2(cmd: Command, quest: int, any_item: bool = True,

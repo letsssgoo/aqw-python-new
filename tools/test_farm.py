@@ -38,6 +38,16 @@ class _Player:
         self.is_member = member
         self.ISDEAD = False
 
+    # ``dynamic_quant`` reads the bot's player, not the command's copy.
+    def get_item_inventory(self, name):
+        return None
+
+    def get_item_bank(self, name):
+        return None
+
+    def get_item_temp_inventory(self, name):
+        return None
+
 
 class _Bot:
     def __init__(self, others=()):
@@ -123,6 +133,7 @@ class Stub:
                  connect_after=1, accept=True, inventory=None):
         self.player = _Player(level, gold, member)
         self.bot = _Bot(others)
+        self.bot.player = self.player
         self.calls = []
         self.inv = dict(inventory or {})
         self._connected = True
