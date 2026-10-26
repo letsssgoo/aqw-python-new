@@ -16,6 +16,7 @@ import sys
 REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
+from bot import core_farms                               # noqa: E402
 from bot.core_farms import fishing_rep                       # noqa: E402
 
 PASS = 0
@@ -74,6 +75,9 @@ class Stub:
 
     def get_quant_item(self, name):
         return self.DYNAMITE_HELD if name == "Fishing Dynamite" else 0
+
+    def get_faction_rep(self, faction):
+        return 0
 
     async def has_item(self, name, qty=1, **kw):
         self.calls.append(("has_item", name))
@@ -163,6 +167,31 @@ def main() -> int:
         check(f"wait={wait_ms}: no invented rank verdict per cast",
               [line for line in bot.logs
                if line in ("Successful cast", "Failed cast")], [])
+
+    print()
+    print("=" * 74)
+    print("fishing: the cast counter's progress line")
+    print("=" * 74)
+
+    bot = StubBot(3000)
+    cmd = Stub(bot)
+    original_send = cmd.send_packet
+
+    async def send_packet(packet, _b=bot, _c=cmd):
+        await original_send(packet)
+        if "getFish" in packet:
+            _c.rank += 1
+
+    cmd.send_packet = send_packet
+    saved = core_farms.FISHING_PROGRESS_EVERY
+    core_farms.FISHING_PROGRESS_EVERY = 1
+    try:
+        asyncio.run(fishing_rep(cmd, 10))
+    finally:
+        core_farms.FISHING_PROGRESS_EVERY = saved
+    check("progress line names the cast count and the readable rank",
+          any(line.startswith("[fish] 1 casts, rank ") for line in bot.logs),
+          True)
 
     print()
     print("=" * 74)

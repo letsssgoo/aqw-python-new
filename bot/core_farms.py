@@ -889,6 +889,9 @@ FISHING_WAIT_MS = 3500
 #: How long to wait for ``castWait`` / ``CatchResult`` before casting again.
 FISHING_REPLY_TIMEOUT_MS = 10_000
 
+#: How many casts between the rank/rep progress lines (see ``fishing_rep``).
+FISHING_PROGRESS_EVERY = 25
+
 
 async def get_bait_and_dynamite(cmd: Command, bait: int = 0,
                                 dynamite: int = 20) -> None:
@@ -980,6 +983,14 @@ async def fishing_rep(cmd: Command, rank: int = 10) -> None:
             # only counts casts here.
             caught += 1
             cmd.bot.log(f"Dynamite cast completed [x{caught}]")
+            if caught % FISHING_PROGRESS_EVERY == 0:
+                # Reputation lands with the catch, but the faction list this
+                # engine reads is refreshed by the server on a map load -- so
+                # the rank below moves in steps, not per cast.  Logged so a run
+                # that never moves is visible instead of silent.
+                cmd.bot.log(f"[fish] {caught} casts, rank "
+                            f"{cmd.get_faction_rank('Fishing')} (rep "
+                            f"{cmd.get_faction_rep('Fishing')})")
 
 
 async def _fishing_reply(cmd: Command, flag: str) -> bool:
