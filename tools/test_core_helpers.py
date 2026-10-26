@@ -2053,6 +2053,19 @@ try:
     check("kathool: and names it",
           "Required armor is missing from inventory: Kathool Acolyte."
           in missing.bot.logs, True)
+
+    # the server's own rank is what gates the Johnnyfish purchase
+    low_rank = Cand([ItemInventory({"sName": name, "iQty": 1})
+                     for name in ka.REQUIRED_ARMORS])
+    low_rank.ranks = {"somnia": 10, "fishing": 9}
+    steps.clear()
+    check_ok = run(ka.bottom_feeder(low_rank))
+    check("kathool: rank 9 does not reach the Johnnyfish buy", check_ok, False)
+    check("kathool: and reports the server's rank",
+          any("the server reports Fishing rank 9" in line
+              for line in low_rank.bot.logs), True)
+    check("kathool: so no purchase packet",
+          [step for step in steps if step[0] == "buy"], [])
 finally:
     restore(ka, leaf)
 
@@ -2560,6 +2573,23 @@ check("factions: a reload refreshes the rep, it does not freeze",
 real.get_faction("Fishing").add_rep(1520)
 check("factions: and a catch adds on top",
       real.get_faction("Fishing").total_rep(), 204020)
+
+# the refresh hop is what asks the server for a fresh faction list
+from bot.core_farms import refreshed_faction_rank  # noqa: E402
+
+
+class _FarCand(Cand):
+    def is_not_in_map(self, map_name):
+        return True
+
+
+far = _FarCand()
+far.ranks = {"fishing": 9}
+check("faction refresh: the rank it reads back",
+      run(refreshed_faction_rank(far, "Fishing", "fishing")), 9)
+check("faction refresh: hops out and back",
+      [c for c in far.calls if c[0] == "join"],
+      [("join", "whitemap", None), ("join", "fishing", None)])
 
 print(f"passed {passed}   failed {len(failures)}")
 if failures:

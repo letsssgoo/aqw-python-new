@@ -892,6 +892,38 @@ FISHING_REPLY_TIMEOUT_MS = 10_000
 #: How many casts between the rank/rep progress lines (see ``fishing_rep``).
 FISHING_PROGRESS_EVERY = 25
 
+#: The faction the fishing farm ranks.
+FISHING_FACTION = "Fishing"
+#: A map load is what carries a fresh ``factions`` list, so a verification hop
+#: goes somewhere with nothing to aggro first.
+FACTION_REFRESH_MAP = "whitemap"
+
+
+async def refreshed_faction_rank(cmd: Command, faction: str,
+                                 map_name: Optional[str] = None) -> int:
+    """The faction's rank **as the server reports it**.
+
+    The reputation a fishing catch pays is counted locally from the
+    ``CatchResult`` frame (that is what the client does), but a shop gates on the
+    server's own total -- so the local count is not evidence that a rank gate has
+    opened.  A map load carries a fresh faction list, and the hop here is how
+    that list is asked for.
+
+    Args:
+        cmd (Command): Facade to act through.
+        faction (str): Faction whose rank is wanted.
+        map_name (str | None): Map to return to afterwards.
+
+    Returns:
+        int: The rank read after the refresh.
+    """
+    if cmd.is_still_connected() and cmd.is_not_in_map(FACTION_REFRESH_MAP):
+        await cmd.join_map(FACTION_REFRESH_MAP)
+    if (map_name and cmd.is_still_connected()
+            and cmd.is_not_in_map(map_name)):
+        await cmd.join_map(map_name)
+    return cmd.get_faction_rank(faction)
+
 
 async def get_bait_and_dynamite(cmd: Command, bait: int = 0,
                                 dynamite: int = 20) -> None:
@@ -991,6 +1023,12 @@ async def fishing_rep(cmd: Command, rank: int = 10) -> None:
                 cmd.bot.log(f"[fish] {caught} casts, rank "
                             f"{cmd.get_faction_rank('Fishing')} (rep "
                             f"{cmd.get_faction_rep('Fishing')})")
+
+        # The outer condition reads the local count, which came from the catch
+        # frames.  A shop refuses on the *server's* total, so check that before
+        # the loop is allowed to end: the hop is what carries a fresh faction
+        # list, and it puts the character back in /fishing for the next batch.
+        await refreshed_faction_rank(cmd, FISHING_FACTION, FISHING_MAP)
 
 
 async def _fishing_reply(cmd: Command, flag: str) -> bool:
