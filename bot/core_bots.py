@@ -798,17 +798,52 @@ DOT_CLASSES = (
     "Shadow Dragon Shinobi", "Legion Revenant", "Void Highlord",
 )
 DOOM_KITTEN_MAP = "doomkitten"
+#: ``Bot.Skills.StartAdvanced``'s rotations for the two classes that need one.
+#: Each entry is ``(slot, stat, percent)``: cast that slot only while ``stat``
+#: is below ``percent`` of its maximum (``None`` = always).
+DOOM_KITTEN_SHINOBI_ROTATION = ((4, None, 0), (1, None, 0), (3, "mana", 30),
+                                (2, "hp", 30))
+DOOM_KITTEN_BLAZE_ROTATION = ((3, None, 0), (4, None, 0), (2, None, 0))
+DOOM_KITTEN_SHINOBI = ("DragonSoul Shinobi", "Shadow Dragon Shinobi")
+DOOM_KITTEN_BLAZE = ("Blaze Binder", "FireLord Summoner")
+#: ``Bot.Sleep(500)`` between the reference's combat ticks.
+DOOM_KITTEN_TICK_MS = 500
+
+
+def doom_kitten_rotation(cmd: Command, rotation) -> list:
+    """The slots of ``rotation`` whose conditions hold right now."""
+    player = cmd.get_player()
+    slots = []
+    for slot, stat, percent in rotation:
+        if stat == "mana" and not player.MANA < player.MAX_MP * percent / 100:
+            continue
+        if stat == "hp" and not player.CURRENT_HP < player.MAX_HP * percent / 100:
+            continue
+        slots.append(slot)
+    return slots
 
 
 async def kill_doom_kitten(cmd: Command, item: str = None, quant: int = 1,
                            is_temp: bool = False, log: bool = True) -> None:
     """``CoreBots.KillDoomKitten``: fight DoomKitten until its drop lands.
 
-    The reference equips the first owned class from its DoT list, then runs one
-    of three class-specific skill rotations (Shinobi, BlazeBinder, generic).  The
-    class pick and the map are reproduced here; the rotations are not -- this
-    engine casts the caller's normal rotation -- so the fight is slower on those
-    two classes, never wrong about what it is doing.
+    The reference picks the first owned class out of its DoT list and, for the
+    Shinobi and Blaze Binder families, switches the skill scheduler to a
+    class-specific rotation (``"4 | 1 | 3M<30 | 2H<30"`` and ``"3 | 4 | 2"``)
+    because the kitten's hit range makes the normal one unreliable.  Both
+    rotations are reproduced above, with their mana/HP conditions evaluated
+    every tick; every other class takes the reference's normal path,
+    ``HuntMonster("doomkitten", "DoomKitten", ...)``.
+
+    Two engine-level differences, neither about the rotation itself:
+
+    * the reference's ``Bot.Skills.StartAdvanced`` runs on its own thread while
+      the loop only does ``Bot.Combat.Attack("*")``; here the same list goes
+      through :meth:`core.command.Command.use_next_skill`, which casts whichever
+      listed slot is ready and waits out the next cooldown (the measured skill
+      pacing), so the loop and the rotation are one step, not two;
+    * its auto-enhance on equip is the ``OnEquipClass`` hook, which does nothing
+      unless a script registered it -- nothing is registered here.
 
     Args:
         cmd (Command): Facade to act through.
@@ -831,17 +866,45 @@ async def kill_doom_kitten(cmd: Command, item: str = None, quant: int = 1,
         cmd.bot.log("No recommended DoT class found - using the equipped class.")
         cmd.bot.log("Suggested Classes: " + ", ".join(DOT_CLASSES))
 
+    rotation = None
+    if owned in DOOM_KITTEN_SHINOBI:
+        rotation = DOOM_KITTEN_SHINOBI_ROTATION
+    elif owned in DOOM_KITTEN_BLAZE:
+        rotation = DOOM_KITTEN_BLAZE_ROTATION
+
     await cmd.join_map(DOOM_KITTEN_MAP)
 
-    if item is None:
-        await kill_once(cmd, DOOM_KITTEN_MAP, monster="*")
-        await cmd.sleep(500)
+    if rotation is None:
+        if item is None:
+            await kill_once(cmd, DOOM_KITTEN_MAP, monster="*")
+            await cmd.sleep(DOOM_KITTEN_TICK_MS)
+            return
+
+        await hunt_item(cmd, item, quant, DOOM_KITTEN_MAP, monster_name="*",
+                        is_temp=is_temp)
         return
 
-    if await cmd.has_item(item, quant, isTemp=is_temp):
+    cmd.bot.log("RNG GL due to class + kitten hit range.")
+    if owned in DOOM_KITTEN_BLAZE:
+        cmd.bot.log("if you cant kill doomkitten, try enhance with healer on "
+                    "all and healer mana vamp")
+
+    if item is None:
+        cmd.bot.log("No item selected, killing DoomKitten once.")
+        await kill_once(cmd, DOOM_KITTEN_MAP, monster="*")
+        await cmd.sleep(DOOM_KITTEN_TICK_MS)
         return
-    await kill_once(cmd, DOOM_KITTEN_MAP, monster="*")
-    await wait_for_item(cmd, item, quant)
+
+    guard = cmd.pass_guard(f"doomkitten {item}")
+    while (cmd.is_still_connected()
+           and not await cmd.has_item(item, quant, isTemp=is_temp)):
+        # ``if (!Bot.Player.HasTarget || Bot.Player.Target.HP > 0) Attack("*")``
+        target = getattr(cmd.bot.player, "last_target", None)
+        if target is None or (getattr(target, "current_hp", 0) or 0) > 0:
+            await cmd.use_next_skill(doom_kitten_rotation(cmd, rotation), "*")
+        await cmd.sleep(DOOM_KITTEN_TICK_MS)
+        if not await guard.tick():
+            break
 
 
 # ---------------------------------------------------------------------------

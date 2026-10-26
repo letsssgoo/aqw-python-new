@@ -64,6 +64,11 @@ class Player:
         self.is_member = True
         self.LEVEL = 80
         self.GOLD = 0
+        self.MAX_HP = 1000
+        self.CURRENT_HP = 1000
+        self.MAX_MP = 100
+        self.MANA = 100
+        self.last_target = None
         self.temp = {}
 
     def get_item_inventory(self, name):
@@ -204,6 +209,11 @@ class Cand:
         if item is not None:
             item.is_equipped = True
         return item is not None
+
+    async def use_next_skill(self, skill_list, target_monsters="*", hunt=False,
+                             skill_mode=None, reload_delay=0):
+        self.calls.append(("skills", tuple(skill_list)))
+        return True
 
     async def bank_to_inv(self, name):
         self.calls.append(("unbank", name))
@@ -1842,6 +1852,60 @@ try:
           in cmd.bot.logs, True)
 finally:
     restore(sy, leaf)
+
+# ============================================================================
+# 22. KillDoomKitten's class rotations
+# ============================================================================
+import bot.core_bots as cb  # noqa: E402
+
+cmd = Cand()
+cmd.bot.player.MANA, cmd.bot.player.MAX_MP = 80, 100
+cmd.bot.player.CURRENT_HP, cmd.bot.player.MAX_HP = 1000, 1000
+check("doomkitten: full mana/hp drop both gated slots",
+      cb.doom_kitten_rotation(cmd, cb.DOOM_KITTEN_SHINOBI_ROTATION), [4, 1])
+cmd.bot.player.MANA = 20
+check("doomkitten: 3 joins below 30% mana",
+      cb.doom_kitten_rotation(cmd, cb.DOOM_KITTEN_SHINOBI_ROTATION), [4, 1, 3])
+cmd.bot.player.CURRENT_HP = 200
+check("doomkitten: 2 joins below 30% hp",
+      cb.doom_kitten_rotation(cmd, cb.DOOM_KITTEN_SHINOBI_ROTATION),
+      [4, 1, 3, 2])
+check("doomkitten: the blaze rotation has no conditions",
+      cb.doom_kitten_rotation(cmd, cb.DOOM_KITTEN_BLAZE_ROTATION), [3, 4, 2])
+
+shinobi = Cand([ItemInventory({"sName": "DragonSoul Shinobi", "iQty": 1})])
+run(cb.kill_doom_kitten(shinobi, "DoomKitten Claw", is_temp=True))
+check("doomkitten: the Shinobi rotation is what gets cast",
+      [c[1] for c in shinobi.calls if c[0] == "skills"], [(4, 1), (4, 1)])
+check("doomkitten: and it says why",
+      "RNG GL due to class + kitten hit range." in shinobi.bot.logs, True)
+
+blaze = Cand([ItemInventory({"sName": "Blaze Binder", "iQty": 1})])
+run(cb.kill_doom_kitten(blaze, "DoomKitten Claw", is_temp=True))
+check("doomkitten: blaze binder gets 3 | 4 | 2",
+      [c[1] for c in blaze.calls if c[0] == "skills"],
+      [(3, 4, 2), (3, 4, 2)])
+check("doomkitten: with its own hint",
+      any(line.startswith("if you cant kill doomkitten")
+          for line in blaze.bot.logs), True)
+
+plain_hunts = []
+
+
+async def cb_hunt(cmd, item, qty, map_name, **kwargs):
+    plain_hunts.append((item, qty, map_name, kwargs.get("is_temp")))
+
+
+leaf = patch(cb, hunt_item=cb_hunt)
+try:
+    other = Cand([ItemInventory({"sName": "Void Highlord", "iQty": 1})])
+    run(cb.kill_doom_kitten(other, "DoomKitten Claw", is_temp=True))
+    check("doomkitten: any other class takes HuntMonster",
+          plain_hunts, [("DoomKitten Claw", 1, "doomkitten", True)])
+    check("doomkitten: and no rotation is cast",
+          [c for c in other.calls if c[0] == "skills"], [])
+finally:
+    restore(cb, leaf)
 
 print(f"passed {passed}   failed {len(failures)}")
 if failures:
