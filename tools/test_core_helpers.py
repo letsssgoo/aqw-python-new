@@ -118,6 +118,7 @@ class Cand:
         self.rewards = {}
         self.completed = set()
         self.ranks = {}
+        self.accepted = set()
         self.accept = accept
         self.turn_in = turn_in
         self.calls = []
@@ -163,7 +164,12 @@ class Cand:
 
     async def ensure_accept_quest(self, quest):
         self.calls.append(("accept", quest))
+        if self.accept:
+            self.accepted.add(quest)
         return self.accept
+
+    def quest_in_progress(self, quest):
+        return quest in self.accepted
 
     async def ensure_turn_in_quest(self, quest, item_id=-1):
         self.calls.append(("turnin", quest, item_id))
@@ -1906,6 +1912,126 @@ try:
           [c for c in other.calls if c[0] == "skills"], [])
 finally:
     restore(cb, leaf)
+
+# ============================================================================
+# 23. Kathool Adept
+# ============================================================================
+from bot.other.classes import kathool_adept as ka  # noqa: E402
+
+steps = []
+
+
+async def ka_sea(cmd):
+    steps.append("sea_voice")
+
+
+async def ka_equip(cmd, solo=False):
+    steps.append(f"equip{int(solo)}")
+
+
+async def ka_hunt(cmd, item, qty, map_name, **kwargs):
+    steps.append(("hunt", item, map_name, kwargs.get("is_temp")))
+
+
+async def ka_buy(cmd, shop, item, qty=1, map_name=None, shop_item_id=0):
+    steps.append(("buy", shop, item, map_name, shop_item_id))
+
+
+async def ka_wait(cmd, item, qty=1, timeout_ms=0):
+    steps.append(("wait", item))
+    cmd.bot.player.INVENTORY.append(
+        ItemInventory({"sName": "Kathool Adept", "ItemID": 104429, "iQty": 1}))
+    return True
+
+
+async def ka_armors(cmd):
+    steps.append("armors")
+    return True
+
+
+def ka_rep(name):
+    async def inner(cmd, rank=10):
+        steps.append(name)
+    return inner
+
+
+leaf = patch(ka, sea_voice=ka_sea, equip_class=ka_equip, hunt_item=ka_hunt,
+             buy_item=ka_buy, wait_for_item=ka_wait,
+             somnia_rep=ka_rep("somnia"), fishing_rep=ka_rep("fishing"),
+             farm_required_armors=ka_armors)
+try:
+    cmd = Cand([ItemInventory({"sName": "Kathool Adept", "ItemID": 104429,
+                               "iQty": 1})])
+    steps.clear()
+    run(ka.get_class(cmd))
+    check("kathool: an owned class stops at once", steps, [])
+    check("kathool: and says so",
+          "Kathool Adept is already owned." in cmd.bot.logs, True)
+
+    low_level = Cand()
+    low_level.bot.player.LEVEL = 70
+    steps.clear()
+    run(ka.get_class(low_level))
+    check("kathool: needs level 80",
+          "Kathool Adept requires level 80." in low_level.bot.logs, True)
+    check("kathool: before touching the saga", steps, [])
+
+    cmd = Cand()
+    cmd.completed = {9348}
+    steps.clear()
+    run(ka.get_class(cmd))
+    check("kathool: the saga runs first", steps[:1], ["sea_voice"])
+
+    low = Cand()
+    low.bot.player.LEVEL = 80
+    steps.clear()
+    run(ka.get_class(low))
+    check("kathool: without the saga quest the class quests stop",
+          "Voice in the Sea saga completion was not confirmed. Class quests "
+          "will not start." in low.bot.logs, True)
+    check("kathool: and no quest is accepted",
+          [c for c in low.calls if c[0] == "accept"], [])
+
+    # the Adeptus Kathooli shortcut: 10919, then the class quest
+    shortcut = Cand([ItemInventory({"sName": "Adeptus Kathooli", "iQty": 1})])
+    shortcut.completed = {9348}
+    steps.clear()
+    shortcut.bot.player.temp["104534"] = object()
+    run(ka.get_class(shortcut))
+    check("kathool: the shortcut is logged",
+          "Using the owned Adeptus Kathooli shortcut." in shortcut.bot.logs, True)
+    check("kathool: shortcut quest then the class quest",
+          [c[1] for c in shortcut.calls if c[0] == "accept"], [10919, 10920])
+    check("kathool: the class quest is turned in with its item id",
+          ("turnin", 10920, 104429) in shortcut.calls, True)
+    check("kathool: the morsel is hunted solo",
+          ("hunt", "Kathool's Morsel Consumed", "callofkathool", None) in steps
+          and "equip1" in steps, True)
+
+    # bottom feeder: armors, both reps, Johnnyfish, 75 morsels, turn-in
+    feeder = Cand([ItemInventory({"sName": name, "iQty": 1})
+                   for name in ka.REQUIRED_ARMORS]
+                  + [ItemInventory({"sName": ka.JOHNNYFISH, "iQty": 1}),
+                     ItemInventory({"sName": ka.MORSEL, "iQty": 75})])
+    feeder.ranks = {"somnia": 10, "fishing": 10}
+    steps.clear()
+    check_ok = run(ka.bottom_feeder(feeder))
+    check("kathool: bottom feeder turns in quest 10918", check_ok, True)
+    check("kathool: the reps are the source's order",
+          [s for s in steps if s in ("somnia", "fishing")], ["somnia", "fishing"])
+    check("kathool: Johnnyfish comes from shop 363 entry 15252",
+          ("buy", 363, 104533, "greenguardwest", 15252) in steps, True)
+
+    # a missing armor stops it with the source's line
+    missing = Cand()
+    steps.clear()
+    check_ok = run(ka.bottom_feeder(missing))
+    check("kathool: a missing armor stops bottom feeder", check_ok, False)
+    check("kathool: and names it",
+          "Required armor is missing from inventory: Kathool Acolyte."
+          in missing.bot.logs, True)
+finally:
+    restore(ka, leaf)
 
 print(f"passed {passed}   failed {len(failures)}")
 if failures:
