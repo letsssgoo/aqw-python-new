@@ -69,6 +69,7 @@ class Player:
         self.MAX_MP = 100
         self.MANA = 100
         self.last_target = None
+        self.intAQ = 0
         self.temp = {}
 
     def get_item_inventory(self, name):
@@ -223,6 +224,10 @@ class Cand:
 
     async def bank_to_inv(self, name):
         self.calls.append(("unbank", name))
+
+    async def inv_to_bank(self, names):
+        self.calls.append(("bank", tuple(names) if isinstance(names, list)
+                           else names))
 
     def get_equipped_class(self):
         for item in self.bot.player.INVENTORY:
@@ -2151,6 +2156,121 @@ try:
         restore(adv, leaf2)
 finally:
     restore(adv, leaf)
+
+# ============================================================================
+# 25. Cape of Awe
+# ============================================================================
+from bot.other.gear_of_awe import core_awe as awe  # noqa: E402
+from bot.other.gear_of_awe import cape_of_awe as coa  # noqa: E402
+
+awe_steps = []
+
+
+async def awe_boa(cmd, rank=10, farm_boa=True):
+    awe_steps.append(("boa", rank, farm_boa))
+
+
+async def awe_exp(cmd, level=100, *a, **k):
+    awe_steps.append(("exp", level))
+
+
+async def awe_buy(cmd, shop, item, qty=1, map_name=None, shop_item_id=0):
+    awe_steps.append(("buy", shop, item, shop_item_id))
+
+
+async def awe_equip(cmd, solo=False):
+    awe_steps.append(("equip", solo))
+
+
+async def awe_hunt(cmd, item, qty, map_name, **kwargs):
+    awe_steps.append(("hunt", item, qty, map_name, kwargs.get("cell")))
+
+
+async def awe_wait(cmd, item, qty=1, timeout_ms=0):
+    return True
+
+
+leaf = patch(awe, blade_of_awe_rep=awe_boa, farm_experience=awe_exp,
+             buy_item=awe_buy, equip_class=awe_equip, hunt_item=awe_hunt,
+             wait_for_item=awe_wait)
+try:
+    cmd = Cand([ItemInventory({"sName": "Cape Relic", "iQty": 1})])
+    awe_steps.clear()
+    run(awe.get_awe_relic(cmd, "Cape", 4178, 1, 1, "doomvault", "Binky"))
+    check("awe: an owned relic does nothing", awe_steps, [])
+
+    # a member without an Awe pass: museum 1130, quest 4178, r5/Left
+    cmd = Cand()
+    awe_steps.clear()
+    run(awe.get_awe_relic(cmd, "Cape", 4178, 1, 1, "doomvault", "Binky"))
+    check("awe: rank 10 reputation and level 55 first",
+          awe_steps[:2], [("boa", 10, False), ("exp", 55)])
+    check("awe: the member pass is bought from museum 1130",
+          ("buy", 1130, 29402, 18580) in awe_steps, True)
+    check("awe: member quest is the legend quest itself",
+          [c[1] for c in cmd.calls if c[0] == "accept"][:1], [4178])
+    check("awe: the shard hunt uses doomvault r5/Left",
+          ("hunt", "Cape Shard", 1, "doomvault", "r5") in awe_steps, True)
+    check("awe: the relic is bought last",
+          awe_steps[-1], ("buy", 1129, "Cape Relic", 0))
+
+    # a free player: 29404/18579 and quest legend+2
+    cmd = Cand()
+    cmd.bot.player.is_member = False
+    awe_steps.clear()
+    run(awe.get_awe_relic(cmd, "Cape", 4178, 1, 1, "doomvault", "Binky"))
+    check("awe: the free pass is the other entry",
+          ("buy", 1130, 29404, 18579) in awe_steps, True)
+    check("awe: free players run legend + 2",
+          [c[1] for c in cmd.calls if c[0] == "accept"][:1], [4180])
+
+    # an account that already has an Awe pass: tower 53, quest legend+1
+    cmd = Cand()
+    cmd.bot.player.intAQ = 1
+    awe_steps.clear()
+    run(awe.get_awe_relic(cmd, "Cape", 4178, 1, 1, "doomvaultb", "Binky"))
+    check("awe: a pass holder needs rank 5 and level 35",
+          awe_steps[:2], [("boa", 5, False), ("exp", 35)])
+    check("awe: and buys the tower pass",
+          ("buy", 53, 29403, 18569) in awe_steps, True)
+    check("awe: pass holders run legend + 1",
+          [c[1] for c in cmd.calls if c[0] == "accept"][:1], [4179])
+    check("awe: the B variant uses r26",
+          ("hunt", "Cape Shard", 1, "doomvaultb", "r26") in awe_steps, True)
+finally:
+    restore(awe, leaf)
+
+coa_steps = []
+
+
+async def coa_relic(cmd, *args):
+    coa_steps.append(args)
+
+
+async def coa_buy(cmd, shop, item, qty=1, map_name=None, shop_item_id=0):
+    coa_steps.append(("buy", shop, item))
+
+
+leaf = patch(coa, get_awe_relic=coa_relic, buy_item=coa_buy)
+try:
+    cmd = Cand([ItemInventory({"sName": "Cape of Awe", "iQty": 1})])
+    coa_steps.clear()
+    run(coa.get_coa(cmd))
+    check("cape of awe: owned means nothing to do", coa_steps, [])
+
+    cmd = Cand()
+    coa_steps.clear()
+    run(coa.get_coa(cmd))
+    check("cape of awe: the relic comes with the source's arguments",
+          coa_steps[0], ("Cape", 4178, 1, 1, "doomvault", "Binky"))
+    check("cape of awe: then the cape from the Awe shop",
+          coa_steps[1], ("buy", 1129, "Cape of Awe"))
+    check("cape of awe: the three passes are banked",
+          ("bank", ("Legendary Awe Pass", "Guardian Awe Pass",
+                    "Armor of Awe Pass")) in [c for c in cmd.calls
+                                              if c[0] == "bank"], True)
+finally:
+    restore(coa, leaf)
 
 print(f"passed {passed}   failed {len(failures)}")
 if failures:
