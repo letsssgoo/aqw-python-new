@@ -346,6 +346,11 @@ def helm_from_id(item_id: int) -> str:
     """``SpecialIdMapper.HelmFromId``: legacy id -> helm special name."""
     return LEGACY_HELM_IDS.get(int(item_id), "None")
 
+
+def is_weapon(item) -> bool:
+    """``CoreAdvanced.isWeapon``: whether an item fills the weapon slot."""
+    return getattr(item, "s_es", "") == "Weapon"
+
 #: ``WeaponSpecial`` -- proc ids.
 WEAPON_SPECIALS = {
     "None": 0, "Forge": 1, "Spiral_Carve": 2, "Awe_Blast": 3, "Health_Vamp": 4,

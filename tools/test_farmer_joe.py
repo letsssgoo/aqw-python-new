@@ -35,6 +35,10 @@ class _Item:
         self.s_es = slot or ItemType.CLASS.value
         self.qty = qty
         self.is_equipped = False
+        #: Read by ``core_advanced.rank_up_class`` when a class is resolved.
+        self.item_id = "0"
+        self.is_upgrade = False
+        self.enh_level = 100
 
 
 class _Player:
@@ -52,6 +56,12 @@ class _Player:
 
     def get_item_inventory(self, name):
         return self._find(self.INVENTORY, name)
+
+    def get_item_temp_inventory(self, name):
+        return None
+
+    def get_item_bank(self, name):
+        return self._find(self.BANK, name)
 
 
 class _ShopItem:
@@ -230,6 +240,16 @@ class Stub:
 def main() -> None:
     joe._reported.clear()
 
+    # ``rank_up_class`` drives the arena and probes enhancement unlocks; the
+    # rank-up itself is covered in test_core_helpers, so here it is recorded.
+    ranked_classes: list = []
+    real_rank_up = joe.rank_up_class
+
+    async def spy_rank_up(cmd, name="", item_id=0, gear_restore=True):
+        ranked_classes.append(name or item_id)
+
+    joe.rank_up_class = spy_rank_up
+
     # --- AnyRank10 ------------------------------------------------------
     ranked = Stub(classes_held={"Master Ranger": joe.RANK_10_CLASS_POINTS})
     assert joe.any_rank10(ranked, ["Master Ranger"]) is True
@@ -264,7 +284,8 @@ def main() -> None:
     assert ("equip_item", "King's Echo") in stub.calls, stub.calls
     assert any("SoloClass resolved -> King's Echo" == line
                for line in stub.bot.logs), stub.bot.logs
-    print("setclass   : resolves both pools and equips the solo one")
+    assert ranked_classes == ["King's Echo", "Legion Revenant"], ranked_classes
+    print("setclass   : resolves both pools, ranks them, equips the solo one")
 
     # nothing changed -> nothing redone (the reference's ShouldSkipSetClass)
     before = len(stub.calls)
@@ -324,9 +345,15 @@ def main() -> None:
     # to check is the ladder itself: order, the daily, and the handlers
     ladder = Stub(level=30, solo="King's Echo",
                   classes_held=["King's Echo", "Ninja"])
-    levels, dailies, vhl = [], [], []
+    levels, dailies, vhl, porters = [], [], [], []
     real_exp, real_daily = joe.farm_experience, joe.elders_blood
     real_vhl = joe.get_vhl
+    real_porters = {name: getattr(joe, name) for name in
+                    ("forge_helm_enhancement", "lacerate", "smite", "afdl",
+                     "smart_enhance", "vim", "pneuma", "examen", "anima",
+                     "get_ds_general", "get_burning_blade", "blade_of_awe_rep",
+                     "get_ssorc", "get_blaze_binder", "get_dragonslayer",
+                     "get_cryomancer", "get_gb", "get_dss", "get_ap")}
 
     async def fake_exp(cmd, level=100, rank_up_class=False):
         levels.append(level)
@@ -337,17 +364,26 @@ def main() -> None:
     async def fake_vhl(cmd, rank_up_class=True):
         vhl.append("get_vhl")
 
+    async def fake_porter(cmd, *args, **kwargs):
+        porters.append("ran")
+
     joe.farm_experience, joe.elders_blood = fake_exp, fake_daily
     joe.get_vhl = fake_vhl
+    for name in real_porters:
+        setattr(joe, name, fake_porter)
     try:
         asyncio.run(joe.level_30_to_75(ladder))
     finally:
         joe.farm_experience, joe.elders_blood = real_exp, real_daily
         joe.get_vhl = real_vhl
+        for name, fn in real_porters.items():
+            setattr(joe, name, fn)
 
     assert levels == list(joe.LEVEL_BRACKETS), levels
     assert dailies == ["elders"], dailies
     assert vhl == ["get_vhl"], vhl          # bracket 80 is the ported CoreVHL
+    # the ported enhancement/gear helpers each ran for the bracket that asks
+    assert len(porters) >= 3, porters
     assert [c[1] for c in ladder.calls if c[0] == "inv_to_bank"], ladder.calls
     for level in joe.LEVEL_BRACKETS:
         assert f"Level Handler: {level} bracket" in ladder.bot.logs, ladder.bot.logs
@@ -389,10 +425,20 @@ def main() -> None:
         seen.append(level)
 
     joe.farm_experience = spy_exp
+    real_badges_low = joe.tutorial_badges
+    real_mazumi_low = joe.mazumi_quests
+
+    async def noop(cmd):
+        return None
+
+    joe.tutorial_badges = noop
+    joe.mazumi_quests = noop
     try:
         asyncio.run(joe.beginner_items(low))
     finally:
         joe.farm_experience = real_exp
+        joe.tutorial_badges = real_badges_low
+        joe.mazumi_quests = real_mazumi_low
     assert seen == [10], seen
     print("beginner   : beginner classes at rank 10 skip it from level 30 only")
 
@@ -402,6 +448,7 @@ def main() -> None:
         shops=[_Shop(299, ["Battle Oracle Hood", "Battle Oracle Wings",
                            "Battle Oracle Battlestaff"]),
                _Shop(172, ["Rogue"]),
+               _Shop(178, ["Ninja"]),
                _Shop(174, [_ShopItem("Mage", 15653, 9845)])])
     fresh_run()
     levels = []
@@ -410,12 +457,36 @@ def main() -> None:
         levels.append(level)
 
     joe.farm_experience = spy_exp2
+    ranked_up = []
+    real_rank = joe.rank_up_class
+
+    async def spy_rank(cmd, *args, **kwargs):
+        ranked_up.append(args)
+
+    joe.rank_up_class = spy_rank
+    badges, mazumi = [], []
+    real_badges, real_mazumi = joe.tutorial_badges, joe.mazumi_quests
+
+    async def spy_badges(cmd):
+        badges.append(1)
+
+    async def spy_mazumi(cmd):
+        mazumi.append(1)
+
+    joe.tutorial_badges = spy_badges
+    joe.mazumi_quests = spy_mazumi
     try:
         asyncio.run(joe.beginner_items(fresh))
     finally:
         joe.farm_experience = real_exp
+        joe.rank_up_class = real_rank
+        joe.tutorial_badges = real_badges
+        joe.mazumi_quests = real_mazumi
 
     assert levels == [10, 25], levels
+    assert ranked_up == [("Rogue",)], ranked_up
+    assert badges == [1], badges
+    assert mazumi == [1], mazumi
     assert ("buy_item", 299, "battle oracle hood", 1, 0) in fresh.calls, \
         fresh.calls
     assert ("buy_item", 299, "battle oracle wings", 1, 0) in fresh.calls, \
@@ -426,8 +497,8 @@ def main() -> None:
         fresh.calls
     assert ("sell_item", "Default Sword") in fresh.calls, fresh.calls
     assert ("buy_item", 172, "rogue", 1, 0) in fresh.calls, fresh.calls
-    # the Ninja shop needs Mazumi's quests, which are not ported: not bought
-    assert not any(c[0] == "buy_item" and c[1] == 178 for c in fresh.calls), \
+    # Mazumi's chain unlocks the Ninja shop, so the class is bought after it
+    assert ("buy_item", 178, "ninja", 1, 0) in fresh.calls, \
         [c for c in fresh.calls if c[0] == "buy_item"]
     assert ("buy_item", 174, "mage", 1, 9845) in fresh.calls, fresh.calls
     for line in ('As the Acc is still "new", we\'re going todo the tutorial badges',
@@ -437,28 +508,169 @@ def main() -> None:
                  "Getting starter Dodge class (Ninja)",
                  "Getting Starter Farm class (Mage)"):
         assert line in fresh.bot.logs, fresh.bot.logs
-    print("beginner   : fresh account -> Oracle slots, Rogue, Mage; Ninja reported")
+    print("beginner   : fresh account -> Oracle slots, Rogue, Rogue ranked, Mage")
+
+    # --- ShirtAndHat: the merge for the armor, the hat from Yulgar -------
+    shirt = Stub(shops=[_Shop(16, ["Scarecrow Hat"])])
+    merged = []
+    real_merge = joe.no_bots_armor
+
+    async def spy_merge(cmd):
+        merged.append(1)
+
+    joe.no_bots_armor = spy_merge
+    try:
+        asyncio.run(joe.shirt_and_hat(shirt))
+    finally:
+        joe.no_bots_armor = real_merge
+    assert merged == [1], merged
+    assert ("buy_item", 16, "scarecrow hat", 1, 0) in shirt.calls, shirt.calls
+    assert "Farming NO BOTS Armor (0/1)" in shirt.bot.logs, shirt.bot.logs
+    print("shirt      : NO BOTS Armor from the merge, the hat from Yulgar")
 
     # --- bracket handlers: what runs, what is reported -------------------
     h70 = Stub(solo="King's Echo", classes_held=["King's Echo"],
                shops=[_Shop(308, ["Horc Evader"])])
-    asyncio.run(joe._handle_level_70(h70))
+    forged = []
+    real_porters = {name: getattr(joe, name) for name in
+                    ("smite", "vim", "pneuma", "examen", "anima", "get_ap")}
+
+    async def spy_porter(cmd, *args, **kwargs):
+        forged.append("ran")
+
+    for name in real_porters:
+        setattr(joe, name, spy_porter)
+    try:
+        asyncio.run(joe._handle_level_70(h70))
+    finally:
+        for name, fn in real_porters.items():
+            setattr(joe, name, fn)
     assert ("buy_item", 308, "horc evader", 1, 0) in h70.calls, h70.calls
+    assert forged == ["ran"] * 6, forged
     assert "unlocking the easy lvl 70 forge enhs" in h70.bot.logs, h70.bot.logs
     assert any(line.startswith("Geting Horc Evader")
                for line in h70.bot.logs), h70.bot.logs
-    print("bracket70  : buys the Horc Evader, reports the forge enhancements")
+    assert any(line.startswith("Level 70: Acquiring ArchPaladin")
+               for line in h70.bot.logs), h70.bot.logs
+    print("bracket70  : Horc Evader, Smite + four helm quests, then ArchPaladin")
+
+    # --- bracket 50: the two ported pieces, Scarlet still reported --------
+    h50 = Stub(solo="King's Echo", classes_held=["King's Echo"])
+    level50 = []
+    real50 = {name: getattr(joe, name) for name in
+              ("get_ssorc", "get_ds_general", "get_burning_blade")}
+
+    async def spy50(cmd, *args, **kwargs):
+        level50.append("ran")
+
+    for name in real50:
+        setattr(joe, name, spy50)
+    try:
+        asyncio.run(joe._handle_level_50(h50))
+    finally:
+        for name, fn in real50.items():
+            setattr(joe, name, fn)
+    assert level50 == ["ran", "ran", "ran"], level50
+    assert any(line.startswith("Level 50: Acquiring Dragonslayer General")
+               for line in h50.bot.logs), h50.bot.logs
+    assert any(line.startswith("Level 50: Acquiring Burning Blade")
+               for line in h50.bot.logs), h50.bot.logs
+    print("bracket50  : Scarlet, Dragonslayer General and Burning Blade all run")
+
+    # --- bracket 55: Blaze Binder and Cryomancer both run ------------------
+    h55 = Stub(solo="King's Echo", classes_held=["King's Echo"])
+    level55 = []
+    real55 = {name: getattr(joe, name) for name in
+              ("get_blaze_binder", "get_cryomancer")}
+
+    async def spy55(cmd, *args, **kwargs):
+        level55.append("ran")
+
+    for name in real55:
+        setattr(joe, name, spy55)
+    try:
+        asyncio.run(joe._handle_level_55(h55))
+    finally:
+        for name, fn in real55.items():
+            setattr(joe, name, fn)
+    assert level55 == ["ran", "ran"], level55
+    assert any(line.startswith("Level 55: Acquiring Blaze Binder")
+               for line in h55.bot.logs), h55.bot.logs
+    assert any(line.startswith("Level 55: Acquiring Cryomancer")
+               for line in h55.bot.logs), h55.bot.logs
+    print("bracket55  : Blaze Binder and Cryomancer both run")
+
+    # --- bracket 60: DragonSoul Shinobi, then Lacerate ------------------
+    h60 = Stub(solo="King's Echo", classes_held=["King's Echo"])
+    level60 = []
+    real60 = {name: getattr(joe, name) for name in ("get_dss", "lacerate")}
+
+    async def spy60(cmd, *args, **kwargs):
+        level60.append("ran")
+
+    for name in real60:
+        setattr(joe, name, spy60)
+    try:
+        asyncio.run(joe._handle_level_60(h60))
+    finally:
+        for name, fn in real60.items():
+            setattr(joe, name, fn)
+    assert level60 == ["ran", "ran"], level60
+    assert any(line.startswith("Level 60: Acquiring DragonSoul Shinobi")
+               for line in h60.bot.logs), h60.bot.logs
+    print("bracket60  : DragonSoul Shinobi, then the Lacerate unlock")
+
+    # --- bracket 65: Glacial Berserker ----------------------------------
+    h65 = Stub(solo="King's Echo", classes_held=["King's Echo"])
+    level65 = []
+    real65 = joe.get_gb
+
+    async def spy65(cmd, *args, **kwargs):
+        level65.append("ran")
+
+    joe.get_gb = spy65
+    try:
+        asyncio.run(joe._handle_level_65(h65))
+    finally:
+        joe.get_gb = real65
+    assert level65 == ["ran"], level65
+    assert any(line.startswith("Level 65: Acquiring Glacial Berserker")
+               for line in h65.bot.logs), h65.bot.logs
+    print("bracket65  : Glacial Berserker runs")
 
     h30 = Stub(solo="King's Echo", classes_held=["King's Echo"],
                inventory={"Venom Head": 1},
                shops=[_Shop(631, ["Awethur's Accoutrements"])])
-    asyncio.run(joe._handle_level_30(h30))
+    forges = []
+    real_forge_helm = joe.forge_helm_enhancement
+    real_boa = joe.blade_of_awe_rep
+    real_ds = joe.get_dragonslayer
+
+    async def spy_forge_helm(cmd):
+        forges.append("helm")
+
+    async def spy_boa(cmd, *args, **kwargs):
+        forges.append("boa")
+
+    async def spy_ds(cmd, *args, **kwargs):
+        forges.append("ds")
+
+    joe.forge_helm_enhancement = spy_forge_helm
+    joe.blade_of_awe_rep = spy_boa
+    joe.get_dragonslayer = spy_ds
+    try:
+        asyncio.run(joe._handle_level_30(h30))
+    finally:
+        joe.forge_helm_enhancement = real_forge_helm
+        joe.blade_of_awe_rep = real_boa
+        joe.get_dragonslayer = real_ds
     assert ("sell_item", "Venom Head") in h30.calls, h30.calls
     assert ("buy_item", 631, "awethur's accoutrements", 1, 0) in h30.calls, \
         h30.calls
+    assert forges == ["ds", "boa", "helm"], forges
     assert any(line.startswith("Level 30: Farming Blade of Awe Rep")
                for line in h30.bot.logs), h30.bot.logs
-    print("bracket30  : sells the Venom Head, buys Awethur's Accoutrements")
+    print("bracket30  : Dragonslayer, Blade of Awe rep, Awethur's, helm unlock")
 
     h80 = Stub(solo="King's Echo", classes_held=["King's Echo"],
                inventory={"Void Highlord": 1})
@@ -484,15 +696,32 @@ def main() -> None:
     print("masterrng  : bought from sandsea 242 by item id and shop entry")
 
     ranked_mr = Stub(inventory={"Master Ranger": 1})
-    asyncio.run(master_ranger.get_mr(ranked_mr))
-    assert any("would be ranked up here" in line for line in ranked_mr.bot.logs), \
-        ranked_mr.bot.logs
-    print("masterrng  : the rank-up is reported, never guessed")
+    ranked_calls = []
+    real_advance = master_ranger.advance_class
+
+    async def spy_advance(cmd, name, *args, **kwargs):
+        ranked_calls.append(name)
+
+    master_ranger.advance_class = spy_advance
+    try:
+        asyncio.run(master_ranger.get_mr(ranked_mr))
+    finally:
+        master_ranger.advance_class = real_advance
+    assert ranked_calls == ["Master Ranger"], ranked_calls
+    print("masterrng  : the rank-up runs through the ported RankUpClass")
 
     h30b = Stub(solo="King's Echo", classes_held=["King's Echo"],
                 shops=[_Shop(242, [_ShopItem("Master Ranger", 7260, 5682)]),
                        _Shop(631, ["Awethur's Accoutrements"])])
-    asyncio.run(joe._handle_level_30(h30b))
+    joe.forge_helm_enhancement = spy_forge_helm
+    joe.blade_of_awe_rep = spy_boa
+    joe.get_dragonslayer = spy_ds
+    try:
+        asyncio.run(joe._handle_level_30(h30b))
+    finally:
+        joe.forge_helm_enhancement = real_forge_helm
+        joe.blade_of_awe_rep = real_boa
+        joe.get_dragonslayer = real_ds
     assert ("buy_item", 242, "master ranger", 1, 5682) in h30b.calls, h30b.calls
     print("bracket30  : Master Ranger comes from the ported kit now")
 
@@ -518,22 +747,32 @@ def main() -> None:
 
     async def run_do_all():
         joe._reported.clear()
+        real_gear = joe.gear_store
         for name in real:
             setattr(joe, name, await recorder(name))
+
+        async def spy_gear(cmd, restore=False, enh_after=False):
+            calls.append(("gear_store", restore, enh_after))
+
+        joe.gear_store = spy_gear
         try:
             await joe.do_all(Stub())
         finally:
             for name, fn in real.items():
                 setattr(joe, name, fn)
+            joe.gear_store = real_gear
 
     asyncio.run(run_do_all())
     assert [c[0] for c in calls] == [
-        "level_1_to_30", "level_30_to_75", "level_75_to_100", "end_game",
-        "outfit", "pets", "pets"], calls
-    assert calls[-2] == ("pets", joe.PET_HOT_MAMA), calls[-2]
-    assert calls[-1] == ("pets", joe.PET_AKRILOTH), calls[-1]
-    print("doall      : brackets, endgame, outfit, then both pets")
+        "gear_store", "level_1_to_30", "level_30_to_75", "level_75_to_100",
+        "end_game", "outfit", "pets", "pets", "gear_store"], calls
+    assert calls[0] == ("gear_store", False, False), calls[0]
+    assert calls[-1] == ("gear_store", True, True), calls[-1]
+    assert calls[-3] == ("pets", joe.PET_HOT_MAMA), calls[-3]
+    assert calls[-2] == ("pets", joe.PET_AKRILOTH), calls[-2]
+    print("doall      : snapshot, brackets, outfit, pets, then restore")
 
+    joe.rank_up_class = real_rank_up
     print("\nfarmer joe tests OK")
 
 

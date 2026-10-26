@@ -38,6 +38,16 @@ class _Player:
         self.is_member = member
         self.ISDEAD = False
 
+    # ``dynamic_quant`` reads the bot's player, not the command's copy.
+    def get_item_inventory(self, name):
+        return None
+
+    def get_item_bank(self, name):
+        return None
+
+    def get_item_temp_inventory(self, name):
+        return None
+
 
 class _Bot:
     def __init__(self, others=()):
@@ -123,6 +133,7 @@ class Stub:
                  connect_after=1, accept=True, inventory=None):
         self.player = _Player(level, gold, member)
         self.bot = _Bot(others)
+        self.bot.player = self.player
         self.calls = []
         self.inv = dict(inventory or {})
         self._connected = True
@@ -473,6 +484,44 @@ def main() -> None:
     assert done.calls == [], done.calls
     print("farm_until : done() already true -> no calls at all")
 
+    # --- farm_until: the save state is armed, ticked and disarmed ------
+    import bot.core_farms as farms_module
+
+    saver = Stub()
+    events = []
+    real_saves = {name: getattr(farms_module, name) for name in
+                  ("saved_state", "check_save_state", "execute_save_state")}
+
+    def spy_save(cmd, on=True, previous_map=""):
+        events.append(("save", on, previous_map))
+
+    def spy_check(cmd):
+        events.append(("check",))
+        return len([e for e in events if e[0] == "check"]) == 1
+
+    async def spy_exec(cmd):
+        events.append(("exec",))
+
+    farms_module.saved_state = spy_save
+    farms_module.check_save_state = spy_check
+    farms_module.execute_save_state = spy_exec
+    ticks = {"n": 0}
+
+    def done_after_two():
+        ticks["n"] += 1
+        return ticks["n"] > 2
+
+    try:
+        asyncio.run(farm_until(saver, done_after_two, "icestormarena",
+                               cell="r4"))
+    finally:
+        for name, fn in real_saves.items():
+            setattr(farms_module, name, fn)
+    assert events[0] == ("save", True, "icestormarena"), events
+    assert ("exec",) in events, events
+    assert events[-1] == ("save", False, ""), events
+    print("farm_until : save state armed, ticked mid-loop, disarmed after")
+
     # --- gold: already rich, and the fallback chain --------------------
     rich = Stub(gold=200_000_000)
     assert asyncio.run(farm_gold(rich, 100_000_000)) is True
@@ -629,7 +678,7 @@ def main() -> None:
     assert unknown.calls == [], unknown.calls          # reported, never farmed
     assert set(FACTION_FARMS) == {"Good", "Vampire", "Yokai", "Evil",
                                   "ChronoSpan", "CraggleRock", "Sandsea",
-                                  "Somnia"}, \
+                                  "Somnia", "Glacera", "SpellCrafting"}, \
         sorted(FACTION_FARMS)
     known = Stub(vampire_rank=10)
     assert asyncio.run(farm_faction(known, "Vampire", 10)) is True

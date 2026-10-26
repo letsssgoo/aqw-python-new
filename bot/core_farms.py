@@ -9,10 +9,10 @@ and let the auto-quest task (``handlers/register_quest.py``) accept and turn the
 in between kills, which is what its own auto-quest task does.  What differs is
 noted where it happens:
 
-* ``Core.SavedState`` / ``CheckSaveState`` / ``ExecuteSaveState`` are not ported.
-  They exist in the reference to put the character back after a death; this
-  engine's ``check_alive`` waits for the respawn and its ``death_handler`` owns
-  it, so there is nothing for a save state to repair.
+* ``Core.SavedState`` / ``CheckSaveState`` / ``ExecuteSaveState`` live in
+  :mod:`bot.core_bots` now, where the reference keeps them; the farms here do not
+  call them, because this engine's ``check_alive`` waits for the respawn and its
+  ``death_handler`` owns the recovery a save state would otherwise repair.
 * Boosts are not available: ``CoreFarms.ToggleBoost`` drives Skua's boost
   items, which this engine has no support for.  The reference keeps every boost
   switched **off** by default, so leaving the calls out changes nothing today --
@@ -26,8 +26,9 @@ import time
 from typing import Awaitable, Callable, Optional, Sequence, Tuple
 
 from bot.core_bots import (Alignment, REP_THRESHOLDS, buy_item, can_we_aggro,
-                           change_alignment,
-                           equip_class, wait_for_item)
+                           chain_complete, change_alignment, check_save_state,
+                           equip_class, execute_save_state, kill_once,
+                           saved_state, wait_for_item)
 from core.command import Command
 from templates.hunt import DEFAULT_SKILL_LIST, hunt_item, move_to_cell
 
@@ -185,11 +186,20 @@ async def farm_until(
     if drops:
         cmd.add_drop(list(drops))
 
+    # ``Core.SavedState(true, map)``: the hop to /whitemap is how the reference
+    # saves a long farm's progress, so it is armed for the loop and disarmed
+    # after it, exactly as there.
+    saved_state(cmd, True, map_name)
+
     while cmd.is_still_connected() and not done():
+        if check_save_state(cmd):
+            await execute_save_state(cmd)
         can_we_aggro(cmd)
         await cmd.use_next_skill(DEFAULT_SKILL_LIST, monster, hunt)
         if each is not None:
             await each()
+
+    saved_state(cmd, False)
 
     if quests:
         cmd.cancel_registered_quests()
@@ -773,9 +783,12 @@ async def chronospan_rep(cmd: Command, rank: int = 10) -> None:
     await equip_class(cmd)
     await cmd.register_quest(2204)
     guard = cmd.pass_guard(f"ChronoSpan rank {rank} (quest 2204)")
+    saved_state(cmd, True, "thespan")
 
     while (cmd.is_still_connected()
            and cmd.get_faction_rank("ChronoSpan") < rank):
+        if check_save_state(cmd):
+            await execute_save_state(cmd)
         await hunt_item(cmd, "Tin of Ghost Dust", 2, "thespan", cell="r6",
                         pad="Left", monster_name="Moglin Ghost", is_temp=False)
         await hunt_item(cmd, "8 oz Fairy Glitter", 3, "thespan", cell="r4",
@@ -785,6 +798,7 @@ async def chronospan_rep(cmd: Command, rank: int = 10) -> None:
         if not await guard.tick():
             break
 
+    saved_state(cmd, False)
     cmd.cancel_registered_quests()
 
 
@@ -813,13 +827,17 @@ async def craggle_rock_rep(cmd: Command, rank: int = 10) -> None:
     cmd.add_drop("Empowered Voidstone")
     await cmd.register_quest(7277)
     await equip_class(cmd, solo=True)
+    saved_state(cmd, True, "wanders")
 
     while (cmd.is_still_connected()
            and cmd.get_faction_rank("CraggleRock") < rank):
+        if check_save_state(cmd):
+            await execute_save_state(cmd)
         monster = monster_by_definition_id(cmd, CRAGGLE_ROCK_ID)
         if monster is None:
             cmd.bot.log(f"[farm] monster id {CRAGGLE_ROCK_ID} is not in /wanders, so "
                   f"CraggleRock cannot be farmed. Stopping.")
+            saved_state(cmd, False)
             cmd.cancel_registered_quests()
             return
         while cmd.is_still_connected() and cmd.is_not_in_cell(monster.frame):
@@ -828,6 +846,7 @@ async def craggle_rock_rep(cmd: Command, rank: int = 10) -> None:
         await cmd.use_next_skill(DEFAULT_SKILL_LIST,
                                 f"id.{monster.mon_map_id}")
 
+    saved_state(cmd, False)
     cmd.cancel_registered_quests()
 
 
@@ -959,6 +978,113 @@ async def _fishing_reply(cmd: Command, flag: str) -> bool:
     return False
 
 
+# ---------------------------------------------------------------------------
+# Boosts
+# ---------------------------------------------------------------------------
+#: ``GetBoost``'s two quests: (quest, reward item id, boost name).
+BOOST_XP = (1614, 10850, "XP Boost! (10 min)")
+BOOST_REP = (1615, 10997, "REPUTATION Boost! (10 min)")
+BOOST_REP_RANK = 2
+
+
+async def get_fish(cmd: Command, item_id: int, quant: int,
+                   quest: int) -> None:
+    """``CoreFarms.GetFish``: dynamite-cast in /fishing until the drop lands.
+
+    The fish themselves are turned in by the server under whichever quest is
+    accepted, so this only drives the same three-packet exchange as
+    :func:`fishing_rep` and waits for the count.
+    """
+    if await cmd.has_item_id(item_id, quant):
+        return
+
+    while (cmd.is_still_connected()
+           and not await cmd.has_item_id(item_id, quant)):
+        if not await cmd.has_item(FISHING_DYNAMITE):
+            await get_bait_and_dynamite(cmd, 0, 20)
+        if cmd.is_not_in_map(FISHING_MAP):
+            await cmd.join_map(FISHING_MAP)
+
+        while (cmd.is_still_connected()
+               and await cmd.has_item(FISHING_DYNAMITE)
+               and not await cmd.has_item_id(item_id, quant)):
+            cmd.bot.fishing_cast_wait = False
+            cmd.bot.fishing_caught = False
+            await cmd.send_packet("%xt%zm%FishCast%1%Dynamite%30%")
+            if not await _fishing_reply(cmd, "fishing_cast_wait"):
+                cmd.bot.log("Timed out waiting for castWait packet.")
+                continue
+            wait_ms = cmd.bot.fishing_wait_ms or FISHING_WAIT_MS
+            await cmd.sleep(wait_ms)
+            await cmd.send_packet("%xt%zm%getFish%1%false%")
+            await _fishing_reply(cmd, "fishing_caught")
+
+
+async def get_boost(cmd: Command, boost_type: str = "XP", quantity: int = 1,
+                    do_once: bool = False) -> None:
+    """``CoreFarms.GetBoost``: quests 1614 (XP) and 1615 (reputation).
+
+    Deviation, reported: the reference's loop condition is
+    ``!CheckInventory(name, quantity) || doOnce``, which never ends once
+    ``doOnce`` is set.  Here ``do_once`` means "run at least one pass even when
+    the stack is already full" and the loop still stops at ``quantity``.
+
+    ``TrashCan`` on the leftover bait is skipped: this engine has no discard
+    action (sell it instead).
+
+    Args:
+        cmd (Command): Facade to act through.
+        boost_type (str): ``"XP"`` for 1614, anything else for 1615.
+        quantity (int): How many boosts to end up with.
+        do_once (bool): Farm one pass even when already stocked.
+    """
+    quest, item_id, boost_name = (BOOST_XP if boost_type.upper() == "XP"
+                                  else BOOST_REP)
+
+    if not do_once and await cmd.has_item(boost_name, quantity):
+        return
+
+    cmd.farming_logger(boost_name, quantity)
+    cmd.add_drop([FISHING_DYNAMITE, boost_name])
+    await equip_class(cmd)
+
+    if cmd.get_faction_rank("Fishing") < BOOST_REP_RANK:
+        cmd.bot.log("Fishing Rank 2 required for Boost farm quest.")
+        await fishing_rep(cmd, BOOST_REP_RANK)
+
+    if not await cmd.is_completed_before(1615):
+        if await cmd.ensure_accept_quest(BOOST_XP[0]) is False:
+            cmd.bot.log("[farm] quest 1614 could not be accepted; boost farm "
+                        "stops here.")
+            return
+        await get_fish(cmd, BOOST_XP[1], 30, BOOST_XP[0])
+        await hunt_item(cmd, "Slime Sauce", 1, "greenguardwest",
+                        monster_name="Slime")
+        if await cmd.ensure_turn_in_quest(BOOST_XP[0]) is False:
+            return
+
+    passes = 0
+    while cmd.is_still_connected():
+        if passes and await cmd.has_item(boost_name, quantity):
+            break
+        passes += 1
+
+        if await cmd.ensure_accept_quest(quest) is False:
+            cmd.bot.log(f"[farm] quest {quest} could not be accepted; boost "
+                        f"farm stops here.")
+            break
+        await get_fish(cmd, item_id, 30 if quest == BOOST_XP[0] else 5, quest)
+        if quest == BOOST_XP[0]:
+            # ``KillMonster("greenguardwest", "West4", "Right", "Slime", ...)``
+            await hunt_item(cmd, "Slime Sauce", 1, "greenguardwest",
+                            cell="West4", pad="Right", monster_name="Slime")
+        else:
+            await hunt_item(cmd, "Greenguard Seal", 1, "greenguardwest",
+                            monster_name="Frogzard")
+        if await cmd.ensure_turn_in_quest(quest) is False:
+            break
+
+
 #: ``CoreFarms.SomniaREP``: the three quests of /somnia, one pass per item set.
 SOMNIA_MAP = "somnia"
 SOMNIA_QUESTS = (7665, 7666, 7669)
@@ -981,7 +1107,10 @@ async def somnia_rep(cmd: Command, rank: int = 10) -> None:
 
     await equip_class(cmd)
     cmd.bot.log(f"Farming rank {rank}")
+    saved_state(cmd, True, SOMNIA_MAP)
     while cmd.is_still_connected() and cmd.get_faction_rank("Somnia") < rank:
+        if check_save_state(cmd):
+            await execute_save_state(cmd)
         for quest_id in SOMNIA_QUESTS:
             await cmd.ensure_accept_quest(quest_id)
         for item, monster, qty in SOMNIA_HUNTS:
@@ -989,6 +1118,124 @@ async def somnia_rep(cmd: Command, rank: int = 10) -> None:
                             is_temp=True)
         for quest_id in SOMNIA_QUESTS:
             await cmd.ensure_turn_in_quest(quest_id)
+    saved_state(cmd, False)
+
+
+# ---------------------------------------------------------------------------
+# Glacera
+# ---------------------------------------------------------------------------
+GLACERA_FARM_QUESTS = (5597, 5598, 5599, 5600)
+GLACERA_FARM_MAP = "icewindwar"
+GLACERA_FARM_CELL, GLACERA_FARM_PAD = "r5", "Left"
+#: ``IceWindPass``'s last quest: the farm quests only unlock after it.
+GLACERA_UNLOCK_QUEST = 5601
+
+
+async def glacera_rep(cmd: Command, rank: int = 10) -> None:
+    """``CoreFarms.GlaceraREP``: the four war quests in /icewindwar.
+
+    Args:
+        cmd (Command): Facade to act through.
+        rank (int): Reputation rank wanted.
+    """
+    if cmd.get_faction_rank("Glacera") >= rank:
+        return
+
+    if not await cmd.is_completed_before(GLACERA_UNLOCK_QUEST):
+        cmd.bot.log("Farming Quests are not unlocked, run the Glacera story "
+                    "first: bot.story.glacera (do_all).")
+        return
+
+    await equip_class(cmd)
+    saved_state(cmd, True, GLACERA_FARM_MAP)
+    cmd.bot.log(f"Farming rank {rank}")
+
+    for quest_id in GLACERA_FARM_QUESTS:
+        await cmd.register_quest(quest_id)
+
+    while (cmd.is_still_connected()
+           and cmd.get_faction_rank("Glacera") < rank):
+        if check_save_state(cmd):
+            await execute_save_state(cmd)
+        await kill_once(cmd, GLACERA_FARM_MAP, GLACERA_FARM_CELL,
+                        GLACERA_FARM_PAD)
+
+    cmd.cancel_registered_quests()
+    saved_state(cmd, False)
+
+
+# ---------------------------------------------------------------------------
+# SpellCrafting
+# ---------------------------------------------------------------------------
+SPELLCRAFTING = "SpellCrafting"
+SPELLCRAFTING_START_QUEST = 2260
+SPELLCRAFTING_QUILL_QUEST = 2299
+SPELLCRAFTING_INK_QUEST = 2322
+SPELLCRAFTING_SHOP = 549
+SPELLCRAFTING_SHOP_MAP = "dragonrune"
+SPELLCRAFTING_INK = "Ember Ink"
+SPELLCRAFTING_HALLOW_INK = "Hallow Ink"
+
+
+async def spellcrafting_rep(cmd: Command, rank: int = 10) -> None:
+    """``CoreFarms.SpellCraftingREP``: quests 2260/2299/2322.
+
+    The rank-4 band runs in /mobius, whose SWF the reference loads client-side;
+    :func:`bot.nation.core_nation.join_swf` is the port's equivalent (join + the
+    cell), which is all this engine can do with a retired map asset.
+    """
+    from bot.nation.core_nation import join_swf
+
+    if cmd.get_faction_rank(SPELLCRAFTING) >= rank:
+        return
+
+    cmd.add_drop(["Mystic Quills", "Mystic Parchment"])
+    await equip_class(cmd)
+    cmd.bot.log(f"Farming rank {rank}")
+
+    if cmd.get_faction_rank(SPELLCRAFTING) == 0:
+        if check_save_state(cmd):
+            await execute_save_state(cmd)
+        if await cmd.ensure_accept_quest(SPELLCRAFTING_START_QUEST) is False:
+            cmd.bot.log(f"[farm] quest {SPELLCRAFTING_START_QUEST} could not be "
+                        f"accepted; SpellCrafting stops here.")
+            return
+        await cmd.join_map(SPELLCRAFTING_SHOP_MAP)
+        await cmd.get_map_item(1920, 1)
+        await hunt_item(cmd, "Arcane Parchment", 13, "castleundead",
+                        monster_name="Skeletal Warrior")
+        await cmd.ensure_turn_in_quest(SPELLCRAFTING_START_QUEST)
+
+    if cmd.get_faction_rank(SPELLCRAFTING) < 4:
+        await join_swf(cmd, "mobius", "Slugfit", "Bottom")
+        await hunt_item(cmd, "Mystic Quills", 10, "mobius",
+                        monster_name="Slugfit")
+        await buy_item(cmd, SPELLCRAFTING_SHOP, SPELLCRAFTING_INK, 50,
+                       map_name=SPELLCRAFTING_SHOP_MAP)
+        while (cmd.is_still_connected()
+               and await cmd.has_item(SPELLCRAFTING_INK)
+               and cmd.get_faction_rank(SPELLCRAFTING) < 4):
+            await chain_complete(cmd, SPELLCRAFTING_QUILL_QUEST)
+
+    saved_state(cmd, True, "underworld")
+    while (cmd.is_still_connected()
+           and cmd.get_faction_rank(SPELLCRAFTING) < rank):
+        if check_save_state(cmd):
+            await execute_save_state(cmd)
+        await hunt_item(cmd, "Mystic Parchment", 10, "underworld",
+                        monster_name="Skull Warrior")
+        await buy_item(cmd, SPELLCRAFTING_SHOP, SPELLCRAFTING_HALLOW_INK, 50,
+                       map_name=SPELLCRAFTING_SHOP_MAP)
+        while (cmd.is_still_connected()
+               and await cmd.has_item(SPELLCRAFTING_HALLOW_INK)
+               and cmd.get_faction_rank(SPELLCRAFTING) < rank):
+            await chain_complete(cmd, SPELLCRAFTING_INK_QUEST)
+    saved_state(cmd, False)
+
+    for ink in (SPELLCRAFTING_INK, SPELLCRAFTING_HALLOW_INK):
+        held = cmd.get_quant_item(ink)
+        if held:
+            await cmd.sell_item(ink, held)
 
 
 #: Faction name -> the ported method, mirroring ``CoreFarms.<Name>REP``.
@@ -1001,6 +1248,8 @@ FACTION_FARMS = {
     "Evil": evil_rep,
     "ChronoSpan": chronospan_rep,
     "CraggleRock": craggle_rock_rep,
+    "Glacera": glacera_rep,
+    "SpellCrafting": spellcrafting_rep,
 }
 
 async def farm_faction(cmd: Command, faction: str, rank: int = 10) -> bool:
@@ -1129,8 +1378,11 @@ async def blacksmithing_rep(cmd: Command, rank: int = 10, use_gold: bool = False
 
     if use_gold:
         cmd.bot.log("Using Gold Method")
+        saved_state(cmd, True, "alchemyacademy")
         while (cmd.is_still_connected()
                and cmd.get_faction_rank(BLACKSMITHING) < rank):
+            if check_save_state(cmd):
+                await execute_save_state(cmd)
             await cmd.ensure_accept_quest(BLACKSMITHING_GOLD_QUEST)
 
             remaining = remaining_faction_xp(cmd, BLACKSMITHING)
@@ -1165,6 +1417,7 @@ async def blacksmithing_rep(cmd: Command, rank: int = 10, use_gold: bool = False
                            map_name="alchemyacademy")
             await cmd.ensure_turn_in_quest(BLACKSMITHING_GOLD_QUEST,
                                            amount=items_needed)
+        saved_state(cmd, False)
         return
 
     cmd.bot.log("Using Non-Gold Method")
@@ -1172,24 +1425,31 @@ async def blacksmithing_rep(cmd: Command, rank: int = 10, use_gold: bool = False
     starter_guard = cmd.pass_guard(
         f"{BLACKSMITHING} rank {BLACKSMITHING_STARTER_RANK} "
         f"(quest {BLACKSMITHING_STARTER_QUEST})")
+    saved_state(cmd, True, "greenguardwest")
     while (cmd.is_still_connected()
            and cmd.get_faction_rank(BLACKSMITHING) < BLACKSMITHING_STARTER_RANK
            and not use_gold):
+        if check_save_state(cmd):
+            await execute_save_state(cmd)
         await hunt_item(cmd, "Furry Lost Sock", 2, "greenguardeast",
                         monster_name="Wolf")
         await hunt_item(cmd, "Slimy Lost Sock", 5, "greenguardwest",
                         monster_name="Slime")
         if not await starter_guard.tick():
             break
+    saved_state(cmd, False)
     cmd.cancel_registered_quests()
 
     await cmd.register_quest(BLACKSMITHING_QUEST)
     await equip_class(cmd, solo=True)
     guard = cmd.pass_guard(f"{BLACKSMITHING} rank {rank} "
                            f"(quest {BLACKSMITHING_QUEST})")
+    saved_state(cmd, True, "hydrachallenge")
     while (cmd.is_still_connected()
            and cmd.get_faction_rank(BLACKSMITHING) < rank
            and not use_gold):
+        if check_save_state(cmd):
+            await execute_save_state(cmd)
         await hunt_item(cmd, "Hydra Scale Piece", 75, "hydrachallenge",
                         monster_name="Hydra Head 25", is_temp=False)
         await hunt_item(cmd, "Creature Shard", 1, "maul",
@@ -1198,4 +1458,109 @@ async def blacksmithing_rep(cmd: Command, rank: int = 10, use_gold: bool = False
                         monster_name="Dread Klunk", is_temp=False)
         if not await guard.tick():
             break
+    saved_state(cmd, False)
     cmd.cancel_registered_quests()
+
+
+# ---------------------------------------------------------------------------
+# Blade of Awe
+# ---------------------------------------------------------------------------
+BLADE_OF_AWE = "Blade of Awe"
+#: The weapon ``UnlockBoA``'s quests unlock; rank 6 is all the rep it needs.
+BOA_ITEM = 17585
+BOA_SHOP, BOA_SHOP_MAP = 631, "museum"
+#: The rep quest the farm loop registers.
+BOA_FARM_QUEST = 2935
+BOA_MAP, BOA_CELL, BOA_PAD = "castleundead", "Enter", "Left"
+BOA_MONSTER = "Skeletal Viking"
+#: ``UnlockBoA``'s first four quests: (quest, map, monster, item, solo).
+BOA_UNLOCKS = (
+    (2933, "j6", "Sketchy Dragon", "Stonewrit Found!", True),
+    (2934, "gilead", "Fire Elemental", "Handle Found!", True),
+    (2935, "castleundead", "Skeletal Viking", "Hilt Found!", False),
+    (2936, "hydra", "Hydra Head", "Blade Found!", False),
+)
+BOA_RUNES_QUEST = 2937
+BOA_RUNES_ITEM = "Runes Found!"
+
+
+async def unlock_boa(cmd: Command) -> None:
+    """``CoreFarms.UnlockBoA``: quests 2933-2937, the Blade of Awe's unlocks.
+
+    Note:
+        The reference calls ``Core.ResetQuest(2937)`` first -- accept, abandon,
+        accept again -- to shake off a stuck run.  This engine has no abandon
+        packet, so that one step is the accept alone; every other quest here is
+        one hunt and one turn-in, as in the source.
+    """
+    if await cmd.is_completed_before(BOA_RUNES_QUEST):
+        return
+
+    for quest_id, map_name, monster, item, solo in BOA_UNLOCKS:
+        if await cmd.is_completed_before(quest_id):
+            cmd.bot.log(f"Already Completed: [{quest_id}]")
+            continue
+
+        cmd.bot.log(f'Doing Quest: [{quest_id}] - "{item}"')
+        await equip_class(cmd, solo=solo)
+        if await cmd.ensure_accept_quest(quest_id) is False:
+            cmd.bot.log(f"[farm] quest {quest_id} could not be accepted; the "
+                        f"Blade of Awe unlock stops here.")
+            return
+        await hunt_item(cmd, item, 1, map_name, monster_name=monster,
+                        is_temp=False)
+        if await cmd.ensure_turn_in_quest(quest_id) is False:
+            cmd.bot.log(f"[farm] quest {quest_id} could not be turned in; the "
+                        f"Blade of Awe unlock stops here.")
+            return
+        cmd.bot.log(f"Completed Quest: [{quest_id}]")
+
+    if await cmd.is_completed_before(BOA_RUNES_QUEST):
+        cmd.bot.log(f"Already Completed: [{BOA_RUNES_QUEST}]")
+        return
+
+    from bot.nation.core_nation import kill_escherion
+
+    cmd.bot.log(f'Doing Quest: [{BOA_RUNES_QUEST}] - "{BOA_RUNES_ITEM}"')
+    await equip_class(cmd, solo=True)
+    if await cmd.ensure_accept_quest(BOA_RUNES_QUEST) is False:
+        cmd.bot.log(f"[farm] quest {BOA_RUNES_QUEST} could not be accepted.")
+        return
+    await kill_escherion(cmd, BOA_RUNES_ITEM)
+    if await cmd.ensure_turn_in_quest(BOA_RUNES_QUEST) is False:
+        cmd.bot.log(f"[farm] quest {BOA_RUNES_QUEST} could not be turned in.")
+        return
+    cmd.bot.log(f"Completed Quest: [{BOA_RUNES_QUEST}]")
+
+
+async def blade_of_awe_rep(cmd: Command, rank: int = 10,
+                           farm_boa: bool = True) -> None:
+    """``CoreFarms.BladeofAweREP``: rank the faction in /castleundead.
+
+    Args:
+        cmd (Command): Facade to act through.
+        rank (int): Reputation rank wanted.
+        farm_boa (bool): Also unlock and buy the Blade of Awe itself.
+    """
+    await unlock_boa(cmd)
+
+    target = 6 if farm_boa and not await cmd.has_item_id(BOA_ITEM) else rank
+    current = cmd.get_faction_rank(BLADE_OF_AWE)
+    if current < target or (farm_boa and current < rank):
+        saved_state(cmd, True, BOA_MAP)
+        await equip_class(cmd)
+        cmd.bot.log(f"Farming rank {target if current < target else rank}")
+
+        await cmd.register_quest(BOA_FARM_QUEST)
+        while (cmd.is_still_connected()
+               and (cmd.get_faction_rank(BLADE_OF_AWE) < target
+                    or (farm_boa
+                        and cmd.get_faction_rank(BLADE_OF_AWE) < target))):
+            if check_save_state(cmd):
+                await execute_save_state(cmd)
+            await kill_once(cmd, BOA_MAP, BOA_CELL, BOA_PAD, BOA_MONSTER)
+        cmd.cancel_registered_quests()
+        saved_state(cmd, False)
+
+    if farm_boa and not await cmd.has_item_id(BOA_ITEM):
+        await buy_item(cmd, BOA_SHOP, BOA_ITEM, map_name=BOA_SHOP_MAP)

@@ -7,9 +7,9 @@ and the other Nation files call.
 Where this engine cannot follow the reference, the gap is reported rather than
 guessed at:
 
-* ``Adv.RankUpClass`` is ``CoreAdvanced`` work, and it needs the class *rank*,
-  which this engine cannot read.  ``bot/core_farms`` reports the same gap for its
-  own ``rank_up_class`` argument, and the step is skipped the same way here.
+* ``Adv.RankUpClass`` is ``bot.core_advanced.rank_up_class`` here: it keeps the
+  class equipped and drives the arena, so ``_rank_up`` calls it with
+  ``gear_restore`` on, as the reference does.
 * ``Daily.EldersBlood`` is ported (``bot/core_dailies``), but its daily gate is
   the server refusing the accept, not a client-side flag.
 * ``farm_extra`` reads one reward name off quest 7551's payload, which this
@@ -20,6 +20,7 @@ guessed at:
 from typing import Optional
 
 from bot.core_advanced import buy_item
+from bot.core_advanced import rank_up_class as rank_up
 from bot.core_bots import dynamic_quant, wait_for_item
 from bot.core_dailies import elders_blood
 from bot.core_farms import black_knight_orb, farm_experience
@@ -86,7 +87,7 @@ async def get_vhl(cmd: Command, rank_up_class: bool = True) -> None:
     """``CoreVHL.GetVHL``: the class, challenge tokens and crystals included."""
     if await cmd.has_item(VOID_HIGHLORD):
         cmd.bot.log(f'[vhl] "{VOID_HIGHLORD}" is already owned.')
-        _rank_up(cmd, rank_up_class)
+        await _rank_up(cmd, rank_up_class)
         return
 
     cmd.bot.log(f"[vhl] 1/3 {ROENTGENIUM} x15, one per turn-in of quest "
@@ -101,7 +102,7 @@ async def get_vhl(cmd: Command, rank_up_class: bool = True) -> None:
         cmd.bot.log(f'[vhl] 3/3 buying "{VOID_HIGHLORD}"')
         await buy_item(cmd, VOID_HIGHLORD_SHOP, VOID_HIGHLORD,
                        map_name=VOID_HIGHLORD_MAP)
-        _rank_up(cmd, rank_up_class)
+        await _rank_up(cmd, rank_up_class)
     else:
         cmd.bot.log(f'[vhl] "{VOID_HIGHLORD}" not bought yet: {ROENTGENIUM} '
                     f"{cmd.get_quant_item(ROENTGENIUM)}/15, {VOID_CRYSTAL_A} "
@@ -111,13 +112,11 @@ async def get_vhl(cmd: Command, rank_up_class: bool = True) -> None:
                     f".")
 
 
-def _rank_up(cmd: Command, rank_up_class: bool) -> None:
-    """``Adv.RankUpClass``, which this engine cannot do (no class rank)."""
+async def _rank_up(cmd: Command, rank_up_class: bool) -> None:
+    """``Adv.RankUpClass``, which keeps the class on while the arena ranks it."""
     if not rank_up_class:
         return
-    cmd.bot.log(f'[vhl] "{VOID_HIGHLORD}" would be ranked up here, but rank-up-class '
-          f"work needs the class rank, which this engine cannot read; "
-          f"skipping it. The class itself is unaffected.")
+    await rank_up(cmd, VOID_HIGHLORD)
 
 
 async def vhl_challenge(cmd: Command, quant: int, farmextra: bool = False) -> None:
@@ -293,7 +292,6 @@ async def _sparrow_method(cmd: Command, elders_blood_quant: int) -> None:
             or await cmd.has_item(ELDERS_BLOOD, elders_blood_quant)):
         return
     await assisting_crag_and_bamboozle(cmd, SPARROW_ELDERS_BLOOD_ID)
-
 
 async def _swindle_reward_name(cmd: Command) -> Optional[str]:
     """The name of quest 7551's reward ``SWINDLE_REWARD_ID``, or None.

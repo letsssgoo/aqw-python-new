@@ -506,6 +506,12 @@ def main() -> None:
         "a potion is equipped with geia, not equipItem"
     assert "KILL_THING_ITEM, VIGIL_ITEM_ID" in sv, \
         "sea_voice must pass the item id, not the name"
+    temple = aor_body[aor_body.index("async def termina_temple("):
+                      aor_body.index("async def ashray_village(")]
+    assert "_sea_voice_story(cmd)" in temple, \
+        "the SeaVoice branch must run the story it gates"
+    assert "the SeaVoice branch needs" not in temple, \
+        "the SeaVoice branch is ported now"
     assert "SetSpawnPoint" in sv or "SetSpawnPoint" in aor_body or True
     print("AOR voice  : SeaVoice 9348, Vigil + Oxidize cleanse on item slot 5")
 

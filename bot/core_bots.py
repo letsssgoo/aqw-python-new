@@ -17,6 +17,11 @@ call live here so far:
 ``register_quests``     ``CoreBots.RegisterQuests``, the plural form
 ``saved_state``         ``CoreBots.SavedState`` / ``CheckSaveState`` /
                         ``ExecuteSaveState``
+``farming_logger``      ``CoreBots.FarmingLogger``
+``equip_items``         ``CoreBots.Equip``, the array form
+``quest_rewards``       ``CoreBots.QuestRewards``, the plural form
+``chain_complete``      ``CoreBots.ChainComplete``
+``ensure_complete_choose``  ``CoreBots.EnsureCompleteChoose``
 ======================  ==================================================
 
 ``bot.nation.core_nation`` re-exports ``equip_class`` and ``can_we_aggro`` from
@@ -26,7 +31,7 @@ import json
 import random
 import time
 from enum import Enum
-from typing import Optional, Sequence, Tuple, Union
+from typing import List, Optional, Sequence, Tuple, Union
 
 from core.command import Command
 from core.utils import is_valid_json
@@ -627,3 +632,297 @@ async def hunt_monster_quest_single(cmd: Command,
         return False
     targets = [(map_name, monster, solo)] * len(_requirement_rows(quest))
     return await hunt_monster_quest(cmd, quest_id, *targets, log=log)
+
+
+# ---------------------------------------------------------------------------
+# FarmingLogger / Equip / QuestRewards / ChainComplete / EnsureCompleteChoose
+# ---------------------------------------------------------------------------
+def farming_logger(cmd: Command, item: str, quant: int = 1) -> None:
+    """``CoreBots.FarmingLogger``: how much of ``item`` is held, out of ``quant``.
+
+    The reference counts the temp bag as well, because quest progress items land
+    there; both bags are read here for the same reason.
+    """
+    held = 0
+    if item:
+        # ``Bot.TempInv.GetQuantity(item) + Bot.Inventory.GetQuantity(item)``:
+        # the temp half is what ``dynamic_quant`` already answers, the inventory
+        # half is the model's own lookup.
+        held = dynamic_quant(cmd, item, is_temp=True)
+        held += int(getattr(cmd.bot.player.get_item_inventory(item), "qty", 0)
+                    or 0)
+    cmd.bot.log(f"Farming {item} ({held}/{quant})")
+
+
+async def equip_items(cmd: Command, *gear: str) -> None:
+    """``CoreBots.Equip``: equip each named item, skipping what is already worn.
+
+    Args:
+        cmd (Command): Facade to act through.
+        gear (str): Item names, in order; empty entries are skipped.
+    """
+    for name in gear:
+        if not name or not name.strip():
+            continue
+        held = cmd.bot.player.get_item_inventory(name)
+        if held is not None and held.is_equipped:
+            continue
+        if not await cmd.has_item(name):
+            cmd.bot.log(f'Equipping Failed: "{name}" not found in Inventory or '
+                        f'Bank')
+            continue
+        if not await cmd.equip_item(name):
+            cmd.bot.log(f'Equipping Failed: "{name}" could not be equipped.')
+
+
+def quest_rewards(cmd: Command, *quest_ids: int) -> List[str]:
+    """``CoreBots.QuestRewards``: every reward name across the given quests."""
+    names: List[str] = []
+    for quest_id in quest_ids:
+        for name in cmd.get_quest_rewards(quest_id):
+            if name not in names:
+                names.append(name)
+    return names
+
+
+async def chain_complete(cmd: Command, quest: int,
+                         item_id: int = -1) -> bool:
+    """``CoreBots.ChainComplete``: accept and complete a no-requirement quest.
+
+    The reference's version exists for quests that only ask to be turned in
+    (592, 10047, 1213, 1238); ``item_id`` picks the reward when there is a
+    choice.
+    """
+    if not await cmd.ensure_accept_quest(quest):
+        cmd.bot.log(f"[core] quest {quest} cannot be accepted right now; "
+                    f"nothing completed.")
+        return False
+    if not await cmd.ensure_turn_in_quest(quest, item_id):
+        cmd.bot.log(f"[core] quest {quest} could not be turned in.")
+        return False
+    return True
+
+
+async def ensure_complete_choose(cmd: Command, quest_id: int,
+                                 *item_names: str) -> bool:
+    """``CoreBots.EnsureCompleteChoose``: turn in, picking one reward by name.
+
+    Args:
+        cmd (Command): Facade to act through.
+        quest_id (int): Quest whose reward choice is made.
+        item_names (str): Candidate rewards, in the caller's order; the first one
+            the quest actually offers is the one taken.
+
+    Returns:
+        bool: True when the turn-in went out.
+    """
+    quest = cmd.get_loaded_quest(quest_id)
+    if quest is None:
+        cmd.bot.log(f"[core] quest {quest_id} is not loaded, so no reward can "
+                    f"be chosen.")
+        return False
+    offered = {name: item_id for item_id, name, _max in quest.reward_entries}
+    for item_name in item_names:
+        if item_name in offered:
+            return await cmd.ensure_turn_in_quest(quest_id, offered[item_name])
+    cmd.bot.log(f"[core] quest {quest_id} offers none of "
+                f"{', '.join(item_names)}; not turned in.")
+    return False
+
+
+#: How many attack ticks :func:`kill_once` gives a kill before it reports.
+KILL_ONE_TRIES = 60
+
+
+async def kill_once(cmd: Command, map_name: str = "", cell: str = "",
+                    pad: str = "Left", monster: str = "*") -> bool:
+    """``Core.KillMonster(map, cell, pad, monster)``: one kill, with no item.
+
+    The reference has kill helpers that take no item -- reputation farming, the
+    Blade of Awe loop, ``Bot.Kill.Monster("*")`` in a class quest -- and
+    ``hunt_item`` cannot express them because it needs an item name.  This is
+    that mode: join, hold the cell, and attack until nothing in it is alive.
+
+    Args:
+        cmd (Command): Facade to act through.
+        map_name (str): Map to join first, when given.
+        cell (str): Cell to hold, when given.
+        pad (str): Pad inside ``cell``.
+        monster (str): Monster name, or ``"*"`` for whatever is there.
+
+    Returns:
+        bool: True when the cell came up empty (the kill landed or there was
+        nothing to kill), False when the bounded loop ran out.
+    """
+    if map_name:
+        await cmd.join_map(map_name)
+    if cell:
+        await cmd.jump_cell(cell, pad)
+
+    for _ in range(KILL_ONE_TRIES):
+        if not cmd.is_still_connected():
+            return False
+        here = str(getattr(cmd.bot.player, "CELL", "") or "").lower()
+        alive = [mon for mon in cmd.bot.monsters
+                 if (not here or str(mon.frame or "").lower() == here)
+                 and mon.is_alive and mon.current_hp > 0
+                 and (monster == "*" or mon.mon_name.lower() == monster.lower())]
+        if alive:
+            await cmd.use_next_skill(DEFAULT_SKILL_LIST, monster)
+            continue
+        if cell:
+            return True
+        # No cell was asked for, so this is a map-wide hunt: walk to the monster
+        # when it is alive somewhere else instead of reporting an empty cell.
+        elsewhere = [mon for mon in cmd.bot.monsters
+                     if mon.is_alive and mon.current_hp > 0
+                     and (monster == "*" or mon.mon_name.lower() == monster.lower())]
+        if not elsewhere:
+            return True
+        await cmd.jump_to_monster(monster)
+
+    cmd.bot.log(f"[core] nothing died in {map_name or 'this map'} "
+                f"({monster}); carrying on.")
+    return False
+
+
+# ---------------------------------------------------------------------------
+# DoomKitten
+# ---------------------------------------------------------------------------
+#: ``KillDoomKitten``'s recommended classes, in the reference's order.
+DOT_CLASSES = (
+    "Dragon of Time", "Blaze Binder", "FireLord Summoner",
+    "ShadowStalker of Time", "ShadowWeaver of Time", "ShadowWalker of Time",
+    "Infinity Knight", "Interstellar Knight", "Timeless Dark Caster",
+    "Frostval Barbarian", "DeathKnight", "DragonSoul Shinobi",
+    "Shadow Dragon Shinobi", "Legion Revenant", "Void Highlord",
+)
+DOOM_KITTEN_MAP = "doomkitten"
+#: ``Bot.Skills.StartAdvanced``'s rotations for the two classes that need one.
+#: Each entry is ``(slot, stat, percent)``: cast that slot only while ``stat``
+#: is below ``percent`` of its maximum (``None`` = always).
+DOOM_KITTEN_SHINOBI_ROTATION = ((4, None, 0), (1, None, 0), (3, "mana", 30),
+                                (2, "hp", 30))
+DOOM_KITTEN_BLAZE_ROTATION = ((3, None, 0), (4, None, 0), (2, None, 0))
+DOOM_KITTEN_SHINOBI = ("DragonSoul Shinobi", "Shadow Dragon Shinobi")
+DOOM_KITTEN_BLAZE = ("Blaze Binder", "FireLord Summoner")
+#: ``Bot.Sleep(500)`` between the reference's combat ticks.
+DOOM_KITTEN_TICK_MS = 500
+
+
+def doom_kitten_rotation(cmd: Command, rotation) -> list:
+    """The slots of ``rotation`` whose conditions hold right now."""
+    player = cmd.get_player()
+    slots = []
+    for slot, stat, percent in rotation:
+        if stat == "mana" and not player.MANA < player.MAX_MP * percent / 100:
+            continue
+        if stat == "hp" and not player.CURRENT_HP < player.MAX_HP * percent / 100:
+            continue
+        slots.append(slot)
+    return slots
+
+
+async def kill_doom_kitten(cmd: Command, item: str = None, quant: int = 1,
+                           is_temp: bool = False, log: bool = True) -> None:
+    """``CoreBots.KillDoomKitten``: fight DoomKitten until its drop lands.
+
+    The reference picks the first owned class out of its DoT list and, for the
+    Shinobi and Blaze Binder families, switches the skill scheduler to a
+    class-specific rotation (``"4 | 1 | 3M<30 | 2H<30"`` and ``"3 | 4 | 2"``)
+    because the kitten's hit range makes the normal one unreliable.  Both
+    rotations are reproduced above, with their mana/HP conditions evaluated
+    every tick; every other class takes the reference's normal path,
+    ``HuntMonster("doomkitten", "DoomKitten", ...)``.
+
+    Two engine-level differences, neither about the rotation itself:
+
+    * the reference's ``Bot.Skills.StartAdvanced`` runs on its own thread while
+      the loop only does ``Bot.Combat.Attack("*")``; here the same list goes
+      through :meth:`core.command.Command.use_next_skill`, which casts whichever
+      listed slot is ready and waits out the next cooldown (the measured skill
+      pacing), so the loop and the rotation are one step, not two;
+    * its auto-enhance on equip is the ``OnEquipClass`` hook, which does nothing
+      unless a script registered it -- nothing is registered here.
+
+    Args:
+        cmd (Command): Facade to act through.
+        item (str): Drop to wait for; ``None`` kills once.
+        quant (int): How many.
+        is_temp (bool): Whether the drop lands in the temporary bag.
+        log (bool): Kept for signature parity; the class pick always reports.
+    """
+    if item is not None and await cmd.has_item(item, quant, isTemp=is_temp):
+        return
+
+    owned = None
+    for class_name in DOT_CLASSES:
+        if await cmd.has_item(class_name):
+            owned = class_name
+            break
+    if owned is not None:
+        await cmd.equip_item(owned)
+    else:
+        cmd.bot.log("No recommended DoT class found - using the equipped class.")
+        cmd.bot.log("Suggested Classes: " + ", ".join(DOT_CLASSES))
+
+    rotation = None
+    if owned in DOOM_KITTEN_SHINOBI:
+        rotation = DOOM_KITTEN_SHINOBI_ROTATION
+    elif owned in DOOM_KITTEN_BLAZE:
+        rotation = DOOM_KITTEN_BLAZE_ROTATION
+
+    await cmd.join_map(DOOM_KITTEN_MAP)
+
+    if rotation is None:
+        if item is None:
+            await kill_once(cmd, DOOM_KITTEN_MAP, monster="*")
+            await cmd.sleep(DOOM_KITTEN_TICK_MS)
+            return
+
+        await hunt_item(cmd, item, quant, DOOM_KITTEN_MAP, monster_name="*",
+                        is_temp=is_temp)
+        return
+
+    cmd.bot.log("RNG GL due to class + kitten hit range.")
+    if owned in DOOM_KITTEN_BLAZE:
+        cmd.bot.log("if you cant kill doomkitten, try enhance with healer on "
+                    "all and healer mana vamp")
+
+    if item is None:
+        cmd.bot.log("No item selected, killing DoomKitten once.")
+        await kill_once(cmd, DOOM_KITTEN_MAP, monster="*")
+        await cmd.sleep(DOOM_KITTEN_TICK_MS)
+        return
+
+    guard = cmd.pass_guard(f"doomkitten {item}")
+    while (cmd.is_still_connected()
+           and not await cmd.has_item(item, quant, isTemp=is_temp)):
+        # ``if (!Bot.Player.HasTarget || Bot.Player.Target.HP > 0) Attack("*")``
+        target = getattr(cmd.bot.player, "last_target", None)
+        if target is None or (getattr(target, "current_hp", 0) or 0) > 0:
+            await cmd.use_next_skill(doom_kitten_rotation(cmd, rotation), "*")
+        await cmd.sleep(DOOM_KITTEN_TICK_MS)
+        if not await guard.tick():
+            break
+
+
+# ---------------------------------------------------------------------------
+# Achievements
+# ---------------------------------------------------------------------------
+async def set_achievement(cmd: Command, achievement_id: int,
+                          ia: str = "ia0") -> None:
+    """``CoreBots.SetAchievement``: the badge packet.
+
+    The reference reads the badge first -- ``Core.HasAchievement`` is a client
+    ``world.getAchievement`` call -- and only sends when it is missing.  This
+    engine has no client to ask, so the packet always goes out; the server keeps
+    a badge it already has.
+
+    Args:
+        cmd (Command): Facade to act through.
+        achievement_id (int): Badge id, e.g. ``22`` for Combat.
+        ia (str): The badge page the reference passes as ``ia0``.
+    """
+    await cmd.send_packet(f"%xt%zm%setAchievement%{cmd.bot.areaId}%{ia}%"
+                          f"{achievement_id}%1%")

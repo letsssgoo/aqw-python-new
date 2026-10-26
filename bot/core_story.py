@@ -6,6 +6,12 @@ that is where the reference keeps it.  The parts the ported stories call:
 ======================  ==================================================
 ``map_item_quest``      ``CoreStory.MapItemQuest``, one item or several
 ``kill_quest``          ``CoreStory.KillQuest``, one monster or several
+``quest_progression``   ``CoreStory.QuestProgression``, the gate every story
+                        quest runs through
+``try_complete``        ``CoreStory.TryComplete``
+``quest_complete``      ``CoreStory.QuestComplete``
+``buy_quest``           ``CoreStory.BuyQuest``
+``chain_quest``         ``CoreStory.ChainQuest``
 ======================  ==================================================
 
 How a kill quest is driven is the reference's own trick: the accepted quest's
@@ -16,15 +22,19 @@ monster taking any requirement beyond the end of the list.  The names are not in
 
 Not portable, and not reproduced:
 
-* ``QuestProgression`` reads quest slot values out of Flash and re-completes
-  earlier quests to repair a chain.  The server-side half is what is kept: a quest
-  that ``is_completed_before`` is done.
+* ``QuestProgression``'s unlock-recovery loop reads the quest's slot value out of
+  Flash and re-completes the previous quest to repair a chain.  The server-side
+  half is what is kept: a quest that ``is_completed_before`` is done, and a
+  locked one answers at ``EnsureAccept`` instead.
 * ``PreLoad`` reads the script's own compiled source to find the quests its class
   uses and preloads their data.  Nothing here needs it: the payload of an accepted
   quest carries what these routines read.
+* ``LegacyQuestManager`` needs the whole quest tree plus the reward-to-requirement
+  mapping the reference builds from it; it is a separate job.
 """
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
+from bot.core_advanced import buy_item
 from core.command import Command
 from core.bot import CustomError
 from templates.hunt import (DEFAULT_SKILL_LIST, hunt_item,
@@ -127,7 +137,7 @@ async def map_item_quest(cmd: Command, quest_id: int, map_name: str,
     """
     # the reference guards this one with QuestProgression too, so a quest that is
     # already done is skipped rather than accepted a second time
-    if await cmd.is_completed_before(quest_id):
+    if await quest_progression(cmd, quest_id):
         return
 
     if isinstance(item_ids, int):
@@ -141,10 +151,6 @@ async def map_item_quest(cmd: Command, quest_id: int, map_name: str,
         cmd.bot.log(f"[story] quest {quest_id} could not be accepted; nothing "
                     f"is farmed for it.")
         raise CustomError(f"quest {quest_id} could not be accepted")
-    # ``QuestProgression(GetReward: true)`` whitelists the quest's rewards so the
-    # turn-in's item is picked up; the quest has to be loaded for its payload to
-    # name them, which the accept above does.
-    cmd.add_quest_rewards(quest_id)
     while cmd.is_still_connected() and cmd.is_not_in_map(map_name):
         await cmd.join_map(map_name)
     for item_id, count in wanted:
@@ -169,7 +175,7 @@ async def kill_quest(cmd: Command, quest_id: int, map_name: str,
     requirement-to-monster mapping of its array overload.  ``skill_list`` is the
     rotation to cast, for fights that want a specific one.
     """
-    if await cmd.is_completed_before(quest_id):
+    if await quest_progression(cmd, quest_id):
         return
 
     names = _as_names(monster_names)
@@ -185,7 +191,6 @@ async def kill_quest(cmd: Command, quest_id: int, map_name: str,
         cmd.bot.log(f"[story] quest {quest_id} could not be accepted; nothing "
                     f"is hunted for it.")
         raise CustomError(f"quest {quest_id} could not be accepted")
-    cmd.add_quest_rewards(quest_id)
     quest = cmd.get_loaded_quest(quest_id)
     if quest is None:
         cmd.bot.log(f"[story] quest {quest_id} did not load; nothing farmed.")
@@ -198,3 +203,144 @@ async def kill_quest(cmd: Command, quest_id: int, map_name: str,
                         skill_list=skill_list or DEFAULT_SKILL_LIST)
     if await cmd.ensure_turn_in_quest(quest_id) is False:
         raise CustomError(f"quest {quest_id} could not be turned in")
+
+
+# ---------------------------------------------------------------------------
+# QuestProgression / TryComplete / the three quest shapes
+# ---------------------------------------------------------------------------
+def _quest_label(cmd: Command, quest_id: int) -> str:
+    """``[id] "name"`` when the payload is loaded, else just the id."""
+    quest = cmd.get_loaded_quest(quest_id)
+    if quest is None:
+        return f"[{quest_id}]"
+    return f'[{quest_id}] - "{quest.name}"'
+
+
+async def quest_progression(cmd: Command, quest_id: int,
+                            get_reward: bool = True,
+                            reward: str = "All",
+                            log: bool = True) -> bool:
+    """``CoreStory.QuestProgression``: skip a quest that needs nothing.
+
+    The reference's unlock-recovery loop -- reading the quest's slot value out of
+    Flash and re-completing the previous quest to repair a chain -- is not here;
+    a locked quest answers at ``EnsureAccept`` instead, which every caller checks
+    and reports.
+
+    Args:
+        cmd (Command): Facade to act through.
+        quest_id (int): Quest to check.
+        get_reward (bool): Whitelist the reward so the turn-in's item is picked up.
+        reward (str): The one reward to want, or ``"All"`` for every reward name.
+        log (bool): Report the skip or the start.
+
+    Returns:
+        bool: True when the quest needs nothing (done, or its reward is owned),
+        False when the caller should run it.
+    """
+    if quest_id <= 0:
+        return False
+
+    if await cmd.is_completed_before(quest_id):
+        if log:
+            cmd.bot.log(f"Already Completed: {_quest_label(cmd, quest_id)}")
+        return True
+
+    if get_reward:
+        if reward != "All":
+            if await cmd.has_item(reward):
+                cmd.bot.log(f'Already have reward "{reward}", skipping quest.')
+                return True
+            cmd.add_drop(reward)
+        else:
+            cmd.add_drop(cmd.get_quest_rewards(quest_id))
+
+    if log:
+        cmd.bot.log(f"Doing Quest: {_quest_label(cmd, quest_id)}")
+    return False
+
+
+async def try_complete(cmd: Command, quest, auto_complete: bool = True) -> bool:
+    """``CoreStory.TryComplete``: turn a quest in, or say what is missing.
+
+    The reference's ``autoCompleteQuest`` is accepted and never read -- the body
+    always accepts and completes -- so this keeps that quirk rather than
+    inventing a meaning for it.
+
+    Args:
+        cmd (Command): Facade to act through.
+        quest: The loaded quest object.
+        auto_complete (bool): Unused, as in the source.
+
+    Returns:
+        bool: True when the quest was turned in.
+    """
+    if quest is None:
+        cmd.bot.log("[story] QuestData is null, cannot complete quest")
+        return False
+
+    quest_id = int(quest.quest_id)
+    missing = pending_requirements(cmd, quest)
+    if missing:
+        listed = ", ".join(f"{name} x{qty}" for name, qty, _ in missing)
+        cmd.bot.log(f'Missing items for quest {_quest_label(cmd, quest_id)}: '
+                    f"{listed}")
+        return False
+
+    if await cmd.ensure_accept_quest(quest_id) is False:
+        cmd.bot.log(f"[story] quest {quest_id} could not be accepted; nothing "
+                    f"is turned in.")
+        raise CustomError(f"quest {quest_id} could not be accepted")
+    if await cmd.ensure_turn_in_quest(quest_id) is False:
+        raise CustomError(f"quest {quest_id} could not be turned in")
+
+    cmd.bot.log(f"Completed Quest: {_quest_label(cmd, quest_id)}")
+    return True
+
+
+async def quest_complete(cmd: Command, quest_id: int) -> bool:
+    """``CoreStory.QuestComplete``: accept a quest and complete it at once."""
+    if await cmd.ensure_accept_quest(quest_id) is False:
+        cmd.bot.log(f"[story] quest {quest_id} could not be accepted; nothing "
+                    f"is turned in.")
+        raise CustomError(f"quest {quest_id} could not be accepted")
+    return await try_complete(cmd, cmd.get_loaded_quest(quest_id))
+
+
+async def buy_quest(cmd: Command, quest_id: int, map_name: str, shop_id: int,
+                    item_name: str, amount: int = 1, get_reward: bool = True,
+                    reward: str = "All",
+                    auto_complete: bool = True) -> None:
+    """``CoreStory.BuyQuest``: accept, buy the quest's item, turn it in.
+
+    Args:
+        cmd (Command): Facade to act through.
+        quest_id (int): Quest to run.
+        map_name (str): Map the shop is on.
+        shop_id (int): Shop to buy from.
+        item_name (str): Item the quest wants.
+        amount (int): How many.
+        get_reward (bool): Whitelist the reward.
+        reward (str): The one reward to want, or ``"All"``.
+        auto_complete (bool): Forwarded to :func:`try_complete`.
+    """
+    if await quest_progression(cmd, quest_id, get_reward, reward):
+        return
+    if await cmd.ensure_accept_quest(quest_id) is False:
+        cmd.bot.log(f"[story] quest {quest_id} could not be accepted; nothing "
+                    f"is bought.")
+        raise CustomError(f"quest {quest_id} could not be accepted")
+    await buy_item(cmd, shop_id, item_name, amount, map_name=map_name)
+    await try_complete(cmd, cmd.get_loaded_quest(quest_id), auto_complete)
+
+
+async def chain_quest(cmd: Command, quest_id: int, get_reward: bool = True,
+                      reward: str = "All", auto_complete: bool = True) -> None:
+    """``CoreStory.ChainQuest``: accept a no-requirement quest and turn it in."""
+    if await quest_progression(cmd, quest_id, get_reward, reward):
+        return
+    if await cmd.ensure_accept_quest(quest_id) is False:
+        cmd.bot.log(f"[story] quest {quest_id} could not be accepted; nothing "
+                    f"is turned in.")
+        raise CustomError(f"quest {quest_id} could not be accepted")
+    await try_complete(cmd, cmd.get_loaded_quest(quest_id), auto_complete)

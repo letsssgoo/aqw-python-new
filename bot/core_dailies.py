@@ -35,7 +35,8 @@ from datetime import datetime, timedelta
 from typing import Optional, Sequence
 
 from bot.core_advanced import buy_item
-from bot.core_bots import (equip_class, hunt_monster_quest,
+from bot.core_bots import (chain_complete, dynamic_quant, equip_class,
+                           farming_logger, hunt_monster_quest,
                            hunt_monster_quest_single, wait_for_item)
 from core.command import Command
 from templates.hunt import hunt_item
@@ -101,35 +102,9 @@ async def _reward_map(cmd: Command, quest: int) -> dict:
     return {name: item_id for item_id, name, _max in entries if name}
 
 
-async def chain_complete(cmd: Command, quest: int,
-                         item_id: int = -1) -> bool:
-    """``CoreBots.ChainComplete``: accept and complete a no-requirement quest.
-
-    The reference's version exists for quests that only ask to be turned in
-    (592, 10047, 1213, 1238); ``item_id`` picks the reward when there is a
-    choice.
-    """
-    if not await cmd.ensure_accept_quest(quest):
-        cmd.bot.log(f"[dailies] quest {quest} cannot be accepted right now; "
-                    f"nothing completed.")
-        return False
-    if not await cmd.ensure_turn_in_quest(quest, item_id):
-        cmd.bot.log(f"[dailies] quest {quest} could not be turned in.")
-        return False
-    return True
-
-
 def _held_inventory_or_bank(cmd: Command, item: str) -> int:
     """How many of ``item`` the account holds, inventory plus bank."""
-    player = getattr(cmd.bot, "player", None)
-    if player is None or not hasattr(player, "get_item_inventory"):
-        return 0
-    total = 0
-    for getter in (player.get_item_inventory, player.get_item_bank):
-        held = getter(item)
-        if held is not None:
-            total += int(held.qty)
-    return total
+    return dynamic_quant(cmd, item)
 
 
 async def check_dailyv2(cmd: Command, quest: int, any_item: bool = True,
@@ -253,7 +228,7 @@ async def mine_crafting(cmd: Command, metals: Optional[Sequence[str]] = None,
     metals = list(metals or MINE_CRAFTING_METALS)
     cmd.bot.log(f"Daily: Mine Crafting ({'/'.join(metals)})")
 
-    if all(await cmd.has_item(metal, quant) for metal in metals):
+    if all([await cmd.has_item(metal, quant) for metal in metals]):
         cmd.bot.log(f"All metals were found with the needed quantity ({quant}).")
         if to_bank:
             await cmd.inv_to_bank(metals)
@@ -281,7 +256,11 @@ async def mine_crafting(cmd: Command, metals: Optional[Sequence[str]] = None,
         if metal_id is None:
             cmd.bot.log(f"[dailies] {metal!r} has no reward id; skipped.")
             continue
-        await cmd.ensure_turn_in_quest(2091, metal_id)
+        if await cmd.ensure_turn_in_quest(2091, metal_id) is False:
+            cmd.bot.log(f"[dailies] quest 2091 would not take the turn-in for "
+                        f"{metal}; the remaining metals are skipped (the daily is "
+                        f"one turn-in per day).")
+            break
         await wait_for_item(cmd, metal)
         if to_bank and cmd.is_in_inventory(metal):
             await cmd.inv_to_bank(metals)
@@ -301,7 +280,7 @@ async def hard_core_metals(cmd: Command,
     metals = list(metals or HARD_CORE_METALS)
     cmd.bot.log(f"Daily: Hard Core Metals ({'/'.join(metals)})")
 
-    if all(await cmd.has_item(metal, quant) for metal in metals):
+    if all([await cmd.has_item(metal, quant) for metal in metals]):
         cmd.bot.log(f"All \"base\" metals were found with the needed quantity "
                     f"({quant}). Skipped")
         if to_bank:
@@ -330,7 +309,11 @@ async def hard_core_metals(cmd: Command,
         if metal_id is None:
             cmd.bot.log(f"[dailies] {metal!r} has no reward id; skipped.")
             continue
-        await cmd.ensure_turn_in_quest(2098, metal_id)
+        if await cmd.ensure_turn_in_quest(2098, metal_id) is False:
+            cmd.bot.log(f"[dailies] quest 2098 would not take the turn-in for "
+                        f"{metal}; the remaining metals are skipped (the daily is "
+                        f"one turn-in per day).")
+            break
         await wait_for_item(cmd, metal)
         if to_bank and cmd.is_in_inventory(metal):
             await cmd.inv_to_bank(metals)
@@ -721,7 +704,8 @@ async def monthly_treasure_chest_keys(cmd: Command, log: bool = True) -> None:
         cmd.bot.log("[dailies] quest 1238 is not loaded; keys not opened.")
         return
     rewards = cmd.get_quest_rewards(1238)
-    if all(cmd.is_in_inventory_or_bank(reward) for reward in rewards):
+    if rewards and all(cmd.is_in_inventory_or_bank(reward)
+                       for reward in rewards):
         return
 
     before = [item.item_name for item in cmd.bot.player.INVENTORY]
@@ -729,7 +713,10 @@ async def monthly_treasure_chest_keys(cmd: Command, log: bool = True) -> None:
     while (cmd.is_still_connected()
            and await cmd.has_item("Magic Treasure Chest Key")
            and await cmd.has_item("Treasure Chest")):
-        await chain_complete(cmd, 1238)
+        if await chain_complete(cmd, 1238) is False:
+            cmd.bot.log("[dailies] quest 1238 would not complete; the chest "
+                        "loop stops here before it can spin.")
+            break
     after = [item.item_name for item in cmd.bot.player.INVENTORY]
     new_items = [name for name in after if name not in before]
     if new_items:
