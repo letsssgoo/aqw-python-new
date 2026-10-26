@@ -195,6 +195,22 @@ def main() -> int:
 
     print()
     print("=" * 74)
+    print("fishing: a reputation that never moves stops the farm")
+    print("=" * 74)
+
+    frozen_bot = StubBot(3000)
+    frozen = Stub(frozen_bot)          # rank stays 9, rep stays 0
+    asyncio.run(fishing_rep(frozen, 10))
+    check("a frozen reputation is reported",
+          any("without any reputation" in line for line in frozen_bot.logs),
+          True)
+    casts = [p for kind, p in frozen.calls
+             if kind == "send_packet" and "FishCast" in p]
+    check("and it stops after the quiet allowance",
+          len(casts), core_farms.FISHING_QUIET_CASTS)
+
+    print()
+    print("=" * 74)
     print(f"passed {PASS}   failed {FAIL}")
     print("=" * 74)
     return 1 if FAIL else 0
