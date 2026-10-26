@@ -11,13 +11,12 @@ class, different job: this one is the whole /mobius story.
 
 ``Story.PreLoad`` has no counterpart here; the guards do its work.
 """
-import re
-from typing import Sequence, Tuple, Union
+from typing import Optional, Sequence, Tuple, Union
 
 from bot.core_advanced import buy_item as adv_buy_item
 from bot.core_bots import (Alignment, buy_item, chain_complete,
                            change_alignment, equip_class, kill_once,
-                           wait_for_item)
+                           parse_message, wait_for_item)
 from bot.core_story import (chain_quest, item_id_by_name, kill_quest,
                             map_item_quest, quest_progression)
 from core.command import Command
@@ -764,18 +763,31 @@ LEDGERMAYNE_ORBS = (("mafic", "Mafic Dragon", "Astral Orb of Mafic"),
                     ("natatorium", "Nessie", "Astral Orb of Natatorium"),
                     ("gilead", "Mana Elemental", "Astral Orb of Gilead"))
 
-#: ``zoneSet`` out of the chat/event frame.  Read from the raw text because the
-#: subscriber callback is handed the message, not the parsed object the
-#: reference's ``dynamic`` packet gives it.
-_ZONE_RE = re.compile(r'"zoneSet"\s*:\s*"([^"]*)"')
-
-
-def ledgermayne_zone(message: str):
-    """``(x, y)`` for a ``zoneSet`` event frame, or None when it is not one."""
-    match = _ZONE_RE.search(message or "")
-    if match is None:
+#: ``ExtensionPacketReceived`` in the reference is handed
+#: ``packet["params"]["dataObj"]`` once ``params.type == "json"``.  A subscriber
+#: here is handed the raw message instead, so :func:`bot.core_bots.parse_message`
+#: unwraps the very same object (``b.o`` is that ``dataObj``) and the reference's
+#: three checks -- ``cmd == "event"``, an ``args`` block, and ``zoneSet`` -- are
+#: made on it.  This is the shape ``bot/ultra/core_ultra.py`` already reads its
+#: own ``zoneSet`` with.
+#:
+#: A ``%xt%`` frame parses to nothing here and is ignored -- which is exactly what
+#: the reference does with a packet whose ``params.type`` is not ``"json"``.
+def ledgermayne_zone(message) -> Optional[str]:
+    """The ``zoneSet`` of an ``event`` frame, or None when it names none."""
+    data = parse_message(message)
+    if not data or data.get("cmd") != "event":
         return None
-    return LEDGERMAYNE_WALKS.get(match.group(1))
+    zone = (data.get("args") or {}).get("zoneSet")
+    return None if zone is None else str(zone)
+
+
+def ledgermayne_walk(message):
+    """``(x, y)`` for a ``zoneSet`` event frame, or None for anything else."""
+    zone = ledgermayne_zone(message)
+    if zone is None:
+        return None
+    return LEDGERMAYNE_WALKS.get(zone)
 
 
 def _ledgermayne_listener(cmd: Command, message: str) -> None:
@@ -783,11 +795,13 @@ def _ledgermayne_listener(cmd: Command, message: str) -> None:
 
     The reference hooks ``ExtensionPacketReceived`` and calls
     ``Bot.Player.WalkTo(x, y, 9)``.  A subscriber here is a plain callback, so
-    the same ``mv`` packet is written directly -- that is all ``WalkTo`` sends.
+    the same ``mv`` packet ``Bot.walk_to`` would send is written directly; the
+    guard order is the reference's own: not while dead, not outside
+    /ledgermayne, and only for a frame that names a zone.
     """
     if cmd.bot.player.ISDEAD or cmd.is_not_in_map(LEDGERMAYNE_MAP):
         return
-    target = ledgermayne_zone(message)
+    target = ledgermayne_walk(message)
     if target is None:
         return
     x, y = target

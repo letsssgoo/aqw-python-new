@@ -2479,20 +2479,30 @@ try:
           ("hunt", "Fire Flea", 15, "R7", "Mozard") in loc_steps, True)
 
     # Ledgermayne's zone listener: the three walk targets and the packet
+    def zone_frame(zone):
+        return ('{"b":{"o":{"cmd":"event","args":{"zoneSet":"'
+                + zone + '"}}}}')
+
     check("ledgermayne: zone A is (292, 355)",
-          loc.ledgermayne_zone('{"args":{"zoneSet":"A"}}'), (292, 355))
+          loc.ledgermayne_walk(zone_frame("A")), (292, 355))
     check("ledgermayne: zone B is (750, 350)",
-          loc.ledgermayne_zone('{"args":{"zoneSet":"B"}}'), (750, 350))
+          loc.ledgermayne_walk(zone_frame("B")), (750, 350))
     check("ledgermayne: an empty zone is (592, 250)",
-          loc.ledgermayne_zone('{"args":{"zoneSet":""}}'), (592, 250))
-    check("ledgermayne: any other frame walks nowhere",
-          loc.ledgermayne_zone('{"args":{}}'), None)
+          loc.ledgermayne_walk(zone_frame("")), (592, 250))
+    check("ledgermayne: a ct frame names no zone",
+          loc.ledgermayne_zone('{"b":{"o":{"cmd":"ct","a":[]}}}'), None)
+    check("ledgermayne: a raw xt frame is ignored, as params.type != json is",
+          loc.ledgermayne_zone("%xt%zm%event%1%{\"zoneSet\":\"A\"}%"), None)
 
     cmd = Cand()
-    loc._ledgermayne_listener(cmd, '{"params":{"dataObj":{"cmd":"event",'
-                                   '"args":{"zoneSet":"A"}}}}')
+    loc._ledgermayne_listener(cmd, zone_frame("A"))
     check("ledgermayne: the listener sends the walk packet",
           "packet: %xt%zm%mv%1%292%355%9%" in cmd.bot.logs, True)
+
+    dead = Cand()
+    dead.bot.player.ISDEAD = True
+    loc._ledgermayne_listener(dead, zone_frame("B"))
+    check("ledgermayne: nothing is walked while dead", dead.bot.logs, [])
 
     # Tibicenas: quest 934's two cell-bound drops
     cmd = Cand()
