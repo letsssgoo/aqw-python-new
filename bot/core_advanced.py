@@ -139,7 +139,7 @@ async def _merge_requirements(cmd: Command, entry):
 
 async def farm_quest_reward(cmd: Command, quest_id: int, item_name: str,
                             qty: int, farm_pass,
-                            max_quiet_passes: int = QUIET_PASSES,
+                            max_quiet_passes: int = QUIET_PASSES * 4,
                             is_temp: bool = False) -> bool:
     """``register_quest`` then run ``farm_pass`` until its reward is held.
 
@@ -151,6 +151,13 @@ async def farm_quest_reward(cmd: Command, quest_id: int, item_name: str,
     is yielded and bounded through :class:`PassGuard`, which names the quest, so
     a refused or already-completed one is visible instead of silent.
 
+    The quiet allowance is four times the default on purpose: a quest reward
+    arrives with the server's turn-in, not with the pass, so a few passes can
+    end with nothing new in the bag while that turn-in is still in flight -- and
+    the stock signature the guard reads cannot see a turn-in in flight.  At the
+    plain default, a reward farm with a slow turn-in gave up early and reported
+    the item as unobtainable.
+
     Args:
         cmd (Command): Facade to act through.
         quest_id (int): Quest whose turn-in gives the item.
@@ -158,7 +165,8 @@ async def farm_quest_reward(cmd: Command, quest_id: int, item_name: str,
         qty (int): How many are needed.
         farm_pass (Callable): ``async () -> None``, one full pass of the farm.
         max_quiet_passes (int): Give up after this many passes that changed
-            nothing at all.
+            nothing at all (four times ``QUIET_PASSES`` by default, for the
+            turn-in latency above).
         is_temp (bool): The reward lands in the temporary bag.
 
     Returns:
@@ -309,9 +317,39 @@ async def _merge_item(cmd: Command, map_name: str, shop_id: int, entry,
             cmd.bot.log(f"[merge] warning: {name} x{need} was not acquired.")
 
     await _open_shop(cmd, map_name, shop_id)
-    if all([_held_by_id(cmd, iid) >= q for iid, _, q in entry.merge_requirements]):
+    held = [(n, _held_by_id(cmd, iid), q) for iid, n, q in entry.merge_requirements]
+    if all([got >= need for _n, got, need in held]):
         await buy_item(cmd, shop_id, entry.item_name, qty, map_name=map_name,
                        shop_item_id=entry.shop_item_id)
+        # A merge consumes its recipe on the server, so the three outcomes are
+        # told apart here instead of leaving a silent "nothing happened":
+        if await _await_item(cmd, entry.item_id, qty):
+            return
+        still_there = all([_held_by_id(cmd, iid) >= q
+                           for iid, _n, q in entry.merge_requirements])
+        if still_there:
+            cmd.bot.log(f'[merge] "{entry.item_name}" was refused: the packet '
+                        f'went out and the recipe is still in the bag (check '
+                        f'gold and the entry\'s own requirement).')
+        else:
+            cmd.bot.log(f'[merge] "{entry.item_name}" was merged (the recipe is '
+                        f'gone) but the item is not in the bag yet.')
+    else:
+        cmd.bot.log(f'[merge] "{entry.item_name}" not merged, short of: '
+                    + ", ".join(f"{n} ({got}/{need})"
+                                for n, got, need in held if got < need))
+
+
+async def _await_item(cmd: Command, item_id, qty: int,
+                      timeout_ms: int = 5000) -> bool:
+    """Bounded wait for a bought item's inventory packet to land."""
+    waited = 0
+    while cmd.is_still_connected() and waited < timeout_ms:
+        if _held_by_id(cmd, item_id) >= qty:
+            return True
+        await cmd.sleep(500)
+        waited += 500
+    return _held_by_id(cmd, item_id) >= qty
 
 
 # ---------------------------------------------------------------------------

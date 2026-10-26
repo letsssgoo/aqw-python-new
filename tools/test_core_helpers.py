@@ -2052,6 +2052,9 @@ class _MergeShop:
 
 bought = []
 
+#: The walk's own entry-buyer, captured before the spy below replaces it.
+REAL_MERGE_ITEM = adv._merge_item
+
 
 async def adv_open(cmd, map_name, shop_id):
     return None
@@ -2097,6 +2100,55 @@ try:
                                 buy_only_this="Not In This Shop"))
     check("merge walk: an unknown entry is reported",
           any("has no entry named" in line for line in other.bot.logs), True)
+
+    # the three post-buy outcomes of a single entry, told apart
+    entry = _MergeEntry("Test Armor", 21, [(11, "Ingredient A", 1)])
+    plain = _MergeShop([entry])
+
+    leaf2 = patch(adv, _open_shop=adv_open,
+                  _merge_shop=lambda cmd, shop_id: plain, buy_item=adv_buy)
+    try:
+        refused = Cand([ItemInventory({"sName": "Ingredient A", "ItemID": 11,
+                                       "iQty": 1})])
+        bought.clear()
+        run(REAL_MERGE_ITEM(refused, "testmap", 999, entry, 1, None, 0))
+        check("merge entry: a refused buy is named",
+              any("was refused" in line for line in refused.bot.logs), True)
+        check("merge entry: and the buy was attempted", bought,
+              ["Test Armor"])
+
+        short = Cand([ItemInventory({"sName": "Ingredient B", "ItemID": 12,
+                                     "iQty": 1})])
+        needs_five = _MergeEntry("Test Armor", 21, [(12, "Ingredient B", 5)])
+        plain.items[:] = [needs_five]
+        bought.clear()
+        run(REAL_MERGE_ITEM(short, "testmap", 999, needs_five, 1, None, 0))
+        check("merge entry: a short recipe names the count",
+              any("(1/5)" in line for line in short.bot.logs), True)
+        check("merge entry: and nothing is bought", bought, [])
+
+        consumed = Cand([ItemInventory({"sName": "Ingredient A", "ItemID": 11,
+                                        "iQty": 1})])
+        plain.items[:] = [entry]
+
+        async def steal_then_buy(cmd, shop_id, item, qty=1, map_name=None,
+                                 shop_item_id=0):
+            bought.append(item)
+            cmd.bot.player.INVENTORY = []
+
+        leaf3 = patch(adv, _open_shop=adv_open,
+                      _merge_shop=lambda cmd, shop_id: plain,
+                      buy_item=steal_then_buy)
+        try:
+            run(REAL_MERGE_ITEM(consumed, "testmap", 999, entry, 1, None, 0))
+            check("merge entry: a merge that ate the recipe but gave nothing "
+                  "is reported",
+                  any("but the item is not in the bag" in line
+                      for line in consumed.bot.logs), True)
+        finally:
+            restore(adv, leaf3)
+    finally:
+        restore(adv, leaf2)
 finally:
     restore(adv, leaf)
 
