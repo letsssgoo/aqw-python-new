@@ -1468,19 +1468,48 @@ class SlaveryApi:
             print(f"Failed to save config: {e}")
             return {"success": False, "error": str(e)}
 
+    def _thread_key(self, username):
+        """The key ``active_threads`` holds ``username`` under, or None."""
+        wanted = str(username or "").lower()
+        for key in self.active_threads:
+            if str(key).lower() == wanted:
+                return key
+        return None
+
+    def _thread_for(self, username):
+        key = self._thread_key(username)
+        return self.active_threads.get(key) if key else None
+
     def start_slaves(self, config, usernames):
-        self.stop_slaves()
+        """Start the named accounts; leave the ones already up alone.
+
+        This used to stop every pane first, so starting a second account killed
+        the first.  Accounts are now started additively -- the global STOP is the
+        only thing that ends all of them, which is what the menu calls.
+        """
         self.save_config(config)
-        
+
         slaves_list = config.get("slaves", [])
-        selected_slaves = [s for s in slaves_list if s.get("username") in usernames]
-        
+        wanted = {str(name).lower() for name in (usernames or [])}
+        selected_slaves = [s for s in slaves_list
+                           if str(s.get("username", "")).lower() in wanted]
+
         if not selected_slaves:
             return {"success": False, "error": "No selected slaves found."}
 
+        started = []
         try:
             for slave in selected_slaves:
                 username = slave.get("username")
+                existing = self._thread_for(username)
+                if existing is not None and existing.is_alive():
+                    # Already running: starting it again would spawn a second
+                    # pane on the same account, which the server answers by
+                    # kicking one of them.
+                    continue
+                if existing is not None:
+                    # A thread that ended: drop it before replacing it.
+                    self.active_threads.pop(self._thread_key(username), None)
                 password = slave.get("password")
                 char_class = slave.get("char_class")
                 skills = slave.get("skills", "1,2,3,4")
@@ -1510,14 +1539,49 @@ class SlaveryApi:
                 )
                 self.active_threads[username] = thread
                 thread.start()
-            return {"success": True}
+                started.append(username)
+            return {"success": True, "started": started}
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    def start_slave(self, username, config=None):
+        """Start one account, on top of whatever else is running."""
+        if config is None:
+            config = self.load_config()
+        return self.start_slaves(config, [username])
+
+    def stop_slave(self, username):
+        """Stop one account and leave the others running."""
+        key = self._thread_key(username)
+        if key is None:
+            return {"success": True}
+
+        thread = self.active_threads.pop(key)
+        print(f"Stopping slave bot instance: {key}")
+        # A pane that will not end is put back, the same rule _stop_panes keeps
+        # for the global stop: it must not be started twice while unwinding.
+        self.active_threads.update(
+            _stop_panes({key: thread}, timeout_s=5.0, tag="slavery"))
+        try:
+            self.taunt_coordinator.unregister_taunter(key)
+        except Exception:
+            pass
+        return {"success": True}
+
+    def pause_slave(self, username, pause_state):
+        """Pause or resume one account."""
+        thread = self._thread_for(username)
+        if thread is None or not thread.bot_instance:
+            return {"success": False, "error": "Slave not running."}
+        state = bool(pause_state)
+        thread.bot_instance.is_paused = state
+        thread.bot_instance.is_script_paused = state
+        return {"success": True}
 
     def stop_slaves(self):
         if not self.active_threads:
             return {"success": True}
-        
+
         print("Stopping all slave bot instances...")
         self.active_threads = _stop_panes(self.active_threads, timeout_s=5.0,
                                           tag="slavery")
@@ -1546,6 +1610,11 @@ class SlaveryApi:
         from datetime import datetime
         statuses = {}
         now = datetime.now()
+        # A pane that ended (login refused, server kick) must stop counting as a
+        # running account, or the menu would keep showing STOP with nothing up.
+        for username, thread in list(self.active_threads.items()):
+            if not thread.is_alive():
+                self.active_threads.pop(username, None)
         for username, thread in list(self.active_threads.items()):
             running = thread.is_alive()
             if running and thread.bot_instance:
@@ -2950,6 +3019,15 @@ class CombinedApi:
 
     def start_slaves(self, config, usernames):
         return self._slavery_api.start_slaves(config, usernames)
+
+    def start_slave(self, username, config=None):
+        return self._slavery_api.start_slave(username, config)
+
+    def stop_slave(self, username):
+        return self._slavery_api.stop_slave(username)
+
+    def pause_slave(self, username, pause_state):
+        return self._slavery_api.pause_slave(username, pause_state)
 
     def stop_slaves(self):
         return self._slavery_api.stop_slaves()
