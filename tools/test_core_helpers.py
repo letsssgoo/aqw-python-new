@@ -2537,6 +2537,30 @@ try:
 finally:
     restore(loc, leaf)
 
+# ============================================================================
+# 28. Fishing reputation bookkeeping
+# ============================================================================
+from core.bot import fishing_rep_from  # noqa: E402
+from core.player import Player as RealPlayer  # noqa: E402
+from model.faction import Faction  # noqa: E402
+
+check("fishing rep: the frame's fish add up",
+      fishing_rep_from({"fish": [{"rep": 220}, {"rep": None}, {"rep": 1000},
+                                 {"rep": "300"}]}), 1520)
+check("fishing rep: a frame with no fish pays nothing",
+      fishing_rep_from({}), 0)
+check("fishing rep: a broken frame pays nothing", fishing_rep_from(None), 0)
+
+real = RealPlayer()
+real.addFaction(Faction({"FactionID": 20, "sName": "Fishing", "iRep": 129600}))
+check("factions: the first load sets the rank", real.getFactionRank("Fishing"), 8)
+real.addFaction(Faction({"FactionID": 20, "sName": "Fishing", "iRep": 202500}))
+check("factions: a reload refreshes the rep, it does not freeze",
+      real.getFactionRank("Fishing"), 9)
+real.get_faction("Fishing").add_rep(1520)
+check("factions: and a catch adds on top",
+      real.get_faction("Fishing").total_rep(), 204020)
+
 print(f"passed {passed}   failed {len(failures)}")
 if failures:
     for line in failures:

@@ -409,13 +409,20 @@ class Player:
         self.IS_IN_COMBAT = True if player_state == 2 else False
     
     def addFaction(self, faction: Faction) -> None:
-        already_exists = False
+        """Track a faction, or refresh the one already tracked.
+
+        The reference's ``moveToArea`` / ``loadFactions`` *replaces* its entry, so
+        a re-load is how a reputation total gets corrected.  Returning early on an
+        existing name (which this used to do) froze every rep at whatever it was
+        the first time it arrived -- a fishing run then never saw its rank move.
+        """
         for fac in self.FACTIONS:
             if fac.faction_name.lower() == faction.faction_name.lower():
-                already_exists = True
+                fac.rep = faction.rep
+                if faction.char_faction_id:
+                    fac.char_faction_id = faction.char_faction_id
                 return
-        if already_exists == False:
-            self.FACTIONS.append(faction)
+        self.FACTIONS.append(faction)
     
     def addRepToFaction(self, faction_id: int, faction_rep: int) -> None:
         for fac in self.FACTIONS:
