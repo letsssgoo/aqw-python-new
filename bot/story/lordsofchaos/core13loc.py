@@ -1,4 +1,4 @@
-"""``Core13LoC`` -- the thirteen Lords of Chaos, five of them so far.
+﻿"""``Core13LoC`` -- the thirteen Lords of Chaos, five of them so far.
 
 Port of ``Story/LordsofChaos/Core13LoC.cs``.  The forge enhancement unlocks need
 ``Escherion()``, the Farmer Joe kit needs the whole chain, so the file is being
@@ -13,8 +13,10 @@ class, different job: this one is the whole /mobius story.
 """
 from typing import Sequence, Tuple, Union
 
-from bot.core_bots import buy_item
-from bot.core_story import chain_quest, item_id_by_name, kill_quest, map_item_quest
+from bot.core_bots import (Alignment, buy_item, chain_complete,
+                           change_alignment, kill_once, wait_for_item)
+from bot.core_story import (chain_quest, item_id_by_name, kill_quest,
+                            map_item_quest, quest_progression)
 from core.command import Command
 from bot.nation.core_nation import kill_escherion
 from templates.hunt import hunt_item, hunt_item_by_id
@@ -182,6 +184,177 @@ async def escherion(cmd: Command) -> None:
         await cmd.ensure_turn_in_quest(ESCHERION_LAST)
 
 
+VATH_LAST = 363
+#: The /dwarfhold key hunt: quest 340 grants the temp key the next step needs.
+VATH_KEY_QUEST = 340
+VATH_KEY = "Upper City Key"
+VATH_KEY_ITEM = "Block of Talc"
+#: Quest 353's three drops, in the order the source re-farms them.
+VATH_THERMITE = "Thermite"
+VATH_353 = (("Balboa Core", "Balboa", 4),
+            ("Magnesium Flare", "Chaos Drow", 1),
+            ("Rusted Claw", "Albino Bat", 3))
+#: Quest 356's three drops.
+VATH_356 = (("Nitrate Elements", "Albino Bat", 3),
+            ("Drow Shoelaces", "Chaos Drow", 3),
+            ("Flint Stone", "Balboa", 2))
+
+
+async def _wait_temp(cmd: Command, name: str,
+                     timeout_ms: int = 20000) -> bool:
+    """``Bot.Wait.ForTrue(() => Bot.TempInv.Contains(name), 20)``."""
+    waited = 0
+    while cmd.is_still_connected() and waited < timeout_ms:
+        if cmd.is_in_inventory(name, 1, ">=", True):
+            return True
+        await cmd.sleep(500)
+        waited += 500
+    return cmd.is_in_inventory(name, 1, ">=", True)
+
+
+async def _vath_353(cmd: Command) -> None:
+    """Quest 353, which both ``Mock the Lock`` and ``Like Butter`` re-farm."""
+    if await cmd.ensure_accept_quest(353) is False:
+        cmd.bot.log("[13loc] quest 353 could not be accepted; Vath stops here.")
+        return
+    for item, monster, qty in VATH_353:
+        await hunt_item(cmd, item, qty, "dwarfprison", monster_name=monster)
+    await cmd.ensure_turn_in_quest(353)
+
+
+async def _vath_356(cmd: Command) -> None:
+    """Quest 356's three drops, shared by ``Explosives 101`` and ``Big Bada-Boom``."""
+    if await cmd.ensure_accept_quest(356) is False:
+        cmd.bot.log("[13loc] quest 356 could not be accepted; Vath stops here.")
+        return
+    for item, monster, qty in VATH_356:
+        await hunt_item(cmd, item, qty, "dwarfprison", monster_name=monster)
+    await cmd.ensure_turn_in_quest(356)
+
+
+async def vath(cmd: Command) -> None:
+    """``Core13LoC.Vath``: quests 319-363, from /pines to /stalagbite.
+
+    Two source structures are kept as they are: the ``Getkey`` label is a loop
+    that re-runs quest 340 until the temporary ``Upper City Key`` exists, and
+    quest 353/356 are farmed twice (once for themselves, once as the ingredient
+    the next quest's ``CheckInventory`` looks for).
+
+    ``Bot.Quests.UpdateQuest`` has no counterpart -- it writes the *client's* quest
+    slot, and this engine has no client.  The two places the source uses it (354
+    and 357) are the cutscene gates; the work around them -- the kills, the joins
+    and the turn-ins -- is what actually moves the chain, so that is what runs.
+    """
+    if await cmd.is_completed_before(VATH_LAST):
+        return
+
+    cmd.add_drop("Snowbeard's Gold")
+
+    # Adorable Sisters 319
+    await map_item_quest(cmd, 319, "tavern", 56, 7)
+    # Warm and Furry 320 .. Leather Feathers 326
+    await kill_quest(cmd, 320, "pines", "Pine Grizzly")
+    await kill_quest(cmd, 321, "pines", "Red Shell Turtle")
+    await kill_quest(cmd, 322, "pines", "Twistedtooth")
+    await kill_quest(cmd, 324, "pines", "Red Shell Turtle")
+    await kill_quest(cmd, 325, "pines", "Pine Grizzly")
+    await kill_quest(cmd, 326, "pines", "LeatherWing")
+
+    # Follow your Nose! 327, then Give Snowbeard His Gold 323
+    if (not await quest_progression(cmd, 327)
+            or not await cmd.is_completed_before(323)):
+        if await cmd.ensure_accept_quest(327) is False:
+            cmd.bot.log("[13loc] quest 327 could not be accepted; Vath stops "
+                        "here.")
+            return
+        await hunt_item(cmd, "Pine Air Freshener", 1, "pines",
+                        monster_name="Pine Troll")
+        await cmd.ensure_turn_in_quest(327)
+        await wait_for_item(cmd, "Snowbeard's Gold")
+        await chain_complete(cmd, 323)
+
+    # Bad Memory 344
+    await map_item_quest(cmd, 344, "dwarfhold", 60)
+    # Squeeze Water from Stone 331 .. Gemeralds 339
+    await kill_quest(cmd, 331, "mountainpath", "Ore Balboa")
+    await kill_quest(cmd, 332, "mountainpath", "Vultragon")
+    await kill_quest(cmd, 333, "dwarfhold", "Chaos Drow")
+    await kill_quest(cmd, 334, "dwarfhold", "Glow Worm")
+    await kill_quest(cmd, 335, "dwarfhold", "Albino Bat")
+    await kill_quest(cmd, 336, "dwarfhold", "Chaotic Draconian")
+    await map_item_quest(cmd, 337, "dwarfhold", 59, 7)
+    await kill_quest(cmd, 338, "dwarfhold", "Chaos Drow")
+    await kill_quest(cmd, 339, "dwarfhold", "Chaotic Draconian")
+
+    # Talc to Me 340 -- the source's ``Getkey`` label: loop until the key exists
+    guard = cmd.pass_guard(f'"{VATH_KEY}" (quest {VATH_KEY_QUEST})')
+    while (cmd.is_still_connected()
+           and not cmd.is_in_inventory(VATH_KEY, 1, ">=", True)):
+        cmd.add_drop(VATH_KEY)
+        if await cmd.ensure_accept_quest(VATH_KEY_QUEST) is False:
+            cmd.bot.log(f"[13loc] quest {VATH_KEY_QUEST} could not be accepted; "
+                        f"Vath stops here.")
+            return
+        await hunt_item(cmd, VATH_KEY_ITEM, 1, "dwarfhold",
+                        monster_name="Albino Bat")
+        await cmd.ensure_turn_in_quest(VATH_KEY_QUEST)
+        if not await _wait_temp(cmd, VATH_KEY):
+            if not await guard.tick():
+                break
+
+    # Upper City Gates 343, then Rock me Amadeus 341
+    await chain_complete(cmd, 343)
+    if await cmd.ensure_accept_quest(341) is False:
+        cmd.bot.log("[13loc] quest 341 could not be accepted; Vath stops here.")
+        return
+    await hunt_item(cmd, "Key Mold", 1, "dwarfhold", monster_name="Amadeus")
+    await cmd.ensure_turn_in_quest(341)
+
+    # Disapoofed 346 .. Lizard Gizzard 352
+    await map_item_quest(cmd, 346, "uppercity", 61)
+    await kill_quest(cmd, 347, "uppercity", "Drow Assassin")
+    await kill_quest(cmd, 348, "uppercity", "Chaotic Draconian")
+    await kill_quest(cmd, 349, "uppercity", "Chaos Egg")
+    await kill_quest(cmd, 350, "uppercity", "Terradactyl")
+    await kill_quest(cmd, 351, "uppercity", "Rhino Beetle")
+    await kill_quest(cmd, 352, "uppercity", "Cave Lizard")
+
+    # Mock the Lock 353 -- ``if (!Bot.Quests.IsUnlocked(354))``
+    if not await cmd.is_completed_before(354):
+        cmd.add_drop(VATH_THERMITE)
+        await _vath_353(cmd)
+
+    # Like Butter 354
+    if not await quest_progression(cmd, 354):
+        cmd.add_drop(VATH_THERMITE)
+        await cmd.join_map("vath")
+        await cmd.jump_cell("CutCap", "Left")
+        await cmd.sleep(2500)
+        if not await cmd.has_item(VATH_THERMITE):
+            await _vath_353(cmd)
+        await cmd.join_map("dwarfprison")
+        await cmd.jump_cell("Enter", "Right")
+        await cmd.ensure_turn_in_quest(354)
+
+    # Jailhouse Rock 355
+    await kill_quest(cmd, 355, "dwarfprison", "Warden Elfis")
+
+    # Explosives 101 356
+    if not await quest_progression(cmd, 356):
+        await _vath_356(cmd)
+
+    # Big Bada-Boom 357
+    if not await quest_progression(cmd, 357):
+        if not await cmd.has_item("Tee-En-Tee"):
+            await _vath_356(cmd)
+        await cmd.join_map("dwarfprison")
+        await chain_quest(cmd, 357)
+
+    # Defeat Rock Roc 362, Facing Vath 363
+    await map_item_quest(cmd, 362, "roc", 62)
+    await map_item_quest(cmd, 363, "stalagbite", 63)
+
+
 KITSUNE_LAST = 488
 
 #: Quest 470's five monsters, by the map id the source names: ``(map id, item,
@@ -297,6 +470,277 @@ async def kitsune(cmd: Command) -> None:
     await kill_quest(cmd, 481, "odokuro", "O-dokuro")
     await kill_quest(cmd, 484, "yokaiwar", "O-Dokuro's Head")
     await kill_quest(cmd, 488, "kitsune", "kitsune")
+
+
+WOLFWING_LAST = 597
+#: ``Red's Big Wolf Slaying Axe`` -- quest 515's reward, and what 514 turns in.
+WOLFWING_AXE = "Red's Big Wolf Slaying Axe"
+#: Quests 514/515's five documents, in the source's order.
+WOLFWING_DOCS = (("Spider Documentation", "greenguardeast", "Spider", None),
+                 ("Wolf Documentation", "greenguardeast", "Wolf", None),
+                 ("Slime Documentation", "greenguardwest", "Slime", None),
+                 ("Frogzard Documentation", "greenguardwest", "Frogzard", None),
+                 ("Wereboar Documentation", "greenguardwest", "Big Bad Boar",
+                  ("West12", "Up")))
+
+
+async def wolfwing(cmd: Command) -> None:
+    """``Core13LoC.Wolfwing``: quests 308-597, from /darkoviagrave to /chaoscave.
+
+    The two ``Bot.Quests.UpdateQuest`` calls have no counterpart (they write the
+    client's quest slot); the kills and turn-ins around them are what the chain
+    actually needs, so those run.  The last step declares Good before chaining
+    597, as the source does when ``HeroAlignment != 1``.
+    """
+    if (await cmd.is_completed_before(WOLFWING_LAST)
+            or await cmd.is_completed_before(598)):
+        return
+
+    cmd.add_drop(WOLFWING_AXE)
+
+    # Grave Mission 494 .. His Bark is worse than his Blight 498
+    await map_item_quest(cmd, 494, "darkoviagrave", 97)
+    await kill_quest(cmd, 495, "darkoviagrave", "Skeletal Fire Mage")
+    await kill_quest(cmd, 496, "darkoviagrave", "Rattlebones")
+    await kill_quest(cmd, 497, "darkoviagrave", "Albino Bat")
+    await kill_quest(cmd, 498, "darkoviagrave", "Blightfang")
+    # Vicious Wolves 308 .. Overgrown Spiders 311
+    await kill_quest(cmd, 308, "greenguardeast", "Wolf")
+    await kill_quest(cmd, 309, "greenguardwest", "Slime")
+    await kill_quest(cmd, 310, "greenguardwest", "Frogzard")
+    await kill_quest(cmd, 311, "greenguardeast", "Spider")
+
+    # Lil' Red 514 + Can I axe you something? 515
+    if not await cmd.is_completed_before(516):
+        cmd.add_drop(WOLFWING_AXE)
+        if await cmd.ensure_accept_quest(514) is False:
+            cmd.bot.log("[13loc] quest 514 could not be accepted; Wolfwing "
+                        "stops here.")
+            return
+        if await cmd.ensure_accept_quest(515) is False:
+            cmd.bot.log("[13loc] quest 515 could not be accepted; Wolfwing "
+                        "stops here.")
+            return
+        for item, map_name, monster, cell in WOLFWING_DOCS:
+            if cell is None:
+                await hunt_item(cmd, item, 1, map_name, monster_name=monster)
+            else:
+                await hunt_item(cmd, item, 1, map_name, cell=cell[0],
+                                pad=cell[1], monster_name=monster)
+        await cmd.ensure_turn_in_quest(515)
+        await wait_for_item(cmd, WOLFWING_AXE)
+        await cmd.ensure_turn_in_quest(514)
+
+    # A Dire Situation 516 .. Twisted Paw 522
+    await kill_quest(cmd, 516, "darkoviaforest", "Dire Wolf")
+
+    # Blood, Sweat, and Tears 517
+    if not await quest_progression(cmd, 517):
+        if await cmd.ensure_accept_quest(517) is False:
+            cmd.bot.log("[13loc] quest 517 could not be accepted; Wolfwing "
+                        "stops here.")
+            return
+        await hunt_item(cmd, "Vial of Blood", 3, "darkoviaforest",
+                        monster_name="Blood Maggot")
+        await hunt_item(cmd, "Vial of Sweat", 2, "darkoviaforest",
+                        monster_name="Blood Maggot")
+        await hunt_item(cmd, "Vial of Tears", 1, "darkoviaforest",
+                        monster_name="Blood Maggot")
+        await cmd.ensure_turn_in_quest(517)
+
+    await kill_quest(cmd, 518, "darkoviaforest", "Lich of the Stone")
+    await kill_quest(cmd, 519, "safiria", "Blood Maggot")
+    await kill_quest(cmd, 520, "safiria", "Albino Bat")
+    await kill_quest(cmd, 521, "safiria", "Chaos Lycan")
+    await kill_quest(cmd, 522, "safiria", "Twisted Paw")
+
+    # A Gift Of Meat 534
+    await kill_quest(cmd, 534, "lycan", "Dire Wolf")
+
+    # No Respect 535
+    if not await quest_progression(cmd, 535):
+        if await cmd.ensure_accept_quest(535) is False:
+            cmd.bot.log("[13loc] quest 535 could not be accepted; Wolfwing "
+                        "stops here.")
+            return
+        await hunt_item(cmd, "Lycan Knight Defeated", 2, "lycan",
+                        monster_name="Lycan Knight")
+        await hunt_item(cmd, "Lycan Defeated", 5, "lycan", monster_name="Lycan")
+        await cmd.ensure_turn_in_quest(535)
+
+    # Vampire Knights 536, Sanguine 537
+    await kill_quest(cmd, 536, "lycan", "Chaos Vampire Knight")
+
+    if not await quest_progression(cmd, 537):
+        if await cmd.ensure_accept_quest(537) is False:
+            cmd.bot.log("[13loc] quest 537 could not be accepted; Wolfwing "
+                        "stops here.")
+            return
+        await hunt_item(cmd, "Sanguine Mask", 1, "lycan",
+                        monster_name="Sanguine")
+        await cmd.ensure_turn_in_quest(537)
+
+    # War Boss Fight 552
+    await chain_quest(cmd, 552)
+
+    # Search and Report 564
+    if not await quest_progression(cmd, 564):
+        if await cmd.ensure_accept_quest(564) is False:
+            cmd.bot.log("[13loc] quest 564 could not be accepted; Wolfwing "
+                        "stops here.")
+            return
+        await kill_once(cmd, "lycanwar", "Boss", "Left", "Edvard")
+        await cmd.sleep(5000)
+        await map_item_quest(cmd, 564, "chaoscave", 107)
+
+    # The Key is the Key 565
+    await kill_quest(cmd, 565, "chaoscave", "Werepyre")
+
+    # Secret Words 566
+    if not await quest_progression(cmd, 566):
+        if await cmd.ensure_accept_quest(566) is False:
+            cmd.bot.log("[13loc] quest 566 could not be accepted; Wolfwing "
+                        "stops here.")
+            return
+        await hunt_item(cmd, "Secret Words", 1, "chaoscave", cell="r3",
+                        pad="Left", monster_name="Werepyre")
+        await cmd.ensure_turn_in_quest(566)
+
+    # DracoWerePyre 567
+    if not await quest_progression(cmd, 567):
+        if await cmd.ensure_accept_quest(567) is False:
+            cmd.bot.log("[13loc] quest 567 could not be accepted; Wolfwing "
+                        "stops here.")
+            return
+        await hunt_item(cmd, "DracoWerePyre Defeated", 1, "chaoscave",
+                        cell="r5", pad="Left", monster_name="DracoWerePyre")
+        await cmd.ensure_turn_in_quest(567)
+
+    # Wolfwing 597
+    if not await quest_progression(cmd, WOLFWING_LAST):
+        if HERO_ALIGNMENT != Alignment.GOOD.value:
+            await change_alignment(cmd, Alignment.GOOD)
+        await chain_quest(cmd, WOLFWING_LAST)
+
+
+KIMBERLY_LAST = 710
+#: Quest 660's drop: a cell-wide kill in /beehive, no monster filter.
+KIMBERLY_NO_SHOES = ("beehive", "r6", "Right", "*")
+#: Quest 676's monster really is spelled with a trailing space in the source.
+KIMBERLY_CANNON = "Pachelbel's Cannon "
+
+
+async def kimberly(cmd: Command) -> None:
+    """``Core13LoC.Kimberly``: quests 648-710, from /stairway to /palooza."""
+    if await cmd.is_completed_before(KIMBERLY_LAST):
+        return
+
+    # Stairway to Heaven 648
+    if not await quest_progression(cmd, 648):
+        if await cmd.ensure_accept_quest(648) is False:
+            cmd.bot.log("[13loc] quest 648 could not be accepted; Kimberly "
+                        "stops here.")
+            return
+        await hunt_item(cmd, "Grateful Undead Shirt", 4, "stairway",
+                        monster_name="Grateful Undead")
+        await hunt_item(cmd, "Rock Lobster Tail", 4, "stairway",
+                        monster_name="Rock Lobster")
+        await cmd.ensure_turn_in_quest(648)
+
+    # Rolling Stones 649, Light My Fire 650
+    await kill_quest(cmd, 649, "stairway", "Rock Lobster")
+    await kill_quest(cmd, 650, "stairway", "Grateful Undead")
+
+    # Knockin' on Haven's Door 651
+    if not await quest_progression(cmd, 651):
+        if await cmd.ensure_accept_quest(651) is False:
+            cmd.bot.log("[13loc] quest 651 could not be accepted; Kimberly "
+                        "stops here.")
+            return
+        await hunt_item(cmd, "Defeated Elwood", 1, "stairway",
+                        monster_name="Elwood Bruise")
+        await hunt_item(cmd, "Defeated Jake", 1, "stairway",
+                        monster_name="Jake Bruise")
+        await cmd.ensure_turn_in_quest(651)
+
+    # Staying Alive 658, Killer Queen 659
+    await kill_quest(cmd, 658, "beehive", "Stinger")
+    await kill_quest(cmd, 659, "beehive", "Killer Queen Bee")
+
+    # Satisfaction 660
+    if not await quest_progression(cmd, 660):
+        if await cmd.ensure_accept_quest(660) is False:
+            cmd.bot.log("[13loc] quest 660 could not be accepted; Kimberly "
+                        "stops here.")
+            return
+        map_name, cell, pad, monster = KIMBERLY_NO_SHOES
+        await hunt_item(cmd, "No Shoes!", 1, map_name, cell=cell, pad=pad,
+                        monster_name=monster)
+        await cmd.ensure_turn_in_quest(660)
+
+    # Dance with Great Godfather of Souls 661
+    if not await quest_progression(cmd, 661):
+        await cmd.join_map("beehive")
+        await chain_quest(cmd, 661)
+
+    # Bad Moon Rising 675
+    if not await quest_progression(cmd, 675):
+        if await cmd.ensure_accept_quest(675) is False:
+            cmd.bot.log("[13loc] quest 675 could not be accepted; Kimberly "
+                        "stops here.")
+            return
+        await hunt_item(cmd, "Fire Flea", 15, "orchestra", cell="R7", pad="Down",
+                        monster_name="Mozard")
+        await cmd.ensure_turn_in_quest(675)
+
+    # Burning Down The House 676
+    if not await quest_progression(cmd, 676):
+        if await cmd.ensure_accept_quest(676) is False:
+            cmd.bot.log("[13loc] quest 676 could not be accepted; Kimberly "
+                        "stops here.")
+            return
+        await hunt_item(cmd, "Cannon Powder", 1, "orchestra", cell="R4",
+                        pad="Down", monster_name=KIMBERLY_CANNON)
+        await cmd.ensure_turn_in_quest(676)
+
+    # Superstition 677, Soul Man 678
+    await kill_quest(cmd, 677, "orchestra", "Mozard")
+    await kill_quest(cmd, 678, "orchestra", "Faust")
+
+    # Great gig in the Sky 4827
+    if not await quest_progression(cmd, 4827):
+        if await cmd.ensure_accept_quest(4827) is False:
+            cmd.bot.log("[13loc] quest 4827 could not be accepted; Kimberly "
+                        "stops here.")
+            return
+        await hunt_item(cmd, "Lobster Rocked", 5, "stairway",
+                        monster_name="Rock Lobster")
+        await hunt_item(cmd, "Ungrateful Undead", 5, "stairway",
+                        monster_name="Grateful Undead")
+        await cmd.ensure_turn_in_quest(4827)
+
+    # Mythsong War Cutscene 707
+    await chain_quest(cmd, 707)
+
+    # Pony Gary Yellow 709
+    if not await quest_progression(cmd, 709):
+        if await cmd.ensure_accept_quest(709) is False:
+            cmd.bot.log("[13loc] quest 709 could not be accepted; Kimberly "
+                        "stops here.")
+            return
+        await hunt_item(cmd, "Pony Gary Yellow Defeated", 1, "palooza",
+                        monster_name="Pony Gary Yellow")
+        await cmd.ensure_turn_in_quest(709)
+
+    # Kimberly 710
+    if not await quest_progression(cmd, KIMBERLY_LAST):
+        if await cmd.ensure_accept_quest(KIMBERLY_LAST) is False:
+            cmd.bot.log("[13loc] quest 710 could not be accepted; Kimberly "
+                        "stops here.")
+            return
+        await hunt_item(cmd, "Kimberly Defeated", 1, "palooza",
+                        monster_name="Kimberly")
+        await cmd.ensure_turn_in_quest(KIMBERLY_LAST)
 
 
 LIONFANG_LAST = 2814
@@ -470,10 +914,10 @@ async def lionfang(cmd: Command) -> None:
 SEGMENTS = (
     ("Prologue", prologue),
     ("Escherion", escherion),
-    ("Vath", None),
+    ("Vath", vath),
     ("Kitsune", kitsune),
-    ("Wolfwing", None),
-    ("Kimberly", None),
+    ("Wolfwing", wolfwing),
+    ("Kimberly", kimberly),
     ("Ledgermayne", None),
     ("Tibicenas", None),
     ("KhasaandaHorc", None),

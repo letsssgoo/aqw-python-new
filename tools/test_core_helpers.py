@@ -104,9 +104,14 @@ class Bot:
     def __init__(self, player):
         self.player = player
         self.logs = []
+        self.areaId = 1
+        self.monsters = []
 
     def log(self, *args):
         self.logs.append(" ".join(map(str, args)))
+
+    def write_message(self, packet):
+        self.logs.append(f"packet: {packet}")
 
     def request_relogin(self, reason=""):
         self.logs.append(f"relogin: {reason}")
@@ -2386,7 +2391,8 @@ async def loc_map(cmd, quest, map_name, item_ids, qty=1):
 
 
 async def loc_hunt(cmd, item, qty, map_name, **kwargs):
-    loc_steps.append(("hunt", item, qty))
+    loc_steps.append(("hunt", item, qty, kwargs.get("cell"),
+                      kwargs.get("monster_name")))
 
 
 async def loc_buy(cmd, shop, item, qty=1, map_name=None, shop_item_id=0):
@@ -2415,7 +2421,8 @@ try:
     run(loc.prologue(cmd))
     check("prologue: 183 first, then the 176 block",
           loc_steps[:2], [("kill", 183, "battleundera", "Skeletal Fire Mage"),
-                          ("hunt", "Slain Skeletal Soldier", 5)])
+                          ("hunt", "Slain Skeletal Soldier", 5, None,
+                           "Skeletal Soldier")])
     check("prologue: the knights' map items come as five",
           ("map", 179, 38, 5) in loc_steps, True)
     packets = [c[1] for c in cmd.calls if c[0] == "packet"]
@@ -2427,18 +2434,43 @@ try:
     check("prologue: Unlife Insurance buys 42993 from prison 1559",
           ("buy", 1559, 42993) in loc_steps, True)
     check("prologue: the forest ends the segment",
-          loc_steps[-1], ("hunt", "Chaorrupted Wolf Defeated", 7))
+          loc_steps[-1], ("hunt", "Chaorrupted Wolf Defeated", 7, None,
+                          "Chaorrupted Wolf"))
 
-    # the walk stops, by name, at the first segment that is not ported
+    # the prologue's own hunts now carry the monster name too
+    check("prologue: 176's five soldiers are named",
+          ("hunt", "Slain Skeletal Soldier", 5, None,
+           "Skeletal Soldier") in loc_steps, True)
+
+    # Vath: the temporary-key loop and the segment's tail
     cmd = Cand()
-    cmd.completed = {6219, 272, 488, 2814}
+    loc_steps.clear()
+    run(loc.vath(cmd))
+    accepts = [c[1] for c in cmd.calls if c[0] == "accept"]
+    check("vath: the model key quest 340 is accepted", 340 in accepts, True)
+    check("vath: the talc hunt is the dwarfhold albino bat",
+          ("hunt", "Block of Talc", 1, None, "Albino Bat") in loc_steps, True)
+    check("vath: 362 and 363 close the segment",
+          loc_steps[-2:], [("map", 362, 62, 1), ("map", 363, 63, 1)])
+
+    # Kimberly: the trailing-space monster name is kept
+    cmd = Cand()
+    loc_steps.clear()
+    run(loc.kimberly(cmd))
+    check("kimberly: the cannon keeps its trailing space",
+          ("hunt", "Cannon Powder", 1, "R4", "Pachelbel's Cannon ")
+          in loc_steps, True)
+    check("kimberly: fifteen fire fleas from Mozard",
+          ("hunt", "Fire Flea", 15, "R7", "Mozard") in loc_steps, True)
+    cmd = Cand()
+    cmd.completed = {6219, 272, 363, 488, 710, 2814}
     loc_steps.clear()
     run(loc.complete13loc(cmd))
     check("13loc: the walk names the segment it stops at",
-          "[13loc] Vath is not ported yet, so Complete13LOC stops here; nothing "
-          "after it runs." in cmd.bot.logs, True)
-    check("13loc: and runs nothing that lies past the gap",
-          [c for c in loc_steps if c[0] == "kill"], [])
+          "[13loc] Ledgermayne is not ported yet, so Complete13LOC stops here; "
+          "nothing after it runs." in cmd.bot.logs, True)
+    check("13loc: and Wolfwing declares Good before chaining 597",
+          "packet: %xt%zm%updateQuest%1%41%1%" in cmd.bot.logs, True)
 finally:
     restore(loc, leaf)
 
