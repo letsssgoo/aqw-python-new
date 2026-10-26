@@ -11,10 +11,13 @@ class, different job: this one is the whole /mobius story.
 
 ``Story.PreLoad`` has no counterpart here; the guards do its work.
 """
+import re
 from typing import Sequence, Tuple, Union
 
+from bot.core_advanced import buy_item as adv_buy_item
 from bot.core_bots import (Alignment, buy_item, chain_complete,
-                           change_alignment, kill_once, wait_for_item)
+                           change_alignment, equip_class, kill_once,
+                           wait_for_item)
 from bot.core_story import (chain_quest, item_id_by_name, kill_quest,
                             map_item_quest, quest_progression)
 from core.command import Command
@@ -743,6 +746,512 @@ async def kimberly(cmd: Command) -> None:
         await cmd.ensure_turn_in_quest(KIMBERLY_LAST)
 
 
+LEDGERMAYNE_LAST = 847
+LEDGERMAYNE_MAP = "ledgermayne"
+#: ``LedgermayneZoneListener``'s walk targets: ``zoneSet`` -> ``(x, y)``.
+LEDGERMAYNE_WALKS = {"A": (292, 355), "B": (750, 350), "": (592, 250)}
+#: Quest 810 sells this one back before buying the sack from /embersea 1100.
+LEDGERMAYNE_SELL_ITEM = 43280
+LEDGERMAYNE_SHOP = 1100
+LEDGERMAYNE_SHOP_ITEM = 5572
+LEDGERMAYNE_SHOP_ITEM_ID = 17967
+LEDGERMAYNE_SACK_ITEM = 141
+LEDGERMAYNE_SACK_QTY = 3
+#: Quest 845's five orbs, one per map.
+LEDGERMAYNE_ORBS = (("mafic", "Mafic Dragon", "Astral Orb of Mafic"),
+                    ("cloister", "Wendigo", "Astral Orb of the Cloister"),
+                    ("mudluk", "Tiger Leech", "Astral Orb of Mudluk"),
+                    ("natatorium", "Nessie", "Astral Orb of Natatorium"),
+                    ("gilead", "Mana Elemental", "Astral Orb of Gilead"))
+
+#: ``zoneSet`` out of the chat/event frame.  Read from the raw text because the
+#: subscriber callback is handed the message, not the parsed object the
+#: reference's ``dynamic`` packet gives it.
+_ZONE_RE = re.compile(r'"zoneSet"\s*:\s*"([^"]*)"')
+
+
+def ledgermayne_zone(message: str):
+    """``(x, y)`` for a ``zoneSet`` event frame, or None when it is not one."""
+    match = _ZONE_RE.search(message or "")
+    if match is None:
+        return None
+    return LEDGERMAYNE_WALKS.get(match.group(1))
+
+
+def _ledgermayne_listener(cmd: Command, message: str) -> None:
+    """``LedgermayneZoneListener``: walk to the zone the boss just opened.
+
+    The reference hooks ``ExtensionPacketReceived`` and calls
+    ``Bot.Player.WalkTo(x, y, 9)``.  A subscriber here is a plain callback, so
+    the same ``mv`` packet is written directly -- that is all ``WalkTo`` sends.
+    """
+    if cmd.bot.player.ISDEAD or cmd.is_not_in_map(LEDGERMAYNE_MAP):
+        return
+    target = ledgermayne_zone(message)
+    if target is None:
+        return
+    x, y = target
+    cmd.bot.write_message(f"%xt%zm%mv%{cmd.bot.areaId}%{x}%{y}%9%")
+
+
+async def _sell_by_id(cmd: Command, item_id: int, qty: int = 1) -> None:
+    """``Bot.Shops.SellItem(id)``: this engine sells by name, so resolve first."""
+    item = cmd.bot.player.get_item_inventory_by_id(item_id)
+    if item is None:
+        cmd.bot.log(f"[13loc] item {item_id} is not in the bag; nothing to sell.")
+        return
+    await cmd.sell_item(item.item_name, qty)
+
+
+async def _farm(cmd: Command, quest_id: int, body) -> bool:
+    """``if (!Story.QuestProgression(q)) { accept; body; complete; }``."""
+    if await quest_progression(cmd, quest_id):
+        return True
+    if await cmd.ensure_accept_quest(quest_id) is False:
+        cmd.bot.log(f"[13loc] quest {quest_id} could not be accepted, so "
+                    f"nothing is farmed for it.")
+        return False
+    await body()
+    if await cmd.ensure_turn_in_quest(quest_id) is False:
+        cmd.bot.log(f"[13loc] quest {quest_id} could not be turned in.")
+        return False
+    return True
+
+
+async def kill_ledgermayne(cmd: Command) -> None:
+    """``Core13LoC.KillLedgermayne``: quest 847, with the zone listener on."""
+    if await quest_progression(cmd, LEDGERMAYNE_LAST):
+        return
+    if await cmd.ensure_accept_quest(LEDGERMAYNE_LAST) is False:
+        cmd.bot.log(f"[13loc] quest {LEDGERMAYNE_LAST} could not be accepted; "
+                    f"the fight is skipped.")
+        return
+
+    def listener(message):
+        _ledgermayne_listener(cmd, message)
+
+    cmd.subscribe(listener)
+    try:
+        await hunt_item(cmd, "Ledgermayne Defeated", 1, LEDGERMAYNE_MAP,
+                        monster_name="Ledgermayne")
+    finally:
+        cmd.unsubscribe(listener)
+
+    await cmd.ensure_turn_in_quest(LEDGERMAYNE_LAST)
+
+
+async def ledgermayne(cmd: Command) -> None:
+    """``Core13LoC.Ledgermayne``: quests 805-847, from /arcangrove to /elemental."""
+    if await cmd.is_completed_before(LEDGERMAYNE_LAST):
+        return
+
+    # Observing the Observatory 805 .. Acorny Quest 808
+    await map_item_quest(cmd, 805, "arcangrove", 139)
+    await map_item_quest(cmd, 806, "cloister", 142)
+    await map_item_quest(cmd, 807, "cloister", 140)
+    await kill_quest(cmd, 808, "cloister", "Acornent")
+    await kill_quest(cmd, 809, "cloister", "Karasu")
+
+    # It's A Bough-t Time 810 -- sell the old sack, buy the new one
+    async def q810() -> None:
+        await _sell_by_id(cmd, LEDGERMAYNE_SELL_ITEM)
+        await adv_buy_item(cmd, LEDGERMAYNE_SHOP, LEDGERMAYNE_SHOP_ITEM,
+                           map_name="embersea",
+                           shop_item_id=LEDGERMAYNE_SHOP_ITEM_ID)
+        await cmd.join_map("cloister")
+        await cmd.get_map_item(LEDGERMAYNE_SACK_ITEM, LEDGERMAYNE_SACK_QTY)
+
+    await _farm(cmd, 810, q810)
+
+    await kill_quest(cmd, 811, "cloister", "Wendigo")
+    await map_item_quest(cmd, 813, "mudluk", 143)
+    await kill_quest(cmd, 814, "mudluk", "Swamp Lurker")
+    await kill_quest(cmd, 815, "mudluk", "Swamp Lurker")
+    await kill_quest(cmd, 816, "arcangrove", "Gorillaphant")
+    await kill_quest(cmd, 817, "mudluk", "Swamp Frogdrake")
+    await kill_quest(cmd, 818, "mudluk", "Tiger Leech")
+    await map_item_quest(cmd, 825, "natatorium", 144)
+    await map_item_quest(cmd, 826, "natatorium", 145, 12)
+    await kill_quest(cmd, 827, "natatorium", "Anglerfish")
+    await kill_quest(cmd, 828, "natatorium", "Merdraconian")
+
+    # Synchronized Slaying 829
+    async def q829() -> None:
+        await hunt_item(cmd, "Brain Coral", 5, "arcangrove",
+                        monster_name="Seed Spitter")
+        await hunt_item(cmd, "Staghorns", 4, "cloister",
+                        monster_name="Acornent")
+        await hunt_item(cmd, "Sea Fan", 3, "cloister", monster_name="Karasu")
+        await hunt_item(cmd, "Sea Whip", 1, "cloister", monster_name="Wendigo")
+        await hunt_item(cmd, "Anemones", 6, "mudluk",
+                        monster_name="Swamp Frogdrake")
+
+    await _farm(cmd, 829, q829)
+    await kill_quest(cmd, 830, "natatorium", "Nessie")
+    await map_item_quest(cmd, 831, "gilead", 146)
+
+    # The four elementals 832-835 and their guardians
+    async def q832() -> None:
+        await hunt_item(cmd, "Dregs Essence", 5, "gilead",
+                        monster_name="Earth Elemental")
+        await hunt_item(cmd, "Spitter Spirit", 4, "arcangrove",
+                        monster_name="Seed Spitter")
+
+    async def q833() -> None:
+        await hunt_item(cmd, "Aqueous Essence", 5, "gilead",
+                        monster_name="Water Elemental")
+        await hunt_item(cmd, "MerCore", 6, "natatorium",
+                        monster_name="Merdraconian")
+
+    async def q834() -> None:
+        await hunt_item(cmd, "Welkin Essence", 5, "gilead",
+                        monster_name="Wind Elemental")
+        await hunt_item(cmd, "Karasu Soul", 8, "cloister",
+                        monster_name="Karasu")
+
+    async def q835() -> None:
+        await hunt_item(cmd, "Pyre Essence", 5, "gilead",
+                        monster_name="Fire Elemental")
+        await hunt_item(cmd, "Fire Salamander", 5, "mudluk",
+                        monster_name="Swamp Frogdrake")
+
+    await _farm(cmd, 832, q832)
+    await _farm(cmd, 833, q833)
+    await _farm(cmd, 834, q834)
+    await _farm(cmd, 835, q835)
+    await kill_quest(cmd, 836, "gilead", "Mana Elemental")
+    await map_item_quest(cmd, 838, "mafic", 147)
+    await kill_quest(cmd, 839, "mafic", "Volcanic Maggot")
+    await kill_quest(cmd, 840, "mafic", "Scoria Serpent")
+    await kill_quest(cmd, 841, "mafic", "Living Fire")
+    await kill_quest(cmd, 842, "mafic", "Mafic Dragon")
+    await kill_quest(cmd, 843, "elemental", "Mana Imp")
+    await kill_quest(cmd, 844, "elemental", "Mana Falcon")
+
+    # Big, bad, and Baddest Bosses 845
+    async def q845() -> None:
+        for map_name, monster, orb in LEDGERMAYNE_ORBS:
+            await hunt_item(cmd, orb, 1, map_name, monster_name=monster)
+
+    await _farm(cmd, 845, q845)
+
+    # The Great Mana Golem 846
+    async def q846() -> None:
+        await hunt_item(cmd, "Mana Golem Defeated", 1, "elemental",
+                        monster_name="Mana Golem")
+
+    await _farm(cmd, 846, q846)
+
+    # Chaos Lord Ledgermayne 847
+    await kill_ledgermayne(cmd)
+
+
+TIBICENAS_LAST = 1005
+
+
+async def tibicenas(cmd: Command) -> None:
+    """``Core13LoC.Tibicenas``: quests 930-1005, from /sandport to /djinn."""
+    if await cmd.is_completed_before(TIBICENAS_LAST):
+        return
+
+    # Sandport and Starboard 930 .. Lost and Found 933
+    await map_item_quest(cmd, 930, "sandport", 251)
+    await kill_quest(cmd, 931, "sandport", "Sandshark")
+    await kill_quest(cmd, 932, "sandport", "Tomb Robber")
+    await kill_quest(cmd, 933, "sandport", "Tomb Robber")
+
+    # Sell-Sword Sell-Outs 934
+    async def q934() -> None:
+        await hunt_item(cmd, "Sell-Sword Leader Defeated", 1, "sandport",
+                        cell="r6", pad="Left",
+                        monster_name="Sell-Sword Leader")
+        await hunt_item(cmd, "Horc Sell-Swords Defeated", 3, "sandport",
+                        cell="r5", pad="Left", monster_name="Horc Sell-Sword")
+
+    await _farm(cmd, 934, q934)
+
+    # Sacred Scarabs 967 .. Confront Duat 971
+    await kill_quest(cmd, 967, "pyramid", "Golden Scarab")
+    await kill_quest(cmd, 968, "pyramid", "Anubis Deathguard")
+    await kill_quest(cmd, 969, "pyramid", "Mummy")
+    await kill_quest(cmd, 970, "pyramid", "Golden Scarab")
+    await map_item_quest(cmd, 971, "pyramid", 304)
+
+    # They've Gone Dark 972 .. I Dream Of... 978
+    async def q972() -> None:
+        await hunt_item(cmd, "Dark Medallion", 8, "wanders", cell="r2",
+                        pad="Right", monster_name="Kalestri Worshiper")
+
+    async def q973() -> None:
+        await hunt_item(cmd, "Hound Defeated", 10, "wanders", cell="r3",
+                        pad="Right", monster_name="Kalestri Hound")
+
+    async def q974() -> None:
+        await hunt_item(cmd, "Evil Essence", 10, "wanders", cell="r3",
+                        pad="Right", monster_name="Kalestri Hound")
+
+    async def q975() -> None:
+        await hunt_item(cmd, "Spider Defeated", 10, "wanders", cell="r5",
+                        pad="Right", monster_name="Lotus Spider")
+
+    async def q976() -> None:
+        await cmd.join_map("wanders")
+        await cmd.get_map_item(306)
+
+    async def q977() -> None:
+        await hunt_item(cmd, "Dreamsand", 1, "wanders", cell="r5", pad="Right",
+                        monster_name="Lotus Spider")
+
+    async def q978() -> None:
+        await hunt_item(cmd, "Sek-Duat Defeated", 1, "wanders", cell="Boss",
+                        pad="Left", monster_name="Sek-Duat")
+
+    await _farm(cmd, 972, q972)
+    await _farm(cmd, 973, q973)
+    await _farm(cmd, 974, q974)
+    await _farm(cmd, 975, q975)
+    await _farm(cmd, 976, q976)
+    await _farm(cmd, 977, q977)
+    await _farm(cmd, 978, q978)
+
+    # Sandsational Castle 995 .. Gem Jam 998
+    await map_item_quest(cmd, 995, "sandcastle", 361)
+    await kill_quest(cmd, 996, "sandcastle", "War Hyena")
+    await kill_quest(cmd, 997, "sandcastle", "War Mummy")
+    await kill_quest(cmd, 998, "sandcastle", "War Hyena")
+
+    # Enter the Sphinx 999 -- solo, then back to farm for Lamia
+    await equip_class(cmd, solo=True)
+    await kill_quest(cmd, 999, "sandcastle", "Chaos Sphinx")
+    await equip_class(cmd)
+    await kill_quest(cmd, 1000, "djinn", "Lamia")
+    await kill_quest(cmd, 1001, "sandsea", "Desert Vase")
+    await kill_quest(cmd, 1002, "sandsea", "Bupers Camel")
+    await kill_quest(cmd, 1003, "djinn", "Harpy")
+    await map_item_quest(cmd, 1004, "djinn", 370, 5)
+
+    # Chaos Lord Tibicenas 1005
+    await equip_class(cmd, solo=True)
+    await kill_quest(cmd, TIBICENAS_LAST, "djinn", "Tibicenas")
+
+
+KHASAANDA_LAST = 1473
+#: Quest 1234's cell-bound kill and 1237's two map-item groups.
+KHASAANDA_1234 = ("Polished Rocks", "bloodtusk", "r8", "Left", "Crystal-Rock")
+KHASAANDA_1237_ITEMS = ((524, 5), (522, 5))
+#: Quest 1281 collects two groups under one quest id.
+KHASAANDA_1281_ITEMS = ((554, 5), (555, 10), (556, 10))
+#: Quest 1457's map item and drop.
+KHASAANDA_1457_MAP_ITEM = (719, 5)
+#: Quest 1471 collects two map-item groups under one quest id.
+KHASAANDA_1471_ITEMS = ((738, 10), (739, 11))
+
+
+async def _map_items(cmd: Command, map_name: str,
+                     items) -> None:
+    """Collect several ``(id, qty)`` groups in one map without turning in."""
+    while cmd.is_still_connected() and cmd.is_not_in_map(map_name):
+        await cmd.join_map(map_name)
+    for item_id, qty in items:
+        await cmd.get_map_item(item_id, qty)
+
+
+async def khasaanda_horc(cmd: Command) -> None:
+    """``Core13LoC.KhasaandaHorc``: quests 1232-1473, /crossroads to /dreamnexus.
+
+    Three quests collect their map items in more than one ``MapItemQuest`` call
+    (1237, 1281, 1471); the reference lets the early turn-in fail silently, while
+    :func:`bot.core_story.map_item_quest` raises on a refused one -- so those use
+    :func:`_map_items` and turn the quest in once at the end.
+    """
+    if await cmd.is_completed_before(KHASAANDA_LAST):
+        return
+
+    # Troll Stink! 1232
+    async def q1232() -> None:
+        await equip_class(cmd)
+        await hunt_item(cmd, "Scaly Skin Scrub", 7, "crossroads",
+                        monster_name="Chinchilizard")
+        await hunt_item(cmd, "Perfumed Trollola Flower", 5, "bloodtusk",
+                        monster_name="Trollola Plant")
+        await _map_items(cmd, "bloodtusk", ((523, 1),))
+
+    # It Not Time Yet 1233
+    async def q1233() -> None:
+        await equip_class(cmd)
+        await hunt_item(cmd, "Lemurphant Stones", 5, "crossroads",
+                        monster_name="Lemurphant")
+        await hunt_item(cmd, "Golden Down-fur", 5, "crossroads",
+                        monster_name="Koalion")
+
+    # Mountain Protection 1234
+    async def q1234() -> None:
+        await equip_class(cmd)
+        item, map_name, cell, pad, monster = KHASAANDA_1234
+        await hunt_item(cmd, item, 3, map_name, cell=cell, pad=pad,
+                        monster_name=monster)
+        await hunt_item(cmd, "Lemurphant Ivory", 5, "crossroads",
+                        monster_name="Lemurphant")
+        await hunt_item(cmd, "Liz-Leather Thongs", 5, "crossroads",
+                        monster_name="Chinchilizard")
+        await _map_items(cmd, "crossroads", ((525, 1),))
+
+    # Clear Mind, Cleanse Spirit 1235
+    async def q1235() -> None:
+        await equip_class(cmd)
+        await hunt_item(cmd, "Trollola Plant Resin", 4, "bloodtusk",
+                        monster_name="Trollola Plant")
+        await hunt_item(cmd, "Lemurphant Musk", 5, "crossroads",
+                        monster_name="Lemurphant")
+        await hunt_item(cmd, "Fur for Firestarting", 5, "crossroads",
+                        monster_name="Koalion")
+        await _map_items(cmd, "crossroads", ((521, 10),))
+
+    # Be Horc Inside 1237
+    async def q1237() -> None:
+        await equip_class(cmd)
+        await hunt_item(cmd, "Skin of the Mountain", 3, "bloodtusk",
+                        monster_name="Rock")
+        await hunt_item(cmd, "Koalion Claw", 5, "crossroads",
+                        monster_name="Koalion")
+        await hunt_item(cmd, "Lemurphant Tusks", 5, "crossroads",
+                        monster_name="Lemurphant")
+        await _map_items(cmd, "crossroads", KHASAANDA_1237_ITEMS)
+
+    await _farm(cmd, 1232, q1232)
+    await _farm(cmd, 1233, q1233)
+    await _farm(cmd, 1234, q1234)
+    await _farm(cmd, 1235, q1235)
+
+    # She Who Asks 1236
+    await chain_quest(cmd, 1236)
+    await _farm(cmd, 1237, q1237)
+    # She Who Answers 2 1241, Chaos Enrages the Horcs 1273
+    await chain_quest(cmd, 1241)
+    await chain_quest(cmd, 1273)
+
+    # Into, Under the Mountain 1280
+    await map_item_quest(cmd, 1280, "ravinetemple", 553)
+
+    # Has the Land Been Tainted? 1281
+    if not await quest_progression(cmd, 1281):
+        if await cmd.ensure_accept_quest(1281) is False:
+            cmd.bot.log("[13loc] quest 1281 could not be accepted, so nothing "
+                        "is farmed for it.")
+            return
+        await _map_items(cmd, "ravinetemple", KHASAANDA_1281_ITEMS)
+        if await cmd.ensure_turn_in_quest(1281) is False:
+            cmd.bot.log("[13loc] quest 1281 could not be turned in.")
+            return
+
+    # Tears of the Mountain 1282
+    await kill_quest(cmd, 1282, "ravinetemple", "Temple Guardian")
+
+    # Defend the UnderMountain 1283
+    async def q1283() -> None:
+        await _map_items(cmd, "ravinetemple", ((557, 10),))
+        await hunt_item(cmd, "Sharpened Bone Stake", 5, "ravinetemple",
+                        monster_name="Temple Guardian")
+
+    await _farm(cmd, 1283, q1283)
+    await kill_quest(cmd, 1284, "ravinetemple", "Temple Guardian")
+
+    # Scout and Return 1375
+    await map_item_quest(cmd, 1375, "alliance", [679, 680])
+
+    # Good and Evil Not Always Right 1376
+    async def q1376() -> None:
+        await equip_class(cmd)
+        await hunt_item(cmd, "Good Soldier Vanquished", 10, "alliance",
+                        monster_name="Good Soldier")
+        await hunt_item(cmd, "Evil Soldier Vanquished", 10, "alliance",
+                        monster_name="Evil Soldier")
+
+    await _farm(cmd, 1376, q1376)
+    await map_item_quest(cmd, 1377, "alliance", 675, 10)
+    await map_item_quest(cmd, 1378, "alliance", 676)
+    await kill_quest(cmd, 1379, "alliance", "Chaorrupted Evil Soldier")
+
+    # Alliance Subdued 1380
+    async def q1380() -> None:
+        await hunt_item(cmd, "Cynari Defeated!", 1, "alliance",
+                        monster_name="General Cynari")
+        await hunt_item(cmd, "Tibias Defeated!", 1, "alliance",
+                        monster_name="General Tibias")
+
+    await _farm(cmd, 1380, q1380)
+
+    # Cleanse the Chaorruption 1424, Chaorruption Cure? 1425
+    await kill_quest(cmd, 1424, "ancienttemple", "Chaotic Vulture")
+
+    async def q1425() -> None:
+        await _map_items(cmd, "ancienttemple", ((706, 7),))
+        await hunt_item(cmd, "Stolen Urn", 7, "ancienttemple",
+                        monster_name="Chaotic Vulture")
+
+    await _farm(cmd, 1425, q1425)
+    await kill_quest(cmd, 1426, "ancienttemple", "Chaos Troll Spirit")
+    await kill_quest(cmd, 1427, "ancienttemple", "Serpentress")
+    await map_item_quest(cmd, 1428, "ancienttemple", 707)
+
+    # Wounds in Stones and Beasts 1456, Light in Underhome 1457
+    await map_item_quest(cmd, 1456, "orecavern", 717)
+
+    async def q1457() -> None:
+        await _map_items(cmd, "orecavern", (KHASAANDA_1457_MAP_ITEM,))
+        await hunt_item(cmd, "Light Orb Recovered", 10, "orecavern",
+                        monster_name="Crashroom")
+
+    await _farm(cmd, 1457, q1457)
+    await map_item_quest(cmd, 1458, "orecavern", 718, 5)
+    await kill_quest(cmd, 1459, "orecavern", "Chaorrupted Evil Soldier")
+    await equip_class(cmd, solo=True)
+    await kill_quest(cmd, 1460, "orecavern", "Naga Baas")
+
+    # Know the Nexus 1469
+    await map_item_quest(cmd, 1469, "dreamnexus", [734, 735, 736, 737])
+
+    # Secure a Route Home 1470
+    async def q1470() -> None:
+        await equip_class(cmd)
+        await hunt_item(cmd, "Wyvern Scales", 2, "dreamnexus",
+                        monster_name="Dark Wyvern")
+        await hunt_item(cmd, "Wyvern Claws", 2, "dreamnexus",
+                        monster_name="Dark Wyvern")
+        await hunt_item(cmd, "Serpent Fangs", 2, "dreamnexus",
+                        monster_name="Aether Serpent")
+        await hunt_item(cmd, "Serpent Hair", 2, "dreamnexus",
+                        monster_name="Aether Serpent")
+
+    await _farm(cmd, 1470, q1470)
+
+    # DreamDancers' Orbs 1471 -- two groups, one turn-in
+    if not await quest_progression(cmd, 1471):
+        if await cmd.ensure_accept_quest(1471) is False:
+            cmd.bot.log("[13loc] quest 1471 could not be accepted.")
+            return
+        await _map_items(cmd, "dreamnexus", KHASAANDA_1471_ITEMS)
+        await cmd.ensure_turn_in_quest(1471)
+
+    # Master the Flames 1472
+    async def q1472() -> None:
+        await equip_class(cmd)
+        await hunt_item(cmd, "Phoenix Tear", 10, "dreamnexus",
+                        monster_name="Solar Phoenix")
+        await hunt_item(cmd, "Phoenix Blood", 5, "dreamnexus",
+                        monster_name="Solar Phoenix")
+
+    await _farm(cmd, 1472, q1472)
+
+    # Choose: Khasaanda Confrontation? 1473
+    async def q1473() -> None:
+        await equip_class(cmd, solo=True)
+        await hunt_item(cmd, "Khasaanda Defeated!", 1, "dreamnexus",
+                        cell="r17a", pad="Up", monster_name="Khasaanda")
+
+    await _farm(cmd, KHASAANDA_LAST, q1473)
+
+
 LIONFANG_LAST = 2814
 
 #: Quest 2615's own block: the map item, then the two drops it wants.
@@ -918,9 +1427,9 @@ SEGMENTS = (
     ("Kitsune", kitsune),
     ("Wolfwing", wolfwing),
     ("Kimberly", kimberly),
-    ("Ledgermayne", None),
-    ("Tibicenas", None),
-    ("KhasaandaHorc", None),
+    ("Ledgermayne", ledgermayne),
+    ("Tibicenas", tibicenas),
+    ("KhasaandaHorc", khasaanda_horc),
     ("Iadoa", None),
     ("Lionfang", lionfang),
     ("Xiang", None),

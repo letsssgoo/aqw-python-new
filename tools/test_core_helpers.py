@@ -70,6 +70,7 @@ class Player:
         self.MANA = 100
         self.last_target = None
         self.intAQ = 0
+        self.ISDEAD = False
         self.temp = {}
 
     def get_item_inventory(self, name):
@@ -205,6 +206,15 @@ class Cand:
 
     async def has_item(self, name, qty=1, isTemp=False):
         return self.bot.player.get_item_inventory(name) is not None
+
+    def is_not_in_map(self, map_name):
+        return False
+
+    def subscribe(self, callback):
+        self.calls.append(("subscribe", callback))
+
+    def unsubscribe(self, callback):
+        self.calls.append(("unsubscribe", callback))
 
     async def has_item_id(self, item_id):
         return self.bot.player.get_item_inventory_by_id(item_id) is not None
@@ -2403,12 +2413,17 @@ async def loc_chain(cmd, quest, *a, **k):
     loc_steps.append(("chain", quest))
 
 
+async def loc_equip(cmd, solo=False):
+    loc_steps.append(('equip', solo))
+
+
 async def loc_prog(cmd, quest, *a, **k):
     return False
 
 
 leaf = patch(loc, kill_quest=loc_kill, map_item_quest=loc_map,
-             hunt_item=loc_hunt, buy_item=loc_buy, chain_quest=loc_chain)
+             hunt_item=loc_hunt, buy_item=loc_buy, chain_quest=loc_chain,
+             adv_buy_item=loc_buy, equip_class=loc_equip)
 try:
     cmd = Cand()
     cmd.completed = {6219}
@@ -2462,12 +2477,50 @@ try:
           in loc_steps, True)
     check("kimberly: fifteen fire fleas from Mozard",
           ("hunt", "Fire Flea", 15, "R7", "Mozard") in loc_steps, True)
+
+    # Ledgermayne's zone listener: the three walk targets and the packet
+    check("ledgermayne: zone A is (292, 355)",
+          loc.ledgermayne_zone('{"args":{"zoneSet":"A"}}'), (292, 355))
+    check("ledgermayne: zone B is (750, 350)",
+          loc.ledgermayne_zone('{"args":{"zoneSet":"B"}}'), (750, 350))
+    check("ledgermayne: an empty zone is (592, 250)",
+          loc.ledgermayne_zone('{"args":{"zoneSet":""}}'), (592, 250))
+    check("ledgermayne: any other frame walks nowhere",
+          loc.ledgermayne_zone('{"args":{}}'), None)
+
+    cmd = Cand()
+    loc._ledgermayne_listener(cmd, '{"params":{"dataObj":{"cmd":"event",'
+                                   '"args":{"zoneSet":"A"}}}}')
+    check("ledgermayne: the listener sends the walk packet",
+          "packet: %xt%zm%mv%1%292%355%9%" in cmd.bot.logs, True)
+
+    # Tibicenas: quest 934's two cell-bound drops
+    cmd = Cand()
+    loc_steps.clear()
+    run(loc.tibicenas(cmd))
+    check("tibicenas: 934 takes both cells",
+          [c for c in loc_steps if c[0] == "hunt"][:2],
+          [("hunt", "Sell-Sword Leader Defeated", 1, "r6", "Sell-Sword Leader"),
+           ("hunt", "Horc Sell-Swords Defeated", 3, "r5", "Horc Sell-Sword")])
+
+    # KhasaandaHorc: 1281's three groups, one turn-in
+    cmd = Cand()
+    loc_steps.clear()
+    run(loc.khasaanda_horc(cmd))
+    mapitems = [c[1] for c in cmd.calls if c[0] == "mapitem"]
+    check("khasaanda: 1281 takes 554, 555 and 556",
+          [item for item in mapitems if item in (554, 555, 556)],
+          [554, 555, 556])
+    check("khasaanda: and turns 1281 in exactly once",
+          [c for c in cmd.calls if c == ("turnin", 1281, -1)],
+          [("turnin", 1281, -1)])
+
     cmd = Cand()
     cmd.completed = {6219, 272, 363, 488, 710, 2814}
     loc_steps.clear()
     run(loc.complete13loc(cmd))
     check("13loc: the walk names the segment it stops at",
-          "[13loc] Ledgermayne is not ported yet, so Complete13LOC stops here; "
+          "[13loc] Iadoa is not ported yet, so Complete13LOC stops here; "
           "nothing after it runs." in cmd.bot.logs, True)
     check("13loc: and Wolfwing declares Good before chaining 597",
           "packet: %xt%zm%updateQuest%1%41%1%" in cmd.bot.logs, True)
