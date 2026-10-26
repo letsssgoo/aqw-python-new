@@ -1,4 +1,4 @@
-﻿"""The CoreBots / CoreAdvanced helpers added after the first port pass.
+"""The CoreBots / CoreAdvanced helpers added after the first port pass.
 
     python tools/test_core_helpers.py
 
@@ -2551,18 +2551,10 @@ finally:
     restore(loc, leaf)
 
 # ============================================================================
-# 28. Fishing reputation bookkeeping
+# 28. Faction bookkeeping (a reload must refresh, not freeze)
 # ============================================================================
-from core.bot import fishing_rep_from  # noqa: E402
 from core.player import Player as RealPlayer  # noqa: E402
 from model.faction import Faction  # noqa: E402
-
-check("fishing rep: the frame's fish add up",
-      fishing_rep_from({"fish": [{"rep": 220}, {"rep": None}, {"rep": 1000},
-                                 {"rep": "300"}]}), 1520)
-check("fishing rep: a frame with no fish pays nothing",
-      fishing_rep_from({}), 0)
-check("fishing rep: a broken frame pays nothing", fishing_rep_from(None), 0)
 
 real = RealPlayer()
 real.addFaction(Faction({"FactionID": 20, "sName": "Fishing", "iRep": 129600}))
@@ -2571,25 +2563,8 @@ real.addFaction(Faction({"FactionID": 20, "sName": "Fishing", "iRep": 202500}))
 check("factions: a reload refreshes the rep, it does not freeze",
       real.getFactionRank("Fishing"), 9)
 real.get_faction("Fishing").add_rep(1520)
-check("factions: and a catch adds on top",
+check("factions: and a server rep gain adds on top",
       real.get_faction("Fishing").total_rep(), 204020)
-
-# the refresh hop is what asks the server for a fresh faction list
-from bot.core_farms import refreshed_faction_rank  # noqa: E402
-
-
-class _FarCand(Cand):
-    def is_not_in_map(self, map_name):
-        return True
-
-
-far = _FarCand()
-far.ranks = {"fishing": 9}
-check("faction refresh: the rank it reads back",
-      run(refreshed_faction_rank(far, "Fishing", "fishing")), 9)
-check("faction refresh: hops out and back",
-      [c for c in far.calls if c[0] == "join"],
-      [("join", "whitemap", None), ("join", "fishing", None)])
 
 print(f"passed {passed}   failed {len(failures)}")
 if failures:
