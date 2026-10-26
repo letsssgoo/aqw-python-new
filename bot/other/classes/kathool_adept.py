@@ -19,7 +19,8 @@ The source's ``RequiredArmors`` order is kept: DeepWater Drow is bought before
 Ashray Elf Warden, because the Drow merge consumes one.
 """
 from bot.core_bots import buy_item, equip_class, wait_for_item
-from bot.core_farms import fishing_rep, somnia_rep
+from bot.core_farms import (FISHING_MAP, fishing_rep, refreshed_faction_rank,
+                            somnia_rep)
 from bot.core_story import CustomError
 from bot.other.merge_shops.abyssal_zone_merge import abyssal_zone_merge
 from bot.other.merge_shops.midnight_zone_merge import midnight_zone_merge
@@ -149,8 +150,13 @@ async def bottom_feeder(cmd: Command) -> bool:
     await fishing_rep(cmd)
     if not cmd.is_still_connected():
         return False
-    if cmd.get_faction_rank("Fishing") < 10:
+    # ``fishing_rep`` ends on the server's own rank, but this gate is what the
+    # shop will actually enforce, so ask again rather than trust the count.
+    fishing = await refreshed_faction_rank(cmd, "Fishing", FISHING_MAP)
+    if fishing < 10:
         cmd.bot.log("Johnnyfish requires rank 10 Fishing.")
+        cmd.bot.log(f"[kathool] the server reports Fishing rank {fishing}; the "
+                    f"shop will refuse the purchase until it reaches 10.")
         return False
 
     await buy_item(cmd, JOHNNYFISH_SHOP, JOHNNYFISH_ITEM,
@@ -158,6 +164,9 @@ async def bottom_feeder(cmd: Command) -> bool:
                    shop_item_id=JOHNNYFISH_SHOP_ITEM_ID)
     if not cmd.is_still_connected():
         return False
+    # The purchase packet is answered a moment later; waiting is what tells a
+    # real buy apart from a refused one.
+    await wait_for_item(cmd, JOHNNYFISH)
     if not await cmd.has_item(JOHNNYFISH):
         cmd.bot.log("Johnnyfish is missing from inventory.")
         return False

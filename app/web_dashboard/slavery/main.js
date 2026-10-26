@@ -779,11 +779,14 @@
             const username = pauseBtn.getAttribute('data-username');
             const paused = pauseBtn.classList.contains('is-paused');
             pauseBtn.disabled = true;
-            window.pywebview.api.pause_slave(username, !paused).then(res => {
+            apiCall('pause_slave', username, !paused).then(res => {
                 pauseBtn.disabled = false;
                 if (!res.success) {
                     alert(`Could not ${paused ? 'resume' : 'pause'} ${username}: ${res.error}`);
                 }
+            }).catch(err => {
+                pauseBtn.disabled = false;
+                alert(`Could not ${paused ? 'resume' : 'pause'} ${username}: ${err.message || err}`);
             });
             return;
         }
@@ -1002,8 +1005,26 @@
     // accounts, STOP ALL ends every pane, PAUSE ALL pauses all of them.  The
     // row buttons act on one account and never touch the others; the status
     // poll (below) is what flips the global buttons the moment any account runs.
+    function apiCall(name, ...args) {
+        // The Python side is loaded once, when the app process starts: a method
+        // added to the API only exists after a restart, and calling a missing one
+        // throws *before* a promise exists -- which used to leave the button
+        // disabled with nothing on screen.  This says so instead.
+        const api = window.pywebview && window.pywebview.api;
+        const fn = api ? api[name] : null;
+        if (typeof fn !== 'function') {
+            return Promise.reject(new Error(
+                `${name} is not exposed by the running app. Restart the app so it ` +
+                `loads the current build.`));
+        }
+        return Promise.resolve(fn.apply(api, args));
+    }
+
     function paintRunButton(btn, running) {
         if (!btn) return;
+        // The poll is the source of truth for "is it up": a click that never
+        // landed must not leave the button disabled forever.
+        btn.disabled = false;
         btn.classList.toggle('is-running', running);
         btn.title = running ? 'Stop this account' : 'Start this account';
         btn.innerHTML = running
@@ -1039,7 +1060,7 @@
             return;
         }
         btn.disabled = true;
-        window.pywebview.api.start_slave(slave.username, globalConfig).then(res => {
+        apiCall('start_slave', slave.username, globalConfig).then(res => {
             btn.disabled = false;
             if (!res.success) {
                 alert(`Failed to start ${slave.username}: ${res.error}`);
@@ -1048,19 +1069,25 @@
             activeConsoleTab = slave.username;
             renderConsoleTabs();
             refreshConsoleViewport();
+        }).catch(err => {
+            btn.disabled = false;
+            alert(`Could not start ${slave.username}: ${err.message || err}`);
         });
     }
 
     function stopOne(username, btn) {
         if (!username) return;
         btn.disabled = true;
-        window.pywebview.api.stop_slave(username).then(res => {
+        apiCall('stop_slave', username).then(res => {
             btn.disabled = false;
             if (!res.success) {
                 alert(`Could not stop ${username}: ${res.error}`);
                 return;
             }
             updateRowStatus(username, { running: false, is_connected: false });
+        }).catch(err => {
+            btn.disabled = false;
+            alert(`Could not stop ${username}: ${err.message || err}`);
         });
     }
 
