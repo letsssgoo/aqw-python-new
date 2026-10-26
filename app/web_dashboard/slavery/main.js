@@ -1013,9 +1013,16 @@
         const api = window.pywebview && window.pywebview.api;
         const fn = api ? api[name] : null;
         if (typeof fn !== 'function') {
+            // Naming what the page *can* see tells an old build apart from a
+            // wrong api object in one look.
+            let seen = 'none';
+            try {
+                seen = Object.keys(api || {})
+                    .filter(k => /slave|pause/.test(k)).sort().join(', ') || 'none';
+            } catch (err) { seen = 'unreadable'; }
             return Promise.reject(new Error(
-                `${name} is not exposed by the running app. Restart the app so it ` +
-                `loads the current build.`));
+                `${name} is not exposed by the running app (its account calls are: ` +
+                `${seen}). Restart the app so it loads the current build.`));
         }
         return Promise.resolve(fn.apply(api, args));
     }

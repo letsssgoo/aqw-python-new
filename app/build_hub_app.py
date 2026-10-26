@@ -3029,6 +3029,19 @@ class CombinedApi:
     def pause_slave(self, username, pause_state):
         return self._slavery_api.pause_slave(username, pause_state)
 
+    # The slavery page calls the bridge-less names (it predates the namespaced
+    # ones above): the HTTP fallback posts ``/api/load_config`` and friends, so
+    # these have to resolve on this object too.  ``get_telemetry`` already exists
+    # below and is shared, so it is not repeated here.
+    def load_config(self):
+        return self.slavery_load_config()
+
+    def save_config(self, config):
+        return self.slavery_save_config(config)
+
+    def get_status(self):
+        return self.slavery_get_status()
+
     def stop_slaves(self):
         return self._slavery_api.stop_slaves()
 
