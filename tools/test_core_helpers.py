@@ -2033,6 +2033,73 @@ try:
 finally:
     restore(ka, leaf)
 
+# ============================================================================
+# 24. The merge walk after it buys: no stale "not bought yet"
+# ============================================================================
+class _MergeEntry:
+    def __init__(self, name, item_id, recipe, upgrade=False, shop_item_id=1):
+        self.item_name = name
+        self.item_id = item_id
+        self.merge_requirements = recipe
+        self.is_upgrade = upgrade
+        self.shop_item_id = shop_item_id
+
+
+class _MergeShop:
+    def __init__(self, entries):
+        self.items = entries
+
+
+bought = []
+
+
+async def adv_open(cmd, map_name, shop_id):
+    return None
+
+
+async def adv_buy(cmd, shop_id, item, qty=1, map_name=None, shop_item_id=0):
+    bought.append(item)
+
+
+#: The merge consumes its recipe: after the buy the ingredients are gone.
+recipe = [(11, "Ingredient A", 30), (12, "Ingredient B", 12)]
+shop = _MergeShop([_MergeEntry("Test Armor", 21, recipe)])
+
+
+async def adv_merge_item(cmd, map_name, shop_id, entry, qty, find_ingredients,
+                         depth):
+    for item_id, _name, _qty in entry.merge_requirements:
+        cmd.bot.player.INVENTORY = [
+            item for item in cmd.bot.player.INVENTORY
+            if str(item.item_id) != str(item_id)]
+    cmd.bot.player.INVENTORY.append(
+        ItemInventory({"sName": entry.item_name, "ItemID": entry.item_id,
+                       "iQty": 1}))
+
+
+leaf = patch(adv, _open_shop=adv_open,
+             _merge_shop=lambda cmd, shop_id: shop,
+             _merge_item=adv_merge_item, buy_item=adv_buy)
+try:
+    cmd = Cand([ItemInventory({"sName": "Ingredient A", "ItemID": 11,
+                               "iQty": 30}),
+                ItemInventory({"sName": "Ingredient B", "ItemID": 12,
+                               "iQty": 12})])
+    bought.clear()
+    run(adv.start_buy_all_merge(cmd, "testmap", 999))
+    check("merge walk: a consumed recipe is not called 'not bought yet'",
+          [line for line in cmd.bot.logs if "not bought yet" in line], [])
+    check("merge walk: nothing is bought twice", bought, [])
+
+    # a buy_only_this the shop does not carry says so instead of ending quietly
+    other = Cand()
+    run(adv.start_buy_all_merge(other, "testmap", 999,
+                                buy_only_this="Not In This Shop"))
+    check("merge walk: an unknown entry is reported",
+          any("has no entry named" in line for line in other.bot.logs), True)
+finally:
+    restore(adv, leaf)
+
 print(f"passed {passed}   failed {len(failures)}")
 if failures:
     for line in failures:

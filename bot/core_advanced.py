@@ -215,6 +215,10 @@ async def start_buy_all_merge(cmd: Command, map_name: str, shop_id: int,
 
     blocked = {name.lower() for name in item_blacklist}
     seen = set()
+    #: ``False`` until the requested entry is seen: a ``buy_only_this`` that the
+    #: shop does not carry used to end the walk with no word at all, which reads
+    #: exactly like a successful merge in the log.
+    found = buy_only_this is None
     for entry in shop.items:
         name = entry.item_name
         if not name or name in seen:
@@ -224,6 +228,7 @@ async def start_buy_all_merge(cmd: Command, map_name: str, shop_id: int,
             continue
         if buy_only_this and name.lower() != buy_only_this.lower():
             continue
+        found = True
         if entry.is_upgrade and not cmd.get_player().is_member:
             cmd.bot.log(f'[merge] skipping "{name}" (member only).')
             continue
@@ -238,6 +243,11 @@ async def start_buy_all_merge(cmd: Command, map_name: str, shop_id: int,
                 f"{n} x{q}" for _, n, q in entry.merge_requirements))
         cmd.bot.log(f'[merge] farming for "{name}"')
         await _merge_item(cmd, map_name, shop_id, entry, 1, find_ingredients, 0)
+        if _held_by_id(cmd, entry.item_id) >= 1:
+            # ``_merge_item`` buys the entry itself once its recipe is met, and
+            # the merge *consumes* that recipe -- so re-reading the ingredients
+            # here would report a completed merge as "not bought yet".
+            continue
         await _open_shop(cmd, map_name, shop_id)
         missing = [f"{n} x{q}" for iid, n, q in entry.merge_requirements
                    if _held_by_id(cmd, iid) < q]
@@ -247,6 +257,10 @@ async def start_buy_all_merge(cmd: Command, map_name: str, shop_id: int,
         elif missing:
             cmd.bot.log(f'[merge] "{name}" not bought yet, missing: '
                         f'{", ".join(missing)}')
+
+    if not found:
+        cmd.bot.log(f'[merge] shop {shop_id} has no entry named '
+                    f'"{buy_only_this}"; nothing merged.')
 
 
 async def _merge_item(cmd: Command, map_name: str, shop_id: int, entry,
