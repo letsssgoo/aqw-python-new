@@ -210,6 +210,9 @@ class Cand:
     async def jump_cell(self, cell, pad="Left"):
         self.calls.append(("cell", cell, pad))
 
+    async def send_packet(self, packet):
+        self.calls.append(("packet", packet))
+
     async def equip_item(self, name):
         self.calls.append(("equip", name))
         item = self.bot.player.get_item_inventory(name)
@@ -2365,6 +2368,79 @@ try:
                 ("enhance", bboa.BBOA, "Lucky")])
 finally:
     restore(bboa, leaf)
+
+# ============================================================================
+# 27. 13LoC's prologue and its frontier
+# ============================================================================
+from bot.story.lordsofchaos import core13loc as loc  # noqa: E402
+
+loc_steps = []
+
+
+async def loc_kill(cmd, quest, map_name, monster):
+    loc_steps.append(("kill", quest, map_name, monster))
+
+
+async def loc_map(cmd, quest, map_name, item_ids, qty=1):
+    loc_steps.append(("map", quest, item_ids, qty))
+
+
+async def loc_hunt(cmd, item, qty, map_name, **kwargs):
+    loc_steps.append(("hunt", item, qty))
+
+
+async def loc_buy(cmd, shop, item, qty=1, map_name=None, shop_item_id=0):
+    loc_steps.append(("buy", shop, item))
+
+
+async def loc_chain(cmd, quest, *a, **k):
+    loc_steps.append(("chain", quest))
+
+
+async def loc_prog(cmd, quest, *a, **k):
+    return False
+
+
+leaf = patch(loc, kill_quest=loc_kill, map_item_quest=loc_map,
+             hunt_item=loc_hunt, buy_item=loc_buy, chain_quest=loc_chain)
+try:
+    cmd = Cand()
+    cmd.completed = {6219}
+    loc_steps.clear()
+    run(loc.prologue(cmd))
+    check("prologue: a finished prologue does nothing", loc_steps, [])
+
+    cmd = Cand()
+    loc_steps.clear()
+    run(loc.prologue(cmd))
+    check("prologue: 183 first, then the 176 block",
+          loc_steps[:2], [("kill", 183, "battleundera", "Skeletal Fire Mage"),
+                          ("hunt", "Slain Skeletal Soldier", 5)])
+    check("prologue: the knights' map items come as five",
+          ("map", 179, 38, 5) in loc_steps, True)
+    packets = [c[1] for c in cmd.calls if c[0] == "packet"]
+    check("prologue: the cutscene packets are the source's",
+          packets, ["%xt%zm%updateQuest%73922%43%1%",
+                    "%xt%zm%updateQuest%188220%41%1%"])
+    check("prologue: and quest 195 is chained afterwards",
+          ("chain", 195) in loc_steps, True)
+    check("prologue: Unlife Insurance buys 42993 from prison 1559",
+          ("buy", 1559, 42993) in loc_steps, True)
+    check("prologue: the forest ends the segment",
+          loc_steps[-1], ("hunt", "Chaorrupted Wolf Defeated", 7))
+
+    # the walk stops, by name, at the first segment that is not ported
+    cmd = Cand()
+    cmd.completed = {6219, 272, 488, 2814}
+    loc_steps.clear()
+    run(loc.complete13loc(cmd))
+    check("13loc: the walk names the segment it stops at",
+          "[13loc] Vath is not ported yet, so Complete13LOC stops here; nothing "
+          "after it runs." in cmd.bot.logs, True)
+    check("13loc: and runs nothing that lies past the gap",
+          [c for c in loc_steps if c[0] == "kill"], [])
+finally:
+    restore(loc, leaf)
 
 print(f"passed {passed}   failed {len(failures)}")
 if failures:

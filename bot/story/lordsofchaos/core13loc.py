@@ -1,18 +1,126 @@
-"""``Core13LoC`` -- the thirteen Lords of Chaos, only Escherion so far.
+"""``Core13LoC`` -- the thirteen Lords of Chaos, five of them so far.
 
 Port of ``Story/LordsofChaos/Core13LoC.cs``.  The forge enhancement unlocks need
-``Escherion()``, so that is the method ported; the rest of the file waits for a
-caller.  Note that this is *not* ``CoreNation.KillEscherion`` -- same target,
-different class, different job: this one is the whole /mobius story.
+``Escherion()``, the Farmer Joe kit needs the whole chain, so the file is being
+filled in segment by segment: ``Prologue``, ``Escherion``, ``Kitsune`` and
+``Lionfang`` are here, and :func:`complete13loc` walks the source's order and
+stops -- by name -- at the first segment that is not ported yet.
+
+Note that this is *not* ``CoreNation.KillEscherion`` -- same target, different
+class, different job: this one is the whole /mobius story.
 
 ``Story.PreLoad`` has no counterpart here; the guards do its work.
 """
 from typing import Sequence, Tuple, Union
 
-from bot.core_story import item_id_by_name, kill_quest, map_item_quest
+from bot.core_bots import buy_item
+from bot.core_story import chain_quest, item_id_by_name, kill_quest, map_item_quest
 from core.command import Command
 from bot.nation.core_nation import kill_escherion
 from templates.hunt import hunt_item, hunt_item_by_id
+
+# ---------------------------------------------------------------------------
+# Prologue -- quests 183-6219, from /battleundera to /forestchaos
+# ---------------------------------------------------------------------------
+PROLOGUE_LAST = 6219
+#: ``CoreBots.HeroAlignment``'s default -- ``Alignment.Evil`` (2).  The source
+#: then sends ``HeroAlignment > 1 ? 1 : HeroAlignment``, which is **1**, so its
+#: alignment packet declares Good.  Kept as it stands.
+HERO_ALIGNMENT = 2
+#: The two cutscene packets the source sends by hand before quest 195.
+DRAKATH_PACKET = "%xt%zm%updateQuest%73922%43%1%"
+CLASS_QUEST = 41
+DRAKATH_QUEST_PACKET = "%xt%zm%updateQuest%188220%41%{value}%"
+PROLOGUE_HERO_CELL = ("King2", "Center")
+#: ``Story.MapItemQuest(179, "castleundead", 38, 5)``, and 6216's five map items.
+KNIGHTS_MAP_ITEM = 38
+KNIGHTS_MAP_ITEM_QTY = 5
+UNLIFE_MAP_ITEM = 39
+UNLIFE_MAP_ITEM_QTY = 5
+UNLIFE_SHOP = 1559
+UNLIFE_ITEM = 42993
+#: ``Story.MapItemQuest(6217, "chaoscrypt", 5662)``.
+CRYPT_MAP_ITEM = 5662
+
+
+async def prologue(cmd: Command) -> None:
+    """``Core13LoC.Prologue``: quests 183-6219.
+
+    Three steps the source writes out by hand keep their own blocks (176, 6216,
+    6219), and so does the Drakath cutscene: a socket client cannot watch a
+    cutscene, so the source's own ``updateQuest`` packets are sent instead and
+    ``ChainQuest(195)`` plays the part of "the scene finished".
+    """
+    if await cmd.is_completed_before(PROLOGUE_LAST):
+        return
+
+    # Enter the gates
+    await kill_quest(cmd, 183, "battleundera", "Skeletal Fire Mage")
+
+    # Undead Assault 176
+    if not await cmd.is_completed_before(176):
+        if await cmd.ensure_accept_quest(176) is False:
+            cmd.bot.log("[13loc] quest 176 could not be accepted; the prologue "
+                        "stops here.")
+            return
+        await hunt_item(cmd, "Slain Skeletal Soldier", 5, "swordhavenundead",
+                        monster_name="Skeletal Soldier")
+        await cmd.ensure_turn_in_quest(176)
+
+    await kill_quest(cmd, 177, "swordhavenundead", "Skeletal Ice Mage")
+    await kill_quest(cmd, 178, "swordhavenundead", "Undead Giant")
+    await map_item_quest(cmd, 179, "castleundead", KNIGHTS_MAP_ITEM,
+                         KNIGHTS_MAP_ITEM_QTY)
+    await kill_quest(cmd, 180, "castleundead", "Skeletal Viking")
+
+    # The Arrival of Drakath cutscene.  ``Bot.Quests.IsUnlocked(196)`` has no
+    # client to ask here, so "not completed yet" stands in for it -- the same
+    # substitution ``bot/enhancements/lacerate.py`` documents.
+    if not await cmd.is_completed_before(196):
+        await cmd.join_map("castleundead")
+        await cmd.jump_cell(*PROLOGUE_HERO_CELL)
+        await cmd.join_map("shadowfall")
+        await cmd.send_packet(DRAKATH_PACKET)
+        await cmd.send_packet(DRAKATH_QUEST_PACKET.format(
+            value=1 if HERO_ALIGNMENT > 1 else HERO_ALIGNMENT))
+        await cmd.sleep(2000)
+        await cmd.join_map("shadowfall")
+        await cmd.sleep(2000)
+        # ShadowFall Quest1 195
+        await chain_quest(cmd, 195)
+
+    # Recover Sepulchure's Cursed Armor! 196
+    await kill_quest(cmd, 196, "chaoscrypt", "Chaorrupted Armor")
+
+    # Unlife Insurance 6216
+    if not await cmd.is_completed_before(6216):
+        if await cmd.ensure_accept_quest(6216) is False:
+            cmd.bot.log("[13loc] quest 6216 could not be accepted; the prologue "
+                        "stops here.")
+            return
+        await cmd.join_map("prison")
+        await cmd.get_map_item(UNLIFE_MAP_ITEM, UNLIFE_MAP_ITEM_QTY)
+        await buy_item(cmd, UNLIFE_SHOP, UNLIFE_ITEM, map_name="prison")
+        await cmd.ensure_turn_in_quest(6216)
+
+    # Enter the Crypt 6217
+    await map_item_quest(cmd, 6217, "chaoscrypt", CRYPT_MAP_ITEM)
+
+    # Rescue the Knights 6218
+    await kill_quest(cmd, 6218, "chaoscrypt", "Chaorrupted Knight")
+
+    # Forest of Chaos 6219
+    if not await cmd.is_completed_before(PROLOGUE_LAST):
+        if await cmd.ensure_accept_quest(PROLOGUE_LAST) is False:
+            cmd.bot.log(f"[13loc] quest {PROLOGUE_LAST} could not be accepted; "
+                        f"the prologue stops here.")
+            return
+        await hunt_item(cmd, "Chaorrupted Bear Defeated", 1, "forestchaos",
+                        monster_name="Chaorrupted Bear")
+        await hunt_item(cmd, "Chaorrupted Wolf Defeated", 7, "forestchaos",
+                        monster_name="Chaorrupted Wolf")
+        await cmd.ensure_turn_in_quest(PROLOGUE_LAST)
+
 
 ESCHERION_LAST = 272
 
@@ -351,3 +459,51 @@ async def lionfang(cmd: Command) -> None:
     await kill_quest(cmd, 2812, "stormtemple", "Chaonslaught Cavalry")
     await map_item_quest(cmd, 2813, "stormtemple", 1732, 1)
     await kill_quest(cmd, 2814, "stormtemple", "Chaos Lord Lionfang")
+
+
+# ---------------------------------------------------------------------------
+# Complete13LOC
+# ---------------------------------------------------------------------------
+#: ``Complete13LOC``'s order, with ``None`` for the segments this port has not
+#: reached yet.  Keeping the table here (rather than in the caller) is what lets
+#: the walk stop at the first gap instead of skipping a Lord of Chaos.
+SEGMENTS = (
+    ("Prologue", prologue),
+    ("Escherion", escherion),
+    ("Vath", None),
+    ("Kitsune", kitsune),
+    ("Wolfwing", None),
+    ("Kimberly", None),
+    ("Ledgermayne", None),
+    ("Tibicenas", None),
+    ("KhasaandaHorc", None),
+    ("Iadoa", None),
+    ("Lionfang", lionfang),
+    ("Xiang", None),
+    ("Alteon", None),
+    ("Hero", None),
+)
+
+
+async def complete13loc(cmd: Command, with_extras: bool = False) -> None:
+    """``Core13LoC.Complete13LOC``: every Lord of Chaos, in the source's order.
+
+    Args:
+        cmd (Command): Facade to act through.
+        with_extras (bool): The reference's ``withExtras`` -- ``KhasaandaTroll``
+            and ``Extra`` after the main chain, neither of them ported.
+    """
+    for name, segment in SEGMENTS:
+        if segment is None:
+            cmd.bot.log(f"[13loc] {name} is not ported yet, so Complete13LOC "
+                        f"stops here; nothing after it runs.")
+            return
+        await segment(cmd)
+
+    if with_extras:
+        cmd.bot.log("[13loc] KhasaandaTroll and Extra are not ported; "
+                    "withExtras ran the main chain only.")
+
+
+async def main(cmd: Command):
+    await complete13loc(cmd)
