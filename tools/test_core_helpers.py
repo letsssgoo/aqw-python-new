@@ -2272,6 +2272,100 @@ try:
 finally:
     restore(coa, leaf)
 
+# ============================================================================
+# 26. Celestial Arena and the Burning Blade Of Abezeth
+# ============================================================================
+from bot.story.queen_of_monsters import celestial_arena as ca_  # noqa: E402
+from bot.other.weapons import burning_blade_of_abezeth as bboa  # noqa: E402
+
+arena = []
+
+
+async def ca_kill(cmd, quest, map_name, monster):
+    arena.append((quest, monster))
+
+
+async def ca_equip(cmd, solo=False):
+    arena.append(("equip", solo))
+
+
+async def ca_gear(cmd, restore=False, enh_after=False):
+    arena.append(("gear", restore))
+
+
+leaf = patch(ca_, kill_quest=ca_kill, equip_class=ca_equip, gear_store=ca_gear)
+try:
+    cmd = Cand()
+    cmd.completed = {6022, 6032, 6042}
+    arena.clear()
+    run(ca_.do_all(cmd))
+    check("arena: a finished arena only snapshots the gear",
+          arena, [("gear", False), ("gear", True)])
+
+    cmd = Cand()
+    arena.clear()
+    run(ca_.do_all(cmd))
+    check("arena: b-arena runs 6013 first and solo",
+          arena[1:3], [("equip", True), (6013, "Slork Construct")])
+    check("arena: b-arena ends at 6022",
+          [q for q, _m in arena if isinstance(q, int)][0:10],
+          list(range(6013, 6023)))
+    check("arena: c-arena follows",
+          [q for q, _m in arena if isinstance(q, int)][10:20],
+          list(range(6023, 6033)))
+    pairs = list(zip(arena, arena[1:]))
+    check("arena: d-arena jumps to its cells",
+          [c for c in cmd.calls if c[0] == "cell"][:2],
+          [("cell", "r2", "Spawn"), ("cell", "r3", "Spawn")])
+    check("arena: and the last jump is r10",
+          [c for c in cmd.calls if c[0] == "cell"][-1], ("cell", "r10", "Spawn"))
+    check("arena: and ends at 6042", arena[-2],
+          (6042, "Aranx"))
+finally:
+    restore(ca_, leaf)
+
+bb_ = []
+
+
+async def bb_arena(cmd):
+    bb_.append("arena")
+
+
+async def bb_equip(cmd, solo=False):
+    bb_.append(("equip", solo))
+
+
+async def bb_hunt(cmd, item, qty, map_name, **kwargs):
+    bb_.append(("hunt", item, qty, kwargs.get("is_temp")))
+
+
+async def bb_buy(cmd, shop, item, qty=1, map_name=None, shop_item_id=0):
+    bb_.append(("buy", shop, item, map_name))
+
+
+async def bb_enh(cmd, item, type_, cape="None", **kwargs):
+    bb_.append(("enhance", item, type_))
+
+
+leaf = patch(bboa, arena_do_all=bb_arena, equip_class=bb_equip,
+             hunt_item=bb_hunt, buy_item=bb_buy, enhance_item=bb_enh)
+try:
+    cmd = Cand([ItemInventory({"sName": bboa.BBOA, "iQty": 1})])
+    bb_.clear()
+    run(bboa.get_bboa(cmd))
+    check("bboa: an owned blade does nothing", bb_, [])
+
+    cmd = Cand()
+    bb_.clear()
+    run(bboa.get_bboa(cmd))
+    check("bboa: the arena comes first, then 20 sashes solo",
+          bb_, ["arena", ("equip", True),
+                ("hunt", "Champion Sash", 20, False),
+                ("buy", 1474, bboa.BBOA, "celestialarena"),
+                ("enhance", bboa.BBOA, "Lucky")])
+finally:
+    restore(bboa, leaf)
+
 print(f"passed {passed}   failed {len(failures)}")
 if failures:
     for line in failures:
