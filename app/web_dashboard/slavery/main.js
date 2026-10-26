@@ -1,4 +1,4 @@
-﻿document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', () => {
 
 
     let globalConfig = null;
@@ -702,17 +702,6 @@
                 </td>
                 <td class="col-action" style="position: relative; text-align: center;">
                     <div class="col-action-wrapper">
-                        <button class="btn-action-run" type="button" data-id="${s.id}" data-username="${s.username}" title="Start this account">
-                            <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor">
-                                <polygon points="5 3 19 12 5 21 5 3"></polygon>
-                            </svg>
-                        </button>
-                        <button class="btn-action-pause hidden" type="button" data-id="${s.id}" data-username="${s.username}" title="Pause this account">
-                            <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor">
-                                <rect x="6" y="4" width="4" height="16"></rect>
-                                <rect x="14" y="4" width="4" height="16"></rect>
-                            </svg>
-                        </button>
                         <button class="btn-action-telemetry" type="button" data-id="${s.id}" data-username="${s.username}" title="Player Telemetry">
                             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
                                 <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
@@ -756,41 +745,6 @@
     });
 
     slaveTableBody.addEventListener('click', (e) => {
-        // Per-account start/stop, on top of whatever else is running
-        const runBtn = e.target.closest('.btn-action-run');
-        if (runBtn) {
-            e.stopPropagation();
-            const username = runBtn.getAttribute('data-username');
-            const id = runBtn.getAttribute('data-id');
-            const slave = globalConfig.slaves.find(s => String(s.id) === String(id));
-            const running = runBtn.classList.contains('is-running');
-            if (running) {
-                stopOne(username, runBtn);
-            } else if (slave) {
-                startOne(slave, runBtn);
-            }
-            return;
-        }
-
-        // Per-account pause/resume
-        const pauseBtn = e.target.closest('.btn-action-pause');
-        if (pauseBtn) {
-            e.stopPropagation();
-            const username = pauseBtn.getAttribute('data-username');
-            const paused = pauseBtn.classList.contains('is-paused');
-            pauseBtn.disabled = true;
-            apiCall('pause_slave', username, !paused).then(res => {
-                pauseBtn.disabled = false;
-                if (!res.success) {
-                    alert(`Could not ${paused ? 'resume' : 'pause'} ${username}: ${res.error}`);
-                }
-            }).catch(err => {
-                pauseBtn.disabled = false;
-                alert(`Could not ${paused ? 'resume' : 'pause'} ${username}: ${err.message || err}`);
-            });
-            return;
-        }
-
         // Direct telemetry icon click
         const telBtn = e.target.closest('.btn-action-telemetry');
         if (telBtn) {
@@ -1000,104 +954,6 @@
     }
 
     // 7. Bot Launchers Control
-    // --- per-account controls -------------------------------------------------
-    // The global buttons keep their meaning: START ALL launches the ticked
-    // accounts, STOP ALL ends every pane, PAUSE ALL pauses all of them.  The
-    // row buttons act on one account and never touch the others; the status
-    // poll (below) is what flips the global buttons the moment any account runs.
-    function apiCall(name, ...args) {
-        // The Python side is loaded once, when the app process starts: a method
-        // added to the API only exists after a restart, and calling a missing one
-        // throws *before* a promise exists -- which used to leave the button
-        // disabled with nothing on screen.  This says so instead.
-        const api = window.pywebview && window.pywebview.api;
-        const fn = api ? api[name] : null;
-        if (typeof fn !== 'function') {
-            // Naming what the page *can* see tells an old build apart from a
-            // wrong api object in one look.
-            let seen = 'none';
-            try {
-                seen = Object.keys(api || {})
-                    .filter(k => /slave|pause/.test(k)).sort().join(', ') || 'none';
-            } catch (err) { seen = 'unreadable'; }
-            return Promise.reject(new Error(
-                `${name} is not exposed by the running app (its account calls are: ` +
-                `${seen}). Restart the app so it loads the current build.`));
-        }
-        return Promise.resolve(fn.apply(api, args));
-    }
-
-    function paintRunButton(btn, running) {
-        if (!btn) return;
-        // The poll is the source of truth for "is it up": a click that never
-        // landed must not leave the button disabled forever.
-        btn.disabled = false;
-        btn.classList.toggle('is-running', running);
-        btn.title = running ? 'Stop this account' : 'Start this account';
-        btn.innerHTML = running
-            ? `<svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor">
-                   <rect x="5" y="5" width="14" height="14" rx="2"></rect>
-               </svg>`
-            : `<svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor">
-                   <polygon points="5 3 19 12 5 21 5 3"></polygon>
-               </svg>`;
-    }
-
-    function paintPauseButton(btn, paused) {
-        if (!btn) return;
-        btn.classList.toggle('is-paused', paused);
-        btn.title = paused ? 'Resume this account' : 'Pause this account';
-        btn.innerHTML = paused
-            ? `<svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor">
-                   <polygon points="5 3 19 12 5 21 5 3"></polygon>
-               </svg>`
-            : `<svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor">
-                   <rect x="6" y="4" width="4" height="16"></rect>
-                   <rect x="14" y="4" width="4" height="16"></rect>
-               </svg>`;
-    }
-
-    function startOne(slave, btn) {
-        compileFormConfig();
-        // Same rule the global start enforces, for the one account being started.
-        const master = (slave.overrides || {}).follow_player || globalConfig.follow_player;
-        if (!master) {
-            alert(`No master to follow for: ${slave.username}\nSet one in Global Settings, or per account.`);
-            followPlayerInput.focus();
-            return;
-        }
-        btn.disabled = true;
-        apiCall('start_slave', slave.username, globalConfig).then(res => {
-            btn.disabled = false;
-            if (!res.success) {
-                alert(`Failed to start ${slave.username}: ${res.error}`);
-                return;
-            }
-            activeConsoleTab = slave.username;
-            renderConsoleTabs();
-            refreshConsoleViewport();
-        }).catch(err => {
-            btn.disabled = false;
-            alert(`Could not start ${slave.username}: ${err.message || err}`);
-        });
-    }
-
-    function stopOne(username, btn) {
-        if (!username) return;
-        btn.disabled = true;
-        apiCall('stop_slave', username).then(res => {
-            btn.disabled = false;
-            if (!res.success) {
-                alert(`Could not stop ${username}: ${res.error}`);
-                return;
-            }
-            updateRowStatus(username, { running: false, is_connected: false });
-        }).catch(err => {
-            btn.disabled = false;
-            alert(`Could not stop ${username}: ${err.message || err}`);
-        });
-    }
-
     btnStart.addEventListener('click', () => {
         compileFormConfig();
 
@@ -1134,7 +990,7 @@
             btnStart.innerHTML = `
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-icon">
                     <polygon points="5 3 19 12 5 21 5 3"></polygon>
-                </svg><span>START ALL</span>
+                </svg><span>START</span>
             `;
             if (res.success) {
                 btnStart.classList.add('hidden');
@@ -1162,7 +1018,7 @@
             btnStop.innerHTML = `
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-icon">
                     <rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect>
-                </svg><span>STOP ALL</span>
+                </svg><span>STOP</span>
             `;
             if (res.success) {
                 btnStop.classList.add('hidden');
@@ -1187,7 +1043,7 @@
                 <rect x="6" y="4" width="4" height="16"></rect>
                 <rect x="14" y="4" width="4" height="16"></rect>
             </svg>
-            <span id="pause-btn-text">PAUSE ALL</span>
+            <span id="pause-btn-text">Pause</span>
         `;
     }
 
@@ -1206,7 +1062,7 @@
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-icon" id="pause-btn-icon">
                                 <polygon points="5 3 19 12 5 21 5 3"></polygon>
                             </svg>
-                            <span id="pause-btn-text">RESUME ALL</span>
+                            <span id="pause-btn-text">Resume</span>
                         `;
                     } else {
                         resetPauseBtnUI();
@@ -1288,13 +1144,9 @@
         const tauntChk = row.querySelector('.chk-taunt-toggle');
         const tauntSwitch = tauntChk ? tauntChk.closest('.mini-switch') : null;
         const telBtn = row.querySelector('.btn-action-telemetry');
-        const runBtn = row.querySelector('.btn-action-run');
-        const rowPauseBtn = row.querySelector('.btn-action-pause');
 
         if (!status || !status.running) {
             if (telBtn) telBtn.classList.remove('pulse-running');
-            paintRunButton(runBtn, false);
-            if (rowPauseBtn) rowPauseBtn.classList.add('hidden');
             if (colMap) colMap.innerHTML = `<span class="text-muted">-</span>`;
             if (colStatus) {
                 colStatus.innerHTML = `
@@ -1331,12 +1183,6 @@
             } else {
                 telBtn.classList.remove('pulse-running');
             }
-        }
-
-        paintRunButton(runBtn, true);
-        if (rowPauseBtn) {
-            rowPauseBtn.classList.remove('hidden');
-            paintPauseButton(rowPauseBtn, !!status.is_paused);
         }
 
         if (colMap) {
