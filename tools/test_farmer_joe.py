@@ -150,6 +150,10 @@ class Stub:
     def is_in_bank(self, name, qty=1, operator=">="):
         return False
 
+    def is_in_inventory_or_bank(self, name, qty=1, operator=">=",
+                                isTemp=False):
+        return self.is_in_inventory(name, qty, operator, isTemp)
+
     def is_still_connected(self):
         return True
 
@@ -725,14 +729,29 @@ def main() -> None:
     assert ("buy_item", 242, "master ranger", 1, 5682) in h30b.calls, h30b.calls
     print("bracket30  : Master Ranger comes from the ported kit now")
 
-    # --- the two later steps are loud, not silent ------------------------
+    # --- the later step: the phases it reaches, then the frontier --------
     later = Stub()
-    asyncio.run(joe.level_75_to_100(later))
+    coa = []
+    real_coa = joe.get_coa
+
+    async def spy_coa(cmd):
+        coa.append(1)
+
+    joe.get_coa = spy_coa
+    try:
+        asyncio.run(joe.level_75_to_100(later))
+    finally:
+        joe.get_coa = real_coa
     asyncio.run(joe.end_game(later))
     joined = "\n".join(later.bot.logs)
-    assert "Level75to100 is not ported yet" in joined, later.bot.logs
+    assert "Phase 1: Class Preparation - Healer/Dragon of Time" in joined, \
+        later.bot.logs
+    assert "Phase 2: Chaos Shenanigans - CoA & 13 LoC" in joined, later.bot.logs
+    assert coa == [1], coa
+    assert ("equip_item", "Cape of Awe") in later.calls, later.calls
+    assert "stops before Core13LoC.Complete13LOC" in joined, later.bot.logs
     assert "EndGame is not ported yet" in joined, later.bot.logs
-    print("later      : level 75-100 and endgame name what they still need")
+    print("later      : level 75-100 runs CoA then names its frontier")
 
     # --- DoAll: the reference's order -----------------------------------
     calls = []

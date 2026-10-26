@@ -69,6 +69,8 @@ class Player:
         self.MAX_MP = 100
         self.MANA = 100
         self.last_target = None
+        self.intAQ = 0
+        self.ISDEAD = False
         self.temp = {}
 
     def get_item_inventory(self, name):
@@ -103,9 +105,14 @@ class Bot:
     def __init__(self, player):
         self.player = player
         self.logs = []
+        self.areaId = 1
+        self.monsters = []
 
     def log(self, *args):
         self.logs.append(" ".join(map(str, args)))
+
+    def write_message(self, packet):
+        self.logs.append(f"packet: {packet}")
 
     def request_relogin(self, reason=""):
         self.logs.append(f"relogin: {reason}")
@@ -200,6 +207,15 @@ class Cand:
     async def has_item(self, name, qty=1, isTemp=False):
         return self.bot.player.get_item_inventory(name) is not None
 
+    def is_not_in_map(self, map_name):
+        return False
+
+    def subscribe(self, callback):
+        self.calls.append(("subscribe", callback))
+
+    def unsubscribe(self, callback):
+        self.calls.append(("unsubscribe", callback))
+
     async def has_item_id(self, item_id):
         return self.bot.player.get_item_inventory_by_id(item_id) is not None
 
@@ -208,6 +224,9 @@ class Cand:
 
     async def jump_cell(self, cell, pad="Left"):
         self.calls.append(("cell", cell, pad))
+
+    async def send_packet(self, packet):
+        self.calls.append(("packet", packet))
 
     async def equip_item(self, name):
         self.calls.append(("equip", name))
@@ -223,6 +242,10 @@ class Cand:
 
     async def bank_to_inv(self, name):
         self.calls.append(("unbank", name))
+
+    async def inv_to_bank(self, names):
+        self.calls.append(("bank", tuple(names) if isinstance(names, list)
+                           else names))
 
     def get_equipped_class(self):
         for item in self.bot.player.INVENTORY:
@@ -2032,6 +2055,511 @@ try:
           in missing.bot.logs, True)
 finally:
     restore(ka, leaf)
+
+# ============================================================================
+# 24. The merge walk after it buys: no stale "not bought yet"
+# ============================================================================
+class _MergeEntry:
+    def __init__(self, name, item_id, recipe, upgrade=False, shop_item_id=1):
+        self.item_name = name
+        self.item_id = item_id
+        self.merge_requirements = recipe
+        self.is_upgrade = upgrade
+        self.shop_item_id = shop_item_id
+
+
+class _MergeShop:
+    def __init__(self, entries):
+        self.items = entries
+
+
+bought = []
+
+#: The walk's own entry-buyer, captured before the spy below replaces it.
+REAL_MERGE_ITEM = adv._merge_item
+
+
+async def adv_open(cmd, map_name, shop_id):
+    return None
+
+
+async def adv_buy(cmd, shop_id, item, qty=1, map_name=None, shop_item_id=0):
+    bought.append(item)
+
+
+#: The merge consumes its recipe: after the buy the ingredients are gone.
+recipe = [(11, "Ingredient A", 30), (12, "Ingredient B", 12)]
+shop = _MergeShop([_MergeEntry("Test Armor", 21, recipe)])
+
+
+async def adv_merge_item(cmd, map_name, shop_id, entry, qty, find_ingredients,
+                         depth):
+    for item_id, _name, _qty in entry.merge_requirements:
+        cmd.bot.player.INVENTORY = [
+            item for item in cmd.bot.player.INVENTORY
+            if str(item.item_id) != str(item_id)]
+    cmd.bot.player.INVENTORY.append(
+        ItemInventory({"sName": entry.item_name, "ItemID": entry.item_id,
+                       "iQty": 1}))
+
+
+leaf = patch(adv, _open_shop=adv_open,
+             _merge_shop=lambda cmd, shop_id: shop,
+             _merge_item=adv_merge_item, buy_item=adv_buy)
+try:
+    cmd = Cand([ItemInventory({"sName": "Ingredient A", "ItemID": 11,
+                               "iQty": 30}),
+                ItemInventory({"sName": "Ingredient B", "ItemID": 12,
+                               "iQty": 12})])
+    bought.clear()
+    run(adv.start_buy_all_merge(cmd, "testmap", 999))
+    check("merge walk: a consumed recipe is not called 'not bought yet'",
+          [line for line in cmd.bot.logs if "not bought yet" in line], [])
+    check("merge walk: nothing is bought twice", bought, [])
+
+    # a buy_only_this the shop does not carry says so instead of ending quietly
+    other = Cand()
+    run(adv.start_buy_all_merge(other, "testmap", 999,
+                                buy_only_this="Not In This Shop"))
+    check("merge walk: an unknown entry is reported",
+          any("has no entry named" in line for line in other.bot.logs), True)
+
+    # the three post-buy outcomes of a single entry, told apart
+    entry = _MergeEntry("Test Armor", 21, [(11, "Ingredient A", 1)])
+    plain = _MergeShop([entry])
+
+    leaf2 = patch(adv, _open_shop=adv_open,
+                  _merge_shop=lambda cmd, shop_id: plain, buy_item=adv_buy)
+    try:
+        refused = Cand([ItemInventory({"sName": "Ingredient A", "ItemID": 11,
+                                       "iQty": 1})])
+        bought.clear()
+        run(REAL_MERGE_ITEM(refused, "testmap", 999, entry, 1, None, 0))
+        check("merge entry: a refused buy is named",
+              any("was refused" in line for line in refused.bot.logs), True)
+        check("merge entry: and the buy was attempted", bought,
+              ["Test Armor"])
+
+        short = Cand([ItemInventory({"sName": "Ingredient B", "ItemID": 12,
+                                     "iQty": 1})])
+        needs_five = _MergeEntry("Test Armor", 21, [(12, "Ingredient B", 5)])
+        plain.items[:] = [needs_five]
+        bought.clear()
+        run(REAL_MERGE_ITEM(short, "testmap", 999, needs_five, 1, None, 0))
+        check("merge entry: a short recipe names the count",
+              any("(1/5)" in line for line in short.bot.logs), True)
+        check("merge entry: and nothing is bought", bought, [])
+
+        consumed = Cand([ItemInventory({"sName": "Ingredient A", "ItemID": 11,
+                                        "iQty": 1})])
+        plain.items[:] = [entry]
+
+        async def steal_then_buy(cmd, shop_id, item, qty=1, map_name=None,
+                                 shop_item_id=0):
+            bought.append(item)
+            cmd.bot.player.INVENTORY = []
+
+        leaf3 = patch(adv, _open_shop=adv_open,
+                      _merge_shop=lambda cmd, shop_id: plain,
+                      buy_item=steal_then_buy)
+        try:
+            run(REAL_MERGE_ITEM(consumed, "testmap", 999, entry, 1, None, 0))
+            check("merge entry: a merge that ate the recipe but gave nothing "
+                  "is reported",
+                  any("but the item is not in the bag" in line
+                      for line in consumed.bot.logs), True)
+        finally:
+            restore(adv, leaf3)
+    finally:
+        restore(adv, leaf2)
+finally:
+    restore(adv, leaf)
+
+# ============================================================================
+# 25. Cape of Awe
+# ============================================================================
+from bot.other.gear_of_awe import core_awe as awe  # noqa: E402
+from bot.other.gear_of_awe import cape_of_awe as coa  # noqa: E402
+
+awe_steps = []
+
+
+async def awe_boa(cmd, rank=10, farm_boa=True):
+    awe_steps.append(("boa", rank, farm_boa))
+
+
+async def awe_exp(cmd, level=100, *a, **k):
+    awe_steps.append(("exp", level))
+
+
+async def awe_buy(cmd, shop, item, qty=1, map_name=None, shop_item_id=0):
+    awe_steps.append(("buy", shop, item, shop_item_id))
+
+
+async def awe_equip(cmd, solo=False):
+    awe_steps.append(("equip", solo))
+
+
+async def awe_hunt(cmd, item, qty, map_name, **kwargs):
+    awe_steps.append(("hunt", item, qty, map_name, kwargs.get("cell")))
+
+
+async def awe_wait(cmd, item, qty=1, timeout_ms=0):
+    return True
+
+
+leaf = patch(awe, blade_of_awe_rep=awe_boa, farm_experience=awe_exp,
+             buy_item=awe_buy, equip_class=awe_equip, hunt_item=awe_hunt,
+             wait_for_item=awe_wait)
+try:
+    cmd = Cand([ItemInventory({"sName": "Cape Relic", "iQty": 1})])
+    awe_steps.clear()
+    run(awe.get_awe_relic(cmd, "Cape", 4178, 1, 1, "doomvault", "Binky"))
+    check("awe: an owned relic does nothing", awe_steps, [])
+
+    # a member without an Awe pass: museum 1130, quest 4178, r5/Left
+    cmd = Cand()
+    awe_steps.clear()
+    run(awe.get_awe_relic(cmd, "Cape", 4178, 1, 1, "doomvault", "Binky"))
+    check("awe: rank 10 reputation and level 55 first",
+          awe_steps[:2], [("boa", 10, False), ("exp", 55)])
+    check("awe: the member pass is bought from museum 1130",
+          ("buy", 1130, 29402, 18580) in awe_steps, True)
+    check("awe: member quest is the legend quest itself",
+          [c[1] for c in cmd.calls if c[0] == "accept"][:1], [4178])
+    check("awe: the shard hunt uses doomvault r5/Left",
+          ("hunt", "Cape Shard", 1, "doomvault", "r5") in awe_steps, True)
+    check("awe: the relic is bought last",
+          awe_steps[-1], ("buy", 1129, "Cape Relic", 0))
+
+    # a free player: 29404/18579 and quest legend+2
+    cmd = Cand()
+    cmd.bot.player.is_member = False
+    awe_steps.clear()
+    run(awe.get_awe_relic(cmd, "Cape", 4178, 1, 1, "doomvault", "Binky"))
+    check("awe: the free pass is the other entry",
+          ("buy", 1130, 29404, 18579) in awe_steps, True)
+    check("awe: free players run legend + 2",
+          [c[1] for c in cmd.calls if c[0] == "accept"][:1], [4180])
+
+    # an account that already has an Awe pass: tower 53, quest legend+1
+    cmd = Cand()
+    cmd.bot.player.intAQ = 1
+    awe_steps.clear()
+    run(awe.get_awe_relic(cmd, "Cape", 4178, 1, 1, "doomvaultb", "Binky"))
+    check("awe: a pass holder needs rank 5 and level 35",
+          awe_steps[:2], [("boa", 5, False), ("exp", 35)])
+    check("awe: and buys the tower pass",
+          ("buy", 53, 29403, 18569) in awe_steps, True)
+    check("awe: pass holders run legend + 1",
+          [c[1] for c in cmd.calls if c[0] == "accept"][:1], [4179])
+    check("awe: the B variant uses r26",
+          ("hunt", "Cape Shard", 1, "doomvaultb", "r26") in awe_steps, True)
+finally:
+    restore(awe, leaf)
+
+coa_steps = []
+
+
+async def coa_relic(cmd, *args):
+    coa_steps.append(args)
+
+
+async def coa_buy(cmd, shop, item, qty=1, map_name=None, shop_item_id=0):
+    coa_steps.append(("buy", shop, item))
+
+
+leaf = patch(coa, get_awe_relic=coa_relic, buy_item=coa_buy)
+try:
+    cmd = Cand([ItemInventory({"sName": "Cape of Awe", "iQty": 1})])
+    coa_steps.clear()
+    run(coa.get_coa(cmd))
+    check("cape of awe: owned means nothing to do", coa_steps, [])
+
+    cmd = Cand()
+    coa_steps.clear()
+    run(coa.get_coa(cmd))
+    check("cape of awe: the relic comes with the source's arguments",
+          coa_steps[0], ("Cape", 4178, 1, 1, "doomvault", "Binky"))
+    check("cape of awe: then the cape from the Awe shop",
+          coa_steps[1], ("buy", 1129, "Cape of Awe"))
+    check("cape of awe: the three passes are banked",
+          ("bank", ("Legendary Awe Pass", "Guardian Awe Pass",
+                    "Armor of Awe Pass")) in [c for c in cmd.calls
+                                              if c[0] == "bank"], True)
+finally:
+    restore(coa, leaf)
+
+# ============================================================================
+# 26. Celestial Arena and the Burning Blade Of Abezeth
+# ============================================================================
+from bot.story.queen_of_monsters import celestial_arena as ca_  # noqa: E402
+from bot.other.weapons import burning_blade_of_abezeth as bboa  # noqa: E402
+
+arena = []
+
+
+async def ca_kill(cmd, quest, map_name, monster):
+    arena.append((quest, monster))
+
+
+async def ca_equip(cmd, solo=False):
+    arena.append(("equip", solo))
+
+
+async def ca_gear(cmd, restore=False, enh_after=False):
+    arena.append(("gear", restore))
+
+
+leaf = patch(ca_, kill_quest=ca_kill, equip_class=ca_equip, gear_store=ca_gear)
+try:
+    cmd = Cand()
+    cmd.completed = {6022, 6032, 6042}
+    arena.clear()
+    run(ca_.do_all(cmd))
+    check("arena: a finished arena only snapshots the gear",
+          arena, [("gear", False), ("gear", True)])
+
+    cmd = Cand()
+    arena.clear()
+    run(ca_.do_all(cmd))
+    check("arena: b-arena runs 6013 first and solo",
+          arena[1:3], [("equip", True), (6013, "Slork Construct")])
+    check("arena: b-arena ends at 6022",
+          [q for q, _m in arena if isinstance(q, int)][0:10],
+          list(range(6013, 6023)))
+    check("arena: c-arena follows",
+          [q for q, _m in arena if isinstance(q, int)][10:20],
+          list(range(6023, 6033)))
+    pairs = list(zip(arena, arena[1:]))
+    check("arena: d-arena jumps to its cells",
+          [c for c in cmd.calls if c[0] == "cell"][:2],
+          [("cell", "r2", "Spawn"), ("cell", "r3", "Spawn")])
+    check("arena: and the last jump is r10",
+          [c for c in cmd.calls if c[0] == "cell"][-1], ("cell", "r10", "Spawn"))
+    check("arena: and ends at 6042", arena[-2],
+          (6042, "Aranx"))
+finally:
+    restore(ca_, leaf)
+
+bb_ = []
+
+
+async def bb_arena(cmd):
+    bb_.append("arena")
+
+
+async def bb_equip(cmd, solo=False):
+    bb_.append(("equip", solo))
+
+
+async def bb_hunt(cmd, item, qty, map_name, **kwargs):
+    bb_.append(("hunt", item, qty, kwargs.get("is_temp")))
+
+
+async def bb_buy(cmd, shop, item, qty=1, map_name=None, shop_item_id=0):
+    bb_.append(("buy", shop, item, map_name))
+
+
+async def bb_enh(cmd, item, type_, cape="None", **kwargs):
+    bb_.append(("enhance", item, type_))
+
+
+leaf = patch(bboa, arena_do_all=bb_arena, equip_class=bb_equip,
+             hunt_item=bb_hunt, buy_item=bb_buy, enhance_item=bb_enh)
+try:
+    cmd = Cand([ItemInventory({"sName": bboa.BBOA, "iQty": 1})])
+    bb_.clear()
+    run(bboa.get_bboa(cmd))
+    check("bboa: an owned blade does nothing", bb_, [])
+
+    cmd = Cand()
+    bb_.clear()
+    run(bboa.get_bboa(cmd))
+    check("bboa: the arena comes first, then 20 sashes solo",
+          bb_, ["arena", ("equip", True),
+                ("hunt", "Champion Sash", 20, False),
+                ("buy", 1474, bboa.BBOA, "celestialarena"),
+                ("enhance", bboa.BBOA, "Lucky")])
+finally:
+    restore(bboa, leaf)
+
+# ============================================================================
+# 27. 13LoC's prologue and its frontier
+# ============================================================================
+from bot.story.lordsofchaos import core13loc as loc  # noqa: E402
+
+loc_steps = []
+
+
+async def loc_kill(cmd, quest, map_name, monster):
+    loc_steps.append(("kill", quest, map_name, monster))
+
+
+async def loc_map(cmd, quest, map_name, item_ids, qty=1):
+    loc_steps.append(("map", quest, item_ids, qty))
+
+
+async def loc_hunt(cmd, item, qty, map_name, **kwargs):
+    loc_steps.append(("hunt", item, qty, kwargs.get("cell"),
+                      kwargs.get("monster_name")))
+
+
+async def loc_buy(cmd, shop, item, qty=1, map_name=None, shop_item_id=0):
+    loc_steps.append(("buy", shop, item))
+
+
+async def loc_chain(cmd, quest, *a, **k):
+    loc_steps.append(("chain", quest))
+
+
+async def loc_equip(cmd, solo=False):
+    loc_steps.append(('equip', solo))
+
+
+async def loc_prog(cmd, quest, *a, **k):
+    return False
+
+
+leaf = patch(loc, kill_quest=loc_kill, map_item_quest=loc_map,
+             hunt_item=loc_hunt, buy_item=loc_buy, chain_quest=loc_chain,
+             adv_buy_item=loc_buy, equip_class=loc_equip)
+try:
+    cmd = Cand()
+    cmd.completed = {6219}
+    loc_steps.clear()
+    run(loc.prologue(cmd))
+    check("prologue: a finished prologue does nothing", loc_steps, [])
+
+    cmd = Cand()
+    loc_steps.clear()
+    run(loc.prologue(cmd))
+    check("prologue: 183 first, then the 176 block",
+          loc_steps[:2], [("kill", 183, "battleundera", "Skeletal Fire Mage"),
+                          ("hunt", "Slain Skeletal Soldier", 5, None,
+                           "Skeletal Soldier")])
+    check("prologue: the knights' map items come as five",
+          ("map", 179, 38, 5) in loc_steps, True)
+    packets = [c[1] for c in cmd.calls if c[0] == "packet"]
+    check("prologue: the cutscene packets are the source's",
+          packets, ["%xt%zm%updateQuest%73922%43%1%",
+                    "%xt%zm%updateQuest%188220%41%1%"])
+    check("prologue: and quest 195 is chained afterwards",
+          ("chain", 195) in loc_steps, True)
+    check("prologue: Unlife Insurance buys 42993 from prison 1559",
+          ("buy", 1559, 42993) in loc_steps, True)
+    check("prologue: the forest ends the segment",
+          loc_steps[-1], ("hunt", "Chaorrupted Wolf Defeated", 7, None,
+                          "Chaorrupted Wolf"))
+
+    # the prologue's own hunts now carry the monster name too
+    check("prologue: 176's five soldiers are named",
+          ("hunt", "Slain Skeletal Soldier", 5, None,
+           "Skeletal Soldier") in loc_steps, True)
+
+    # Vath: the temporary-key loop and the segment's tail
+    cmd = Cand()
+    loc_steps.clear()
+    run(loc.vath(cmd))
+    accepts = [c[1] for c in cmd.calls if c[0] == "accept"]
+    check("vath: the model key quest 340 is accepted", 340 in accepts, True)
+    check("vath: the talc hunt is the dwarfhold albino bat",
+          ("hunt", "Block of Talc", 1, None, "Albino Bat") in loc_steps, True)
+    check("vath: 362 and 363 close the segment",
+          loc_steps[-2:], [("map", 362, 62, 1), ("map", 363, 63, 1)])
+
+    # Kimberly: the trailing-space monster name is kept
+    cmd = Cand()
+    loc_steps.clear()
+    run(loc.kimberly(cmd))
+    check("kimberly: the cannon keeps its trailing space",
+          ("hunt", "Cannon Powder", 1, "R4", "Pachelbel's Cannon ")
+          in loc_steps, True)
+    check("kimberly: fifteen fire fleas from Mozard",
+          ("hunt", "Fire Flea", 15, "R7", "Mozard") in loc_steps, True)
+
+    # Ledgermayne's zone listener: the three walk targets and the packet
+    def zone_frame(zone):
+        return ('{"b":{"o":{"cmd":"event","args":{"zoneSet":"'
+                + zone + '"}}}}')
+
+    check("ledgermayne: zone A is (292, 355)",
+          loc.ledgermayne_walk(zone_frame("A")), (292, 355))
+    check("ledgermayne: zone B is (750, 350)",
+          loc.ledgermayne_walk(zone_frame("B")), (750, 350))
+    check("ledgermayne: an empty zone is (592, 250)",
+          loc.ledgermayne_walk(zone_frame("")), (592, 250))
+    check("ledgermayne: a ct frame names no zone",
+          loc.ledgermayne_zone('{"b":{"o":{"cmd":"ct","a":[]}}}'), None)
+    check("ledgermayne: a raw xt frame is ignored, as params.type != json is",
+          loc.ledgermayne_zone("%xt%zm%event%1%{\"zoneSet\":\"A\"}%"), None)
+
+    cmd = Cand()
+    loc._ledgermayne_listener(cmd, zone_frame("A"))
+    check("ledgermayne: the listener sends the walk packet",
+          "packet: %xt%zm%mv%1%292%355%9%" in cmd.bot.logs, True)
+
+    dead = Cand()
+    dead.bot.player.ISDEAD = True
+    loc._ledgermayne_listener(dead, zone_frame("B"))
+    check("ledgermayne: nothing is walked while dead", dead.bot.logs, [])
+
+    # Tibicenas: quest 934's two cell-bound drops
+    cmd = Cand()
+    loc_steps.clear()
+    run(loc.tibicenas(cmd))
+    check("tibicenas: 934 takes both cells",
+          [c for c in loc_steps if c[0] == "hunt"][:2],
+          [("hunt", "Sell-Sword Leader Defeated", 1, "r6", "Sell-Sword Leader"),
+           ("hunt", "Horc Sell-Swords Defeated", 3, "r5", "Horc Sell-Sword")])
+
+    # KhasaandaHorc: 1281's three groups, one turn-in
+    cmd = Cand()
+    loc_steps.clear()
+    run(loc.khasaanda_horc(cmd))
+    mapitems = [c[1] for c in cmd.calls if c[0] == "mapitem"]
+    check("khasaanda: 1281 takes 554, 555 and 556",
+          [item for item in mapitems if item in (554, 555, 556)],
+          [554, 555, 556])
+    check("khasaanda: and turns 1281 in exactly once",
+          [c for c in cmd.calls if c == ("turnin", 1281, -1)],
+          [("turnin", 1281, -1)])
+
+    cmd = Cand()
+    cmd.completed = {6219, 272, 363, 488, 710, 2814}
+    loc_steps.clear()
+    run(loc.complete13loc(cmd))
+    check("13loc: the walk names the segment it stops at",
+          "[13loc] Iadoa is not ported yet, so Complete13LOC stops here; "
+          "nothing after it runs." in cmd.bot.logs, True)
+    check("13loc: and Wolfwing declares Good before chaining 597",
+          "packet: %xt%zm%updateQuest%1%41%1%" in cmd.bot.logs, True)
+finally:
+    restore(loc, leaf)
+
+# ============================================================================
+# 28. Fishing reputation bookkeeping
+# ============================================================================
+from core.bot import fishing_rep_from  # noqa: E402
+from core.player import Player as RealPlayer  # noqa: E402
+from model.faction import Faction  # noqa: E402
+
+check("fishing rep: the frame's fish add up",
+      fishing_rep_from({"fish": [{"rep": 220}, {"rep": None}, {"rep": 1000},
+                                 {"rep": "300"}]}), 1520)
+check("fishing rep: a frame with no fish pays nothing",
+      fishing_rep_from({}), 0)
+check("fishing rep: a broken frame pays nothing", fishing_rep_from(None), 0)
+
+real = RealPlayer()
+real.addFaction(Faction({"FactionID": 20, "sName": "Fishing", "iRep": 129600}))
+check("factions: the first load sets the rank", real.getFactionRank("Fishing"), 8)
+real.addFaction(Faction({"FactionID": 20, "sName": "Fishing", "iRep": 202500}))
+check("factions: a reload refreshes the rep, it does not freeze",
+      real.getFactionRank("Fishing"), 9)
+real.get_faction("Fishing").add_rep(1520)
+check("factions: and a catch adds on top",
+      real.get_faction("Fishing").total_rep(), 204020)
 
 print(f"passed {passed}   failed {len(failures)}")
 if failures:

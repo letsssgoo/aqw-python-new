@@ -54,6 +54,7 @@ from bot.other.classes.dragonslayer_general import get_ds_general
 from bot.other.classes.rep_based.master_ranger import get_mr
 from bot.other.classes.scarlet_sorceress import get_ssorc
 from bot.other.free_boosts import get_boosts_select
+from bot.other.gear_of_awe.cape_of_awe import get_coa
 from bot.other.merge_shops.synderes_merge import no_bots_armor
 from bot.other.weapons.burning_blade import get_burning_blade
 from bot.story.mazumi import mazumi_quests
@@ -514,12 +515,44 @@ async def level_30_to_75(cmd: Command) -> None:
 
 
 async def level_75_to_100(cmd: Command) -> None:
-    """``CoreFarmerJoe.Level75to100``: the endgame classes and weapons (step 4)."""
-    report_once(cmd, "lvl75",
-                "Level75to100 is not ported yet (step 4): it needs CapeOfAwe, "
-                "Core13LoC.Complete13LOC, LordOfOrder, UnlockForgeEnhancements, "
-                "CelestialArenaQuests, BurningBladeOfAbezeth, CoreYnR, "
-                "DragonOfTime, KingsEcho and ShadowrealmMerge.")
+    """``CoreFarmerJoe.Level75to100``: the endgame classes and weapons (step 4).
+
+    The source's own sequence, walked as far as this port reaches: phase 1 (the
+    Healer / Dragon of Time line) and phase 2's Cape of Awe run; everything after
+    that is one report naming the step it stopped at, so a run never pretends to
+    have finished a phase it skipped.
+    """
+    # --- Phase 1: Healer / Dragon of Time --------------------------------
+    cmd.bot.log("Phase 1: Class Preparation - Healer/Dragon of Time for 13 LoC")
+
+    if cmd.is_in_inventory_or_bank(DRAGON_OF_TIME):
+        if not any_rank10(cmd, [DRAGON_OF_TIME]):
+            cmd.bot.log("Dragon of Time found but not rank 10 - ranking up")
+            await set_class(cmd)
+    else:
+        if not await cmd.has_any_item(list(HEALER_NAMES)):
+            cmd.bot.log("No healing class found! Acquiring the `Healer` class to "
+                        "do `Xang` later during the 13LoC story quests ( as "
+                        "healing classes basicly NUKE her....).")
+            await adv_buy_item(cmd, HEALER_SHOP, HEALER, map_name=CLASSHALLA)
+            # the source ranks the name it resolved *before* the purchase
+            await rank_up_class(cmd, "Healer (Rare)" if await cmd.has_item(
+                "Healer (Rare)") else HEALER)
+
+    # --- Phase 2: Cape of Awe -------------------------------------------
+    cmd.bot.log("Phase 2: Chaos Shenanigans - CoA & 13 LoC")
+    await get_coa(cmd)
+    await cmd.equip_item("Cape of Awe")
+    await set_class(cmd)
+
+    if not AWE_AND_THIRTEEN_LOC_PORTED:
+        report_once(cmd, "lvl75",
+                    "Level75to100 stops before Core13LoC.Complete13LOC (the 14 "
+                    "Chaos segments); the steps after it -- LordOfOrder, Frost "
+                    "Spirit Reaver/Northlands Monk/Shaman, the forge set, "
+                    "CelestialArena+BurningBladeOfAbezeth, CoreYnR, KingsEcho and "
+                    "ShadowrealmMerge -- are not ported either.")
+        return
 
 
 async def end_game(cmd: Command) -> None:
@@ -553,6 +586,18 @@ MUSEUM_SHOP = 631
 AWETHUR_ITEM = "Awethur's Accoutrements"
 BLOODTUSK_SHOP = 308
 HORC_EVADER = "Horc Evader"
+
+#: ``Level75to100``'s own names: the Dragon of Time class, and the Healer it buys
+#: from /classhalla 176 when the account has no healing class at all.
+DRAGON_OF_TIME = "Dragon of Time"
+HEALER = "Healer"
+HEALER_NAMES = ("Healer", "Healer (Rare)")
+HEALER_SHOP = 176
+
+#: The frontier of step 4: the first step this port does not reach yet is
+#: ``Core13LoC.Complete13LOC``.  Flip this to True only when the whole phase-2
+#: sequence is ported, so a run cannot claim a phase it skipped.
+AWE_AND_THIRTEEN_LOC_PORTED = False
 
 #: ``Handlelevel80`` checks for either spelling, and stops if it finds one.
 VOID_HIGHLORD_NAMES = ("Void Highlord", "Void Highlord (IoDA)")

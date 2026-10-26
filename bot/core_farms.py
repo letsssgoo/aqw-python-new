@@ -889,6 +889,9 @@ FISHING_WAIT_MS = 3500
 #: How long to wait for ``castWait`` / ``CatchResult`` before casting again.
 FISHING_REPLY_TIMEOUT_MS = 10_000
 
+#: How many casts between the rank/rep progress lines (see ``fishing_rep``).
+FISHING_PROGRESS_EVERY = 25
+
 
 async def get_bait_and_dynamite(cmd: Command, bait: int = 0,
                                 dynamite: int = 20) -> None:
@@ -924,10 +927,15 @@ async def fishing_rep(cmd: Command, rank: int = 10) -> None:
     (the Derp Moosefish hunt, which needs achievement and web-badge reads this
     engine does not have) and ``TrashCan`` (discarding bait; there is no trash
     action here -- sell it instead if you want it gone).
+
+    Progress is counted in catches, not in faction rank: the reputation lands
+    with the ``turnIn`` the server sends *after* ``CatchResult``, so a rank read
+    in the same pass would call every good cast a failed one.
     """
     if cmd.get_faction_rank("Fishing") >= rank:
         return
 
+    caught = 0
     await get_bait_and_dynamite(cmd, 0, 1)
     await equip_class(cmd)
     cmd.bot.log(f"Farming Fishing rank {rank}")
@@ -940,13 +948,17 @@ async def fishing_rep(cmd: Command, rank: int = 10) -> None:
         while (cmd.is_still_connected()
                and await cmd.has_item(FISHING_DYNAMITE)
                and cmd.get_faction_rank("Fishing") < rank):
-            before = cmd.get_faction_rank("Fishing")
-
             cmd.bot.fishing_cast_wait = False
             cmd.bot.fishing_caught = False
             await cmd.sleep(1000)
             cmd.bot.log("Casting Dynamite...")
-            await cmd.send_packet("%xt%zm%FishCast%1%Dynamite%30%")
+            # The last field is the dynamite the client is casting with, and a
+            # real client sends how many it holds (capture: ``%23%`` with 23 in
+            # the bag) -- Skua hard-codes 30, which only holds while its own
+            # farm has left 30 or more.  Sending more than is held is what a
+            # cast the server ignores looks like.
+            held = max(1, int(cmd.get_quant_item(FISHING_DYNAMITE) or 0))
+            await cmd.send_packet(f"%xt%zm%FishCast%1%Dynamite%{held}%")
 
             if not await _fishing_reply(cmd, "fishing_cast_wait"):
                 cmd.bot.log("Timed out waiting for castWait packet.")
@@ -959,12 +971,26 @@ async def fishing_rep(cmd: Command, rank: int = 10) -> None:
             await cmd.sleep(wait_ms)
 
             await cmd.send_packet("%xt%zm%getFish%1%false%")
-            await _fishing_reply(cmd, "fishing_caught")
+            if not await _fishing_reply(cmd, "fishing_caught"):
+                cmd.bot.log("Timed out waiting for CatchResult; skipping result "
+                            "evaluation.")
+                continue
 
-            if cmd.get_faction_rank("Fishing") > before:
-                cmd.bot.log("Successful cast")
-            else:
-                cmd.bot.log("Failed cast")
+            # The catch itself is the confirmation.  Reputation arrives with the
+            # ``turnIn`` the server sends after it (``addGoldExp`` carries the
+            # ``iRep``), so comparing the faction rank inside the same pass
+            # reports a good cast as a failed one -- which is why the reference
+            # only counts casts here.
+            caught += 1
+            cmd.bot.log(f"Dynamite cast completed [x{caught}]")
+            if caught % FISHING_PROGRESS_EVERY == 0:
+                # Reputation lands with the catch, but the faction list this
+                # engine reads is refreshed by the server on a map load -- so
+                # the rank below moves in steps, not per cast.  Logged so a run
+                # that never moves is visible instead of silent.
+                cmd.bot.log(f"[fish] {caught} casts, rank "
+                            f"{cmd.get_faction_rank('Fishing')} (rep "
+                            f"{cmd.get_faction_rep('Fishing')})")
 
 
 async def _fishing_reply(cmd: Command, flag: str) -> bool:
@@ -1010,7 +1036,9 @@ async def get_fish(cmd: Command, item_id: int, quant: int,
                and not await cmd.has_item_id(item_id, quant)):
             cmd.bot.fishing_cast_wait = False
             cmd.bot.fishing_caught = False
-            await cmd.send_packet("%xt%zm%FishCast%1%Dynamite%30%")
+            # same last field as ``fishing_rep``: how much dynamite is held
+            held = max(1, int(cmd.get_quant_item(FISHING_DYNAMITE) or 0))
+            await cmd.send_packet(f"%xt%zm%FishCast%1%Dynamite%{held}%")
             if not await _fishing_reply(cmd, "fishing_cast_wait"):
                 cmd.bot.log("Timed out waiting for castWait packet.")
                 continue
