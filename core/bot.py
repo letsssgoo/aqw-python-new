@@ -144,26 +144,6 @@ def _start_freeze_watch() -> None:
                      daemon=True).start()
 
 
-def fishing_rep_from(catch_result) -> int:
-    """Reputation a ``CatchResult`` frame paid out.
-
-    Each caught fish carries its own ``rep`` (``220``, ``1000``, or ``null`` for a
-    fish that pays none), and the frame's total (``myRep``) is null -- so the sum
-    of the fish is the number the client would add to the faction.
-    """
-    if not isinstance(catch_result, dict):
-        return 0
-    total = 0
-    for entry in catch_result.get("fish") or []:
-        if not isinstance(entry, dict):
-            continue
-        try:
-            total += int(entry.get("rep") or 0)
-        except (TypeError, ValueError):
-            continue
-    return total
-
-
 class Bot:
     #: See RELOGIN_DELAY_S: an attribute so a test can shorten it.
     RELOGIN_DELAY_S: float = RELOGIN_DELAY_S
@@ -336,21 +316,6 @@ class Bot:
         """Unsubscribe from messages."""
         if callback in self.subscribers:
             self.subscribers.remove(callback)
-
-    def _add_fishing_rep(self, catch_result) -> None:
-        """Add the reputation a catch paid out, the way the client does.
-
-        AQW pays fishing reputation *per fish* inside ``CatchResult`` and sends no
-        separate reputation packet for it -- the client is what adds the values up,
-        which is why ``CoreFarms.FishingREP`` can watch its rank climb.  Nothing
-        consumed those numbers here, so the rank sat still for a whole run.
-        """
-        gained = fishing_rep_from(catch_result)
-        if gained <= 0:
-            return
-        faction = self.player.get_faction("Fishing")
-        if faction is not None:
-            faction.add_rep(gained)
 
     def notify_subscribers(self, message):
         """Notify all subscribers."""
@@ -1150,9 +1115,13 @@ class Bot:
             elif cmd == "CatchResult":
                 # Fishing: what was caught.  The server turns the fish in itself
                 # (a ``turnIn`` message follows), so nothing is sent from here.
+                #
+                # Its reputation is *not* added up from this frame: the server
+                # already reports the gain (``addGoldExp``), and counting the
+                # per-fish ``rep`` on top of that doubled every catch -- the
+                # engine then believed rank 10 while the shop still saw rank 9.
                 self.fishing_catch_result = data.get("catchResult") or {}
                 self.fishing_caught = True
-                self._add_fishing_rep(self.fishing_catch_result)
             elif cmd == "playerDeath":
                 if int(data["userID"]) == self.player.LOGINUSERID:
                     print(Fore.RED + "DEATH" + Fore.WHITE)

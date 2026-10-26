@@ -891,38 +891,8 @@ FISHING_REPLY_TIMEOUT_MS = 10_000
 
 #: How many casts between the rank/rep progress lines (see ``fishing_rep``).
 FISHING_PROGRESS_EVERY = 25
-
-#: The faction the fishing farm ranks.
-FISHING_FACTION = "Fishing"
-#: A map load is what carries a fresh ``factions`` list, so a verification hop
-#: goes somewhere with nothing to aggro first.
-FACTION_REFRESH_MAP = "whitemap"
-
-
-async def refreshed_faction_rank(cmd: Command, faction: str,
-                                 map_name: Optional[str] = None) -> int:
-    """The faction's rank **as the server reports it**.
-
-    The reputation a fishing catch pays is counted locally from the
-    ``CatchResult`` frame (that is what the client does), but a shop gates on the
-    server's own total -- so the local count is not evidence that a rank gate has
-    opened.  A map load carries a fresh faction list, and the hop here is how
-    that list is asked for.
-
-    Args:
-        cmd (Command): Facade to act through.
-        faction (str): Faction whose rank is wanted.
-        map_name (str | None): Map to return to afterwards.
-
-    Returns:
-        int: The rank read after the refresh.
-    """
-    if cmd.is_still_connected() and cmd.is_not_in_map(FACTION_REFRESH_MAP):
-        await cmd.join_map(FACTION_REFRESH_MAP)
-    if (map_name and cmd.is_still_connected()
-            and cmd.is_not_in_map(map_name)):
-        await cmd.join_map(map_name)
-    return cmd.get_faction_rank(faction)
+#: How many casts with no reputation gain at all before the farm gives up.
+FISHING_QUIET_CASTS = 100
 
 
 async def get_bait_and_dynamite(cmd: Command, bait: int = 0,
@@ -963,11 +933,18 @@ async def fishing_rep(cmd: Command, rank: int = 10) -> None:
     Progress is counted in catches, not in faction rank: the reputation lands
     with the ``turnIn`` the server sends *after* ``CatchResult``, so a rank read
     in the same pass would call every good cast a failed one.
+
+    The loop keeps casting until the **server's** rank reaches ``rank`` -- an
+    account that arrives at rank 9 simply keeps fishing.  ``FISHING_QUIET_CASTS``
+    catches the case where the reputation stops moving at all, so a run reports
+    instead of casting into the void.
     """
     if cmd.get_faction_rank("Fishing") >= rank:
         return
 
     caught = 0
+    last_rep = cmd.get_faction_rep("Fishing")
+    quiet_casts = 0
     await get_bait_and_dynamite(cmd, 0, 1)
     await equip_class(cmd)
     cmd.bot.log(f"Farming Fishing rank {rank}")
@@ -1008,27 +985,35 @@ async def fishing_rep(cmd: Command, rank: int = 10) -> None:
                             "evaluation.")
                 continue
 
-            # The catch itself is the confirmation.  Reputation arrives with the
-            # ``turnIn`` the server sends after it (``addGoldExp`` carries the
-            # ``iRep``), so comparing the faction rank inside the same pass
-            # reports a good cast as a failed one -- which is why the reference
-            # only counts casts here.
+            # The catch itself is the confirmation.  Reputation arrives from the
+            # server (``addGoldExp`` carries the ``iRep``), so comparing the
+            # faction rank inside the same pass reports a good cast as a failed
+            # one -- which is why the reference only counts casts here.
             caught += 1
             cmd.bot.log(f"Dynamite cast completed [x{caught}]")
             if caught % FISHING_PROGRESS_EVERY == 0:
-                # Reputation lands with the catch, but the faction list this
-                # engine reads is refreshed by the server on a map load -- so
-                # the rank below moves in steps, not per cast.  Logged so a run
-                # that never moves is visible instead of silent.
+                # The rank/rep below are the server's own numbers, which is what
+                # a shop gates on; logged so a run that never moves is visible
+                # instead of silent.
                 cmd.bot.log(f"[fish] {caught} casts, rank "
                             f"{cmd.get_faction_rank('Fishing')} (rep "
                             f"{cmd.get_faction_rep('Fishing')})")
 
-        # The outer condition reads the local count, which came from the catch
-        # frames.  A shop refuses on the *server's* total, so check that before
-        # the loop is allowed to end: the hop is what carries a fresh faction
-        # list, and it puts the character back in /fishing for the next batch.
-        await refreshed_faction_rank(cmd, FISHING_FACTION, FISHING_MAP)
+            # Reputation is the only progress this farm has: if it stops moving
+            # altogether the casts are not being counted by the server, and
+            # carrying on would just spend dynamite forever.
+            rep = cmd.get_faction_rep("Fishing")
+            if rep > last_rep:
+                last_rep = rep
+                quiet_casts = 0
+            else:
+                quiet_casts += 1
+                if quiet_casts >= FISHING_QUIET_CASTS:
+                    cmd.bot.log(f"[fish] {quiet_casts} casts without any "
+                                f"reputation (still rank "
+                                f"{cmd.get_faction_rank('Fishing')}); stopping "
+                                f"instead of casting forever.")
+                    return
 
 
 async def _fishing_reply(cmd: Command, flag: str) -> bool:
