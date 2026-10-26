@@ -38,6 +38,7 @@ class StubBot:
     def __init__(self, wait_ms: int):
         self.sent = []
         self.slept = []
+        self.logs = []
         self.fishing_cast_wait = False
         self.fishing_caught = False
         self.fishing_wait_ms = 0
@@ -46,7 +47,7 @@ class StubBot:
         self._wait_ms = wait_ms
 
     def log(self, *args):
-        pass
+        self.logs.append(" ".join(map(str, args)))
 
     def write_message(self, msg):
         self.sent.append(msg)
@@ -59,6 +60,9 @@ class StubBot:
 
 
 class Stub:
+    #: The dynamite a real client would name in its cast packet.
+    DYNAMITE_HELD = 23
+
     def __init__(self, bot):
         self.bot = bot
         self.rank = 9
@@ -67,6 +71,9 @@ class Stub:
     # --- what fishing_rep touches -------------------------------------
     def get_faction_rank(self, faction):
         return self.rank
+
+    def get_quant_item(self, name):
+        return self.DYNAMITE_HELD if name == "Fishing Dynamite" else 0
 
     async def has_item(self, name, qty=1, **kw):
         self.calls.append(("has_item", name))
@@ -142,8 +149,8 @@ def main() -> int:
         asyncio.run(fishing_rep(cmd, 10))
 
         casts = [p for _, p in cmd.calls if _ == "send_packet"]
-        check(f"wait={wait_ms}: cast sent",
-              any("FishCast%1%Dynamite%30%" in p for p in casts), True)
+        check(f"wait={wait_ms}: cast names the held dynamite, not a hard 30",
+              any("FishCast%1%Dynamite%23%" in p for p in casts), True)
         check(f"wait={wait_ms}: pull sent",
               any("getFish%1%false%" in p for p in casts), True)
         check(f"wait={wait_ms}: slept the packet's timer", wait_ms in bot.slept, True)
@@ -151,6 +158,11 @@ def main() -> int:
               3500 in bot.slept, False)
         check(f"wait={wait_ms}: bait/dynamite checked first",
               ("has_item", "Fishing Dynamite") in cmd.calls, True)
+        check(f"wait={wait_ms}: a catch is reported the source's way",
+              "Dynamite cast completed [x1]" in bot.logs, True)
+        check(f"wait={wait_ms}: no invented rank verdict per cast",
+              [line for line in bot.logs
+               if line in ("Successful cast", "Failed cast")], [])
 
     print()
     print("=" * 74)
