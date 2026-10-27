@@ -1,4 +1,4 @@
-﻿"""The CoreBots / CoreAdvanced helpers added after the first port pass.
+"""The CoreBots / CoreAdvanced helpers added after the first port pass.
 
     python tools/test_core_helpers.py
 

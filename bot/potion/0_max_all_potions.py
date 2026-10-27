@@ -1,4 +1,4 @@
-﻿from core.bot import Bot
+from core.bot import Bot
 from core.command import Command
 from bot.potion.core_potion import PotentDestructionElixir, PotentHonorMalice, PotentMalevolence, PotentRevitalizeElixir, PotentBattleElixir, SageTonic, FateTonic, BodyTonic, MightTonic
 
