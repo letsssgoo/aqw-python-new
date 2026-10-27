@@ -129,6 +129,13 @@ async def check_dailyv2(cmd: Command, quest: int, any_item: bool = True,
     Returns:
         bool: False when the daily is already at the cap, True when it should run.
     """
+    if int(quest) in getattr(cmd.bot, "missing_badge_questid", []):
+        # The turn-in was already refused with "Missing Badge" in this session:
+        # the badge is not something farming produces, so accepting and killing
+        # for the whole drop list again would only be refused once more.
+        cmd.bot.log(f"[dailies] quest {quest} needs a badge this account does "
+                    f"not have; skipping it.")
+        return False
     loaded = cmd.get_loaded_quest(quest)
     if loaded is None:
         cmd.bot.log(f"[dailies] quest {quest} is not loaded, so its max stacks "

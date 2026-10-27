@@ -300,6 +300,11 @@ class Bot:
         self.missing_turn_in_item_questid: list[int] = [] # this mean quest is unlocked (green quest)
         self.missing_quest_progress_questid: list[int] = [] # this mean quest is locked (red quest)
         self.one_time_questid: list[int] = [] # one-time story quests already completed
+        #: Quests the server refused with "Missing Badge".  Those never become
+        #: turnable on this account (the badge is not something a farm can earn),
+        #: so retrying is pure noise -- the auto turn-in loop and
+        #: ``ensure_turn_in_quest`` both stop at this list.
+        self.missing_badge_questid: list[int] = []
 
         self.player_in_area: list[PlayerArea] = []
 
@@ -1360,6 +1365,16 @@ class Bot:
                         self.missing_turn_in_item_questid.append(quest_id)
                     if quest_id and "Missing Quest Progress" in ccqr_msg:
                         self.missing_quest_progress_questid.append(quest_id)
+                    if quest_id and "Missing Badge" in ccqr_msg:
+                        # Not something the account can earn by farming: the
+                        # badge is a web/achievement reward.  Recorded so the
+                        # turn-in loop stops instead of asking every 2 seconds.
+                        quest_id_int = int(quest_id)
+                        if quest_id_int not in self.missing_badge_questid:
+                            self.missing_badge_questid.append(quest_id_int)
+                        print(Fore.YELLOW + f"[quest] {quest_id} needs a badge this "
+                              f"account does not have; turn-in will not be "
+                              f"retried." + Fore.RESET)
                     if "One Time Quest Only" in ccqr_msg:
                         if quest_id is not None and int(quest_id) not in self.one_time_questid:
                             self.one_time_questid.append(int(quest_id))
