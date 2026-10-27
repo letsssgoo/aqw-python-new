@@ -740,6 +740,44 @@ async def ensure_complete_choose(cmd: Command, quest_id: int,
 KILL_ONE_TRIES = 60
 
 
+async def kill_by_map_id(cmd: Command, map_name: str, monster_map_id: int,
+                         cell: str = "", pad: str = "Left") -> bool:
+    """``CoreBots.HuntMonsterMapID``: kill the monster carrying that map id.
+
+    The reference targets a monster by its **map id** (``id.X``) when two
+    monsters share a name or the name is not known; ``is_monster_alive`` and
+    ``jump_to_monster`` already understand that form, so this carries no
+    substitution of its own.
+
+    Args:
+        cmd (Command): Facade to act through.
+        map_name (str): Map to join first.
+        monster_map_id (int): The monster's ``monMapID``.
+        cell (str): Cell to hold, when given; otherwise walk to the monster.
+        pad (str): Pad inside ``cell``.
+
+    Returns:
+        bool: True when the monster is dead (or was not there), False when the
+        bounded loop ran out.
+    """
+    target = f"id.{monster_map_id}"
+    if map_name and cmd.is_not_in_map(map_name):
+        await cmd.join_map(map_name)
+    if cell:
+        await cmd.jump_cell(cell, pad)
+    else:
+        await cmd.jump_to_monster(target)
+
+    for _ in range(KILL_ONE_TRIES):
+        if not cmd.is_still_connected():
+            return False
+        if not cmd.is_monster_alive(target):
+            return True
+        await cmd.use_next_skill(DEFAULT_SKILL_LIST, target)
+    return False
+
+
+
 async def kill_once(cmd: Command, map_name: str = "", cell: str = "",
                     pad: str = "Left", monster: str = "*") -> bool:
     """``Core.KillMonster(map, cell, pad, monster)``: one kill, with no item.

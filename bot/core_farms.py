@@ -27,8 +27,8 @@ from typing import Awaitable, Callable, Optional, Sequence, Tuple
 
 from bot.core_bots import (Alignment, REP_THRESHOLDS, buy_item, can_we_aggro,
                            chain_complete, change_alignment, check_save_state,
-                           equip_class, execute_save_state, kill_once,
-                           saved_state, wait_for_item)
+                           equip_class, execute_save_state, kill_by_map_id,
+                           kill_once, saved_state, wait_for_item)
 from core.command import Command
 from templates.hunt import DEFAULT_SKILL_LIST, hunt_item, move_to_cell
 
@@ -1441,10 +1441,11 @@ async def embersea_rep(cmd: Command, rank: int = 10) -> None:
         await _rep_loop(cmd, EMBERSEA, rank, easy_pass)
     else:
         cmd.bot.log("[farm] Embersea's easy method needs quest 4080; killing the "
-                    "Blazebinders in /fireforge instead.")
+                    "Blazebinders in /fireforge by monster map id 4 instead.")
 
         async def hard_pass() -> None:
-            await kill_once(cmd, EMBERSEA_HARD_MAP, monster="*")
+            # ``Core.HuntMonsterMapID("fireforge", 4)`` -- by map id, not by name
+            await kill_by_map_id(cmd, EMBERSEA_HARD_MAP, EMBERSEA_MONSTER_ID)
 
         await _rep_loop(cmd, EMBERSEA, rank, hard_pass)
 
