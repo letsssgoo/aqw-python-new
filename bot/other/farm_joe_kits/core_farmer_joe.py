@@ -1,4 +1,4 @@
-"""``CoreFarmerJoe`` -- the Farmer Joe kit's pre-endgame progression.
+﻿"""``CoreFarmerJoe`` -- the Farmer Joe kit's pre-endgame progression.
 
 Port of ``Other/FarmJoeKits/CoreFarmerJoe.cs``.  The kit is what
 ``0_farmer_joe_do_all`` runs, and it is being ported step by step:
@@ -57,6 +57,7 @@ from bot.other.free_boosts import get_boosts_select
 from bot.other.gear_of_awe.cape_of_awe import get_coa
 from bot.other.merge_shops.synderes_merge import no_bots_armor
 from bot.other.weapons.burning_blade import get_burning_blade
+from bot.story.lordsofchaos.core13loc import complete13loc
 from bot.story.mazumi import mazumi_quests
 from bot.story.tutorial import badges as tutorial_badges
 from core.command import Command
@@ -554,6 +555,15 @@ async def level_75_to_100(cmd: Command) -> None:
                     "ShadowrealmMerge -- are not ported either.")
         return
 
+    await complete13loc(cmd)
+
+    report_once(cmd, "lvl75",
+                "Level75to100 stops after Core13LoC.Complete13LOC: the next step "
+                "is LordOfOrder (daily 7156-7165), then Frost Spirit "
+                "Reaver/Northlands Monk/Shaman, the forge set, "
+                "CelestialArena+BurningBladeOfAbezeth, CoreYnR, KingsEcho and "
+                "ShadowrealmMerge -- none of them ported yet.")
+
 
 async def end_game(cmd: Command) -> None:
     """``CoreFarmerJoe.EndGame``: the remaining enhancements (step 5)."""
@@ -597,7 +607,7 @@ HEALER_SHOP = 176
 #: The frontier of step 4: the first step this port does not reach yet is
 #: ``Core13LoC.Complete13LOC``.  Flip this to True only when the whole phase-2
 #: sequence is ported, so a run cannot claim a phase it skipped.
-AWE_AND_THIRTEEN_LOC_PORTED = False
+AWE_AND_THIRTEEN_LOC_PORTED = True
 
 #: ``Handlelevel80`` checks for either spelling, and stops if it finds one.
 VOID_HIGHLORD_NAMES = ("Void Highlord", "Void Highlord (IoDA)")

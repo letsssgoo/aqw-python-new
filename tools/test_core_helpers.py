@@ -2551,12 +2551,20 @@ try:
           [("turnin", 1281, -1)])
 
     cmd = Cand()
-    cmd.completed = {6219, 272, 363, 488, 710, 2814, 3189}
+    # every segment's own last quest: complete13loc then has nothing left to do
+    cmd.completed = {6219, 272, 363, 488, 597, 710, 847, 1005, 1473, 2519,
+                     2814, 3189, 3160, 3799, 3881}
     loc_steps.clear()
     run(loc.complete13loc(cmd))
-    check("13loc: the walk names the segment it stops at",
-          any("[13loc] Hero is not ported yet, so Complete13LOC stops here; "
-              "nothing after it runs." in line for line in cmd.bot.logs), True)
+    check("13loc: all fourteen segments are ported now",
+          [name for name, fn in loc.SEGMENTS if fn is None], [])
+    check("13loc: a finished chain runs nothing and stops nowhere",
+          [line for line in cmd.bot.logs if line.startswith("[13loc]")], [])
+
+    # Wolfwing's own run declares Good before chaining 597 (its own guard is 597)
+    cmd = Cand()
+    loc_steps.clear()
+    run(loc.wolfwing(cmd))
     check("13loc: and Wolfwing declares Good before chaining 597",
           any("packet: %xt%zm%updateQuest%1%41%1%" in line for line in cmd.bot.logs), True)
 finally:

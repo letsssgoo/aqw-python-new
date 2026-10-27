@@ -1802,6 +1802,219 @@ async def alteon(cmd: Command) -> None:
     await kill_quest(cmd, ALTEON_LAST, "swordhavenfalls", "Chaos Lord Alteon")
 
 
+HERO_LAST = 3799
+HERO_FINAL_QUEST = 3881
+#: ``ResetShadowAttack`` uses the bot's private room number for the re-entry.
+HERO_PRIVATE_ROOM = 9099
+#: ``PrivateRoomNumber`` when the bot has one set; the reset uses "whitemap-100000".
+HERO_RESET_HOME = "whitemap-100000"
+
+
+async def _reset_shadow_attack(cmd: Command) -> None:
+    """``ResetShadowAttack``: leave, hop home, come back in the private room."""
+    cmd.bot.log("Resetting shadowAttack Map")
+    await cmd.jump_cell(cmd.bot.player.CELL, cmd.bot.player.PAD)
+    await cmd.sleep(2500)
+    await cmd.join_map(HERO_RESET_HOME)
+    await cmd.sleep(2500)
+    await cmd.join_map("shadowattack",
+                       getattr(cmd.bot, "roomNumber", None) or HERO_PRIVATE_ROOM)
+    await cmd.sleep(2500)
+
+
+async def _hit_until_temp(cmd: Command, map_name: str, item_name: str = None,
+                          item_id: int = 0) -> bool:
+    """``while (!ShouldExit) { Attack("*"); if (TempInv has it) break; }``."""
+    def held() -> bool:
+        if item_id:
+            return cmd.bot.player.get_item_temp_inventory_by_id(item_id) is not None
+        return cmd.is_in_inventory(item_name, 1, ">=", True)
+
+    guard = cmd.pass_guard(f"{item_name or item_id} ({map_name})")
+    while cmd.is_still_connected() and not held():
+        await kill_once(cmd, map_name, "r2", "Left", "*")
+        if not await guard.tick():
+            return False
+    return held()
+
+
+async def hero(cmd: Command) -> None:
+    """``Core13LoC.Hero``: quests 3578-3881, the 13th Lord of Chaos.
+
+    Three source quirks are kept as they are: ``3789`` is accepted, hunted and
+    accepted again instead of turned in (the reference never completes it), the
+    "become a Chaos Lord" achievement packet is written with the room id the
+    source hard-codes, and the last two fights are "attack everything until the
+    temporary drop appears".
+    """
+    if (await cmd.is_completed_before(HERO_LAST)
+            and await cmd.is_completed_before(HERO_FINAL_QUEST)):
+        return
+
+    # 12 Lords of Chaos .. 12th Lord of Chaos
+    for quest_id in (3578, 3579, 3580, 3581, 3582, 3583, 3584, 3585, 3586,
+                     3587, 3588, 3589, 3590, 3591, 3764):
+        await chain_quest(cmd, quest_id)
+
+    # Drakath Faced 3765
+    await map_item_quest(cmd, 3765, "mountdoomskull", 2726)
+
+    # Who is the 13th Lord of Chaos? 3766, World War Lore! 3779
+    await chain_quest(cmd, 3766)
+    await chain_quest(cmd, 3779)
+
+    # Battle for Chaos in Willowcreek! 3781, Defeat the Chaos Challenger 3788
+    await kill_quest(cmd, 3781, "newfinale", "Alliance Virago")
+    await kill_quest(cmd, 3788, "newfinale", "Chaos Challenger")
+
+    # Battle for Chaos in Doomwood! 3783
+    await kill_quest(cmd, 3783, "newfinale", "Alliance Virago")
+
+    # Beat Chaorrupted Lycan Hunter 3789 -- accepted twice, never completed
+    if not await quest_progression(cmd, 3789):
+        if await cmd.ensure_accept_quest(3789) is False:
+            cmd.bot.log("[13loc] quest 3789 could not be accepted; Hero stops "
+                        "here.")
+            return
+        await hunt_item(cmd, "Chaorrupted Lycan Hunter Defeated", 1, "newfinale",
+                        monster_name="Chaorrupted Lycan Hunter")
+        # the reference's second EnsureAccept, kept: 3789 stays in progress
+        await cmd.ensure_accept_quest(3789)
+
+    # Battle for Chaos in Darkovia! 3785, Defeat the Memory of Vampires 3790
+    await kill_quest(cmd, 3785, "newfinale", "Alliance Virago")
+    await kill_quest(cmd, 3790, "newfinale", "Memory of Vampires")
+
+    # Battle for Chaos in the Lair! 3787
+    await kill_quest(cmd, 3787, "newfinale", "Alliance Virago")
+
+    # 1st .. 12th Chaos Beast, then three chains
+    for quest_id in (3608, 3618, 3609, 3610, 3611, 3612, 3613, 3614, 3615,
+                     3616, 3617, 3619):
+        await chain_quest(cmd, quest_id)
+    await chain_quest(cmd, 3791)
+    await chain_quest(cmd, 3792)
+
+    # Battle for Chaos in Battleon! 3794
+    await kill_quest(cmd, 3794, "newfinale", "Alliance Soldier")
+
+    # Become a Chaos Lord -- the source's own achievement packet
+    await cmd.join_map("newfinale")
+    await cmd.jump_cell("NPC2", "Left")
+    await cmd.send_packet("%xt%zm%setAchievement%15075%ia1%20%1%")
+
+    # Battle the Champion of Chaos! 3795
+    await map_item_quest(cmd, 3795, "drakathfight", 2894)
+
+    # Arrive in the Underworld 3620, Search for Death's Lair 3796
+    await kill_quest(cmd, 3620, "shadowrise", "Darkness Elemental")
+    await map_item_quest(cmd, 3796, "shadowrise", 2895)
+
+    # Arrive in Shadowattack 3797
+    await chain_quest(cmd, 3797)
+
+    # Find your way to Death's lair 3798
+    if not await quest_progression(cmd, 3798):
+        await _reset_shadow_attack(cmd)
+        if await cmd.ensure_accept_quest(3798) is False:
+            cmd.bot.log("[13loc] quest 3798 could not be accepted; Hero stops "
+                        "here.")
+            return
+        await cmd.join_map("shadowattack")
+        await cmd.get_map_item(2896)
+        await _wait_temp_either(cmd, 25903, "Hunt for Death")
+        await cmd.ensure_turn_in_quest(3798)
+
+    # Beat Death! 3799
+    await equip_class(cmd, solo=True)
+    if not await quest_progression(cmd, HERO_LAST):
+        await _reset_shadow_attack(cmd)
+        if await cmd.ensure_accept_quest(HERO_LAST) is False:
+            cmd.bot.log("[13loc] quest 3799 could not be accepted; Hero stops "
+                        "here.")
+            return
+        await hunt_item(cmd, "You Beat Death?!", 1, "shadowattack",
+                        monster_name="Death")
+        await cmd.ensure_turn_in_quest(HERO_LAST)
+
+    # Enter Confrontation 3875
+    if not await cmd.is_completed_before(3876):
+        if await cmd.ensure_accept_quest(3875) is False:
+            cmd.bot.log("[13loc] quest 3875 could not be accepted; Hero stops "
+                        "here.")
+            return
+        await cmd.join_map("confrontation")
+        await cmd.ensure_turn_in_quest(3875)
+
+    await equip_class(cmd, solo=True)
+
+    # Defeat Drakath! 3876 / ..again! 3877 / 3878 -- by monster map id + item id
+    async def q3876() -> None:
+        await hunt_item_by_id(cmd, 26875, 1, "finalbattle", cell="r1",
+                              pad="Left", monster_map_id=1)
+
+    async def q3877() -> None:
+        await hunt_item_by_id(cmd, 26876, 1, "finalbattle", cell="r4",
+                              pad="Left", monster_map_id=14)
+
+    async def q3878() -> None:
+        await hunt_item_by_id(cmd, 26877, 1, "finalbattle", cell="r9",
+                              pad="Left", monster_map_id=23)
+        await cmd.join_map("whitemap")
+
+    await _farm(cmd, 3876, q3876)
+    await _farm(cmd, 3877, q3877)
+    await _farm(cmd, 3878, q3878)
+
+    # Defeat the 12 Lords of Chaos! 3879
+    async def q3879() -> None:
+        await hunt_item(cmd, "Chaos Lord Alteon Defeated", 1, "chaosrealm",
+                        cell="r24", pad="Left", monster_name="Alteon")
+        await cmd.join_map("whitemap")
+
+    await _farm(cmd, 3879, q3879)
+
+    # Defeat the 13th Lord of Chaos 3880
+    if not await cmd.is_completed_before(3880):
+        if await cmd.ensure_accept_quest(3880) is False:
+            cmd.bot.log("[13loc] quest 3880 could not be accepted; Hero stops "
+                        "here.")
+            return
+        await cmd.join_map("chaoslord")
+        await cmd.jump_cell("r2", "Left")
+        await equip_class(cmd, solo=True)
+        if await _hit_until_temp(cmd, "chaoslord", "13th Lord of Chaos Defeated"):
+            await cmd.jump_cell(cmd.bot.player.CELL, cmd.bot.player.PAD)
+            await cmd.ensure_turn_in_quest(3880)
+        await cmd.join_map("whitemap")
+
+    # The Final Showdown! 3881 -- the drop is a temp item id, not a name
+    if not await cmd.is_completed_before(HERO_FINAL_QUEST):
+        if await cmd.ensure_accept_quest(HERO_FINAL_QUEST) is False:
+            cmd.bot.log("[13loc] quest 3881 could not be accepted; Hero stops "
+                        "here.")
+            return
+        await cmd.join_map("finalshowdown")
+        await cmd.jump_cell("r2", "Left")
+        if await _hit_until_temp(cmd, "finalshowdown", item_id=26881):
+            await cmd.jump_cell(cmd.bot.player.CELL, cmd.bot.player.PAD)
+            await cmd.ensure_turn_in_quest(HERO_FINAL_QUEST)
+        await cmd.join_map("whitemap")
+
+
+async def _wait_temp_either(cmd: Command, item_id: int, item_name: str,
+                            timeout_ms: int = 20000) -> bool:
+    """``Wait.ForTrue(() => TempInv has id or name, 20)``."""
+    waited = 0
+    while cmd.is_still_connected() and waited < timeout_ms:
+        if (cmd.bot.player.get_item_temp_inventory_by_id(item_id) is not None
+                or cmd.is_in_inventory(item_name, 1, ">=", True)):
+            return True
+        await cmd.sleep(500)
+        waited += 500
+    return False
+
+
 LIONFANG_LAST = 2814
 
 #: Quest 2615's own block: the map item, then the two drops it wants.
@@ -1984,7 +2197,7 @@ SEGMENTS = (
     ("Lionfang", lionfang),
     ("Xiang", xiang),
     ("Alteon", alteon),
-    ("Hero", None),
+    ("Hero", hero),
 )
 
 

@@ -1,4 +1,4 @@
-"""Farmer Joe kit: class resolution, the level ladder, the extras.
+﻿"""Farmer Joe kit: class resolution, the level ladder, the extras.
 
     python tools/test_farmer_joe.py
 
@@ -321,7 +321,7 @@ def main() -> None:
     assert ("equip_item", "The Server is Down") in helm.calls, helm.calls
     print("serverdown : hunts the hamster in /undergroundlabb, then wears it")
 
-    # --- Pets: the source ignores its parameter (§16, a (iii) defect) ----
+    # --- Pets: the source ignores its parameter (Â§16, a (iii) defect) ----
     none = Stub()
     asyncio.run(joe.pets(none, joe.PET_HOT_MAMA))
     assert none.calls == [], none.calls
@@ -738,18 +738,27 @@ def main() -> None:
         coa.append(1)
 
     joe.get_coa = spy_coa
+    loc = []
+    real_loc = joe.complete13loc
+
+    async def spy_loc(cmd):
+        loc.append(1)
+
+    joe.complete13loc = spy_loc
     try:
         asyncio.run(joe.level_75_to_100(later))
     finally:
         joe.get_coa = real_coa
+        joe.complete13loc = real_loc
     asyncio.run(joe.end_game(later))
     joined = "\n".join(later.bot.logs)
     assert "Phase 1: Class Preparation - Healer/Dragon of Time" in joined, \
         later.bot.logs
     assert "Phase 2: Chaos Shenanigans - CoA & 13 LoC" in joined, later.bot.logs
     assert coa == [1], coa
+    assert loc == [1], loc
     assert ("equip_item", "Cape of Awe") in later.calls, later.calls
-    assert "stops before Core13LoC.Complete13LOC" in joined, later.bot.logs
+    assert "stops after Core13LoC.Complete13LOC" in joined, later.bot.logs
     assert "EndGame is not ported yet" in joined, later.bot.logs
     print("later      : level 75-100 runs CoA then names its frontier")
 
