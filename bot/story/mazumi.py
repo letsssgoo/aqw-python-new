@@ -7,6 +7,8 @@ from bot.core_bots import equip_class
 from bot.core_story import CustomError, kill_quest, quest_progression
 from core.command import Command
 from templates.hunt import hunt_item
+from bot.script_log import ScriptLog
+TAG = "Mazumi"
 
 MAZUMI_LAST = 92
 MAZUMI_MAP = "greenguardwest"

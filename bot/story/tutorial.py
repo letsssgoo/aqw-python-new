@@ -8,6 +8,8 @@ the ones already earned, which makes the repeat harmless.
 """
 from bot.core_bots import set_achievement
 from core.command import Command
+from bot.script_log import ScriptLog
+TAG = "Tutorial"
 
 TUTORIAL_MAP = "oaklore"
 #: ``achievements`` in the source, badges 22..31 in this order.
@@ -20,7 +22,7 @@ BADGE_GAP_MS = 1500
 
 async def badges(cmd: Command) -> None:
     """``Tutorial.Badges``: set badges 22-31."""
-    cmd.bot.log('Doing `Tutorial Badges` to look a bit more "~legit~".')
+    ScriptLog(cmd, TAG).info('Doing `Tutorial Badges` to look a bit more "~legit~".')
 
     await cmd.join_map(TUTORIAL_MAP)
 

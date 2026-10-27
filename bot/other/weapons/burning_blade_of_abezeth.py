@@ -13,6 +13,8 @@ from bot.core_bots import equip_class
 from bot.story.queen_of_monsters.celestial_arena import do_all as arena_do_all
 from core.command import Command
 from templates.hunt import hunt_item
+from bot.script_log import ScriptLog
+TAG = "Burning Blade"
 
 BBOA = "Burning Blade Of Abezeth"
 SHOP_MAP = "celestialarena"

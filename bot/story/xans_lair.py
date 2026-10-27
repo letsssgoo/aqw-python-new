@@ -7,6 +7,8 @@ XanTown quests because that map is aggro; the same jump is kept.
 from bot.core_story import kill_quest, map_item_quest, quest_progression, CustomError
 from core.command import Command
 from templates.hunt import hunt_item
+from bot.script_log import ScriptLog
+TAG = "Xan's Lair"
 
 XANTOWN_SAFE_CELL = "r12"
 

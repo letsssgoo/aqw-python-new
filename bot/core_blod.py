@@ -11,6 +11,8 @@ from bot.core_farms import bone_some_dust
 from bot.core_story import CustomError, buy_quest, quest_progression
 from core.command import Command
 from templates.hunt import hunt_item
+from bot.script_log import ScriptLog
+TAG = "BLoD"
 
 MINE_CRAFTING_LAST = 2084
 DOOMWOOD_SHOP = 276

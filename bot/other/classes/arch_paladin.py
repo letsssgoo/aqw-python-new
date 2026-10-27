@@ -25,6 +25,8 @@ from bot.other.classes.paladin import get_paladin
 from bot.story.xans_lair import do_all as xans_lair_do_all
 from core.command import Command
 from templates.hunt import hunt_item
+from bot.script_log import ScriptLog
+TAG = "ArchPaladin"
 
 ARCH_PALADIN = "ArchPaladin"
 #: ``Core.CheckInventory(36920)`` -- the class item, bought at the end.

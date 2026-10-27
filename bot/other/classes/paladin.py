@@ -7,6 +7,8 @@ from bot.core_advanced import buy_item
 from bot.core_advanced import rank_up_class as advance_class
 from bot.core_farms import good_rep
 from core.command import Command
+from bot.script_log import ScriptLog
+TAG = "Paladin"
 
 PALADIN = "Paladin"
 SHOP_MAP = "necropolis"

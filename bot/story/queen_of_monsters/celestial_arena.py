@@ -14,6 +14,8 @@ from bot.core_advanced import gear_store
 from bot.core_bots import equip_class
 from bot.core_story import kill_quest
 from core.command import Command
+from bot.script_log import ScriptLog
+TAG = "Celestial Arena"
 
 ARENA_B = "celestialarenab"
 ARENA_C = "celestialarenac"
