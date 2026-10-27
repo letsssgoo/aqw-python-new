@@ -120,7 +120,27 @@ def main() -> None:
     asyncio.run(asyncio.wait_for(bot2b.start_bot(finished_script), timeout=10))
     check("it ran once, and only once", finished, [True])
     check("no relogin was attempted", bot2b.is_client_connected, False)
+    check("it says the script completed", bot2b.stop_reason, "completed")
+    check("so a launcher leaves it stopped", bot2b.finished_cleanly(), True)
     print("  -> finished -> stopped, autoRelogin had nothing to do")
+
+    # --- 2c. a dropped connection is *not* "finished" -------------------
+    print("\n-- the socket drops, relogin is off --")
+    bot2c = _stub_bot(auto_relogin=False)
+
+    async def hung(cmd):
+        await asyncio.sleep(3600)
+
+    async def drop_scenario():
+        task = asyncio.create_task(bot2c.start_bot(hung))
+        await asyncio.sleep(0.2)
+        bot2c.is_client_connected = False
+        await asyncio.wait_for(task, timeout=10)
+
+    asyncio.run(drop_scenario())
+    check("a drop is reported as a drop", bot2c.stop_reason, "connection-lost")
+    check("and it is not 'finished'", bot2c.finished_cleanly(), False)
+    print("  -> dropped -> a launcher is right to start it again")
 
     # --- 3. a crashing script still surfaces ---------------------------
     print("\n-- the script raises --")

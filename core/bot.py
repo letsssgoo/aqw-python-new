@@ -313,6 +313,14 @@ class Bot:
         self.reader_task = None
         #: Why a relogin was asked for, for the log line that follows it.
         self.relogin_reason = ""
+        #: Why ``start_bot`` returned: ``"completed"`` (the script ran to its own
+        #: end), ``"stopped"`` (someone called ``stop_bot(user_triggered=True)``),
+        #: ``"connection-lost"``, ``"failed"``, ``"gave-up"`` (relogin attempts
+        #: exhausted), or ``""`` while it has not returned.  A launcher reads
+        #: :meth:`finished_cleanly` to tell "leave it stopped" from "start it
+        #: again" -- the difference between a finished class script and a session
+        #: that dropped.
+        self.stop_reason = ""
 
     def subscribe(self, callback):
         """Subscribe to messages."""
@@ -359,6 +367,7 @@ class Bot:
                 # run, not a reason to log back in: anything that wants the
                 # script again (the app panes, the slavery hub) restarts it
                 # itself, and it can see the thread has finished.
+                self.stop_reason = "completed"
                 return
             if outcome == SESSION_RAN:
                 # The bot really ran this time, so the count is about consecutive
@@ -367,12 +376,15 @@ class Bot:
                 # hour would hit the cap after three hours and stop for good.
                 attempts = 0
             if not self.auto_relogin:
+                self.stop_reason = ("connection-lost" if outcome == SESSION_RAN
+                                    else "failed")
                 return
             attempts += 1
             if (self.RELOGIN_MAX_ATTEMPTS
                     and attempts > self.RELOGIN_MAX_ATTEMPTS):
                 print(f"[relogin] {attempts - 1} attempts did not get the bot "
                       f"running; stopping here so the app can restart it.")
+                self.stop_reason = "gave-up"
                 return
             delay = min(self.RELOGIN_DELAY_S * attempts,
                         max(self.RELOGIN_DELAY_S, RELOGIN_MAX_DELAY_S))
@@ -486,6 +498,16 @@ class Bot:
     def _cancel_reader(self) -> None:
         """Drop the reader task of the session that is ending."""
         self._cancel_task("reader_task")
+
+    def finished_cleanly(self) -> bool:
+        """Whether the run ended because there was nothing left to do.
+
+        ``True`` after the script ran to its own end, or after someone stopped
+        the bot on purpose -- a launcher should leave those stopped.  ``False``
+        when the session dropped, the login failed or the relogin attempts ran
+        out, which is when starting it again is the right move.
+        """
+        return self.stop_reason in ("completed", "stopped")
 
     def request_relogin(self, reason: str = "") -> None:
         """End this session and ask ``start_bot`` to bring the bot back.
@@ -677,6 +699,7 @@ class Bot:
         print(f"[{datetime.now().strftime('%H:%M:%S')}] Stopping bot...")
         if user_triggered:
             self.auto_relogin = False
+            self.stop_reason = "stopped"
         self._cancel_reader()
         # The aggro handler is per bot, not per session: without this a stopped
         # pane kept sending aggroMon for as long as the process lived.
