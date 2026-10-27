@@ -1482,12 +1482,12 @@ async def dwarfhold_rep(cmd: Command, rank: int = 10) -> None:
     async def pass_() -> None:
         # ``EnsureAcceptmultiple(320, 321)`` then one kill round, then both turn
         # in -- the quests are repeatable, so the pair is re-accepted each pass.
-        for quest_id in DWARHFOLD_QUESTS:
+        for quest_id in DWARFHOLD_QUESTS:
             await cmd.ensure_accept_quest(quest_id)
-        for monster, item in DWARHFOLD_KILLS:
+        for monster, item in DWARFHOLD_KILLS:
             await hunt_item(cmd, item, 5, DWARFHOLD_MAP, cell="Enter",
                             pad="Right", monster_name=monster)
-        for quest_id in DWARHFOLD_QUESTS:
+        for quest_id in DWARFHOLD_QUESTS:
             await cmd.ensure_turn_in_quest(quest_id)
 
     await _rep_loop(cmd, DWARFHOLD, rank, pass_)
