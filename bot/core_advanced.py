@@ -1,4 +1,4 @@
-"""``CoreAdvanced`` -- the core that re-implements several of ``CoreBots``' names.
+﻿"""``CoreAdvanced`` -- the core that re-implements several of ``CoreBots``' names.
 
 Port of ``CoreAdvanced.cs``, and it matters *which* of the two a kit meant: the
 reference's cores do not inherit from one another (there is no
@@ -29,6 +29,10 @@ from bot.core_bots import (_find_shop, check_class_rank, load_shop_entry,
                            points_to_level)
 from bot.core_farms import farm_experience, farm_faction, farm_gold, icestorm_arena
 from core.command import Command, QUIET_PASSES
+
+#: How long ``buy_item`` waits for the bought item to appear before saying the
+#: server refused it.
+PURCHASE_WAIT_MS = 5_000
 
 #: ``GetItemReq`` caps its gold farm here (``Math.Min(cost * quant, 100000000)``).
 GOLD_FARM_CAP = 100_000_000
@@ -68,6 +72,31 @@ async def meet_shop_requirements(cmd: Command, entry, qty: int = 1) -> bool:
         cmd.bot.log(f"Farming experience to reach level {required_level}")
         await farm_experience(cmd, min(required_level, 100))
 
+    # ``sQuest``: an entry unlocked by a quest.  Sending the buy packet anyway
+    # is what produced "bought" lines for items that never appeared.
+    required_quest = str(getattr(entry, "required_quest", "") or "").strip()
+    if required_quest and required_quest.lower() not in ("", "none", "0"):
+        try:
+            quest_id = int(required_quest)
+        except ValueError:
+            quest_id = 0
+        if quest_id and not await cmd.is_completed_before(quest_id):
+            cmd.bot.log(f"[core] {getattr(entry, 'item_name', 'the item')!r} needs "
+                        f"quest {quest_id}, which is not done; not bought.")
+            return False
+
+    if getattr(entry, "is_upgrade", False) and not cmd.get_player().is_member:
+        cmd.bot.log(f"[core] {getattr(entry, 'item_name', 'the item')!r} is "
+                    f"member-only; not bought.")
+        return False
+
+    if getattr(entry, "is_acs", False):
+        # The reference never spends AdventureCoins from a script either; saying
+        # so beats a packet the server declines.
+        cmd.bot.log(f"[core] {getattr(entry, 'item_name', 'the item')!r} costs "
+                    f"AC; leaving that purchase to the account owner.")
+        return False
+
     cost = int(getattr(entry, "cost", 0) or 0)
     if cost > 0 and not getattr(entry, "is_acs", False):
         await farm_gold(cmd, min(cost * qty, GOLD_FARM_CAP))
@@ -95,6 +124,19 @@ async def buy_item(cmd: Command, shop_id: int, item: Union[int, str],
         return False
     await cmd.buy_item(shop_id, entry.item_name, qty,
                        shop_item_id=entry.shop_item_id)
+    # The buy packet is answered a moment later, and a refusal is otherwise
+    # invisible: the log says "buying", the item never appears, and every caller
+    # reads its own True as success.  Wait (bounded) for the item itself.
+    waited = 0
+    while (cmd.is_still_connected() and waited < PURCHASE_WAIT_MS
+           and not await cmd.has_item(entry.item_name, qty)):
+        await cmd.sleep(500)
+        waited += 500
+    if not await cmd.has_item(entry.item_name, qty):
+        cmd.bot.log(f"[core] {entry.item_name!r} did not arrive after the buy "
+                    f"(shop {shop_id}); the server refused it -- check gold, the "
+                    f"entry's requirements and inventory space.")
+        return False
     return True
 
 
