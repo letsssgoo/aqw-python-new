@@ -212,6 +212,19 @@ async def hunt_item(
     if (cmd.is_in_inventory(item_name, item_qty, operator=">=") or cmd.is_in_inventory(item_name, item_qty, operator=">=", isTemp=True)):
         return
 
+    # One line saying exactly what is being farmed, where, and how much is
+    # already in hand -- every caller's log then reads the same way.
+    if is_temp:
+        found = cmd.bot.player.get_item_temp_inventory(item_name)
+    else:
+        found = cmd.bot.player.get_item_inventory(item_name)
+    held = int(getattr(found, "qty", 0) or 0)
+    where = map_name + (f"/{cell}" if cell else "")
+    if monster_name and monster_name != "*":
+        where += f" vs {monster_name}"
+    cmd.bot.log(f"[farm] {item_name} x{item_qty} @ {where} "
+                f"(held {held}/{item_qty})")
+
     cmd.add_drop(item_name)
     
     if not await _join_for_hunt(cmd, map_name, room_number, item_name):

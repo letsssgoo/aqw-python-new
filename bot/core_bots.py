@@ -220,6 +220,9 @@ async def buy_item(cmd: Command, shop_id: int, item: Union[int, str],
     wanted = _resolve_shop_item(cmd, _find_shop(cmd, shop_id), item, shop_item_id)
     if wanted is None:
         return False
+    display = getattr(wanted, "s_name", "") or wanted.item_name
+    cmd.bot.log(f"[buy] {display} x{qty} from shop "
+                f"{shop_id}" + (f" @ {map_name}" if map_name else ""))
     await cmd.buy_item(shop_id, wanted.item_name, qty,
                        shop_item_id=wanted.shop_item_id)
     return True
@@ -341,8 +344,11 @@ def find_class_item(cmd: Command, class_name: str):
     is a class.
     """
     for candidate in list(cmd.bot.player.INVENTORY) + list(cmd.bot.player.BANK):
-        if (candidate.s_name.strip().lower() == class_name.strip().lower()
-                and candidate.s_es == ItemType.CLASS.value):
+        name = (getattr(candidate, "s_name", "")
+                or getattr(candidate, "item_name", "") or "")
+        slot = getattr(candidate, "s_es", "")
+        if (str(name).strip().lower() == class_name.strip().lower()
+                and str(slot) == str(ItemType.CLASS.value)):
             return candidate
     return None
 

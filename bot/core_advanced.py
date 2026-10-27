@@ -1,4 +1,4 @@
-"""``CoreAdvanced`` -- the core that re-implements several of ``CoreBots``' names.
+﻿"""``CoreAdvanced`` -- the core that re-implements several of ``CoreBots``' names.
 
 Port of ``CoreAdvanced.cs``, and it matters *which* of the two a kit meant: the
 reference's cores do not inherit from one another (there is no
@@ -25,7 +25,8 @@ Voucher and merge-item steps).
 """
 from typing import Optional, Union
 
-from bot.core_bots import _find_shop, load_shop_entry, points_to_level
+from bot.core_bots import (_find_shop, check_class_rank, load_shop_entry,
+                           points_to_level)
 from bot.core_farms import farm_experience, farm_faction, farm_gold, icestorm_arena
 from core.command import Command, QUIET_PASSES
 
@@ -827,9 +828,21 @@ async def rank_up_class(cmd: Command, class_name: str = "", item_id: int = 0,
     if item is None and banked is not None:
         await cmd.bank_to_inv(banked.item_name)
         item = next((i for i in cmd.bot.player.INVENTORY if matches(i)), None)
+        if item is None and item_id:
+            # The class is already in the inventory: the bank move can refuse
+            # (a full stack, or the item was pulled over while it ran), and then
+            # the lookup by id is the one that still finds it.
+            item = cmd.bot.player.get_item_inventory_by_id(item_id)
         if item is None:
-            cmd.bot.log("Failed to unbank class item.")
-            return
+            item = cmd.bot.player.get_item_inventory(banked.item_name)
+        if item is not None:
+            cmd.bot.log(f"[class] {item.item_name} is in the inventory already")
+    if item is None:
+        equipped = cmd.get_equipped_class()
+        if equipped is not None and matches(equipped):
+            # Wearing it is enough to rank it -- the arena keeps the worn class.
+            item = equipped
+            cmd.bot.log(f"[class] {item.item_name} is already equipped")
     if item is None:
         cmd.bot.log(f"Can't level up "
                     f"{item_id if item_id else class_name!r} because you don't "
@@ -849,6 +862,9 @@ async def rank_up_class(cmd: Command, class_name: str = "", item_id: int = 0,
     if gear_restore:
         await gear_store(cmd)
 
+    rank_now = check_class_rank(cmd, item.item_name)
+    cmd.bot.log(f"[class] Ranking {item.item_name} (rank {rank_now} -> 10)")
+
     await smart_enhance(cmd, item.item_name)
 
     item = next((i for i in cmd.bot.player.INVENTORY if matches(i)), None)
@@ -861,6 +877,13 @@ async def rank_up_class(cmd: Command, class_name: str = "", item_id: int = 0,
         return
     if not item.is_equipped:
         await cmd.equip_item(item.item_name)
+        worn = cmd.get_equipped_class()
+        if worn is None or not matches(worn):
+            # The arena ranks whatever is worn, so entering it without the class
+            # on would rank something else and report success for the wrong one.
+            cmd.bot.log(f"[class] could not equip {item.item_name}; the arena is "
+                        f"not entered.")
+            return
 
     # The reference toggles a class boost here; this engine has no boosts.
     await icestorm_arena(cmd, cmd.get_player().LEVEL, rank_up_class=True,
