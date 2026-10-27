@@ -65,9 +65,29 @@ def function_locals(fn) -> set:
                 names.add(node.name)
             elif isinstance(node, ast.ExceptHandler) and node.name:
                 names.add(node.name)
+            elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                # a local import (tests do this inside main()) is a local name
+                for alias in node.names:
+                    names.add((alias.asname or alias.name).split(".")[0])
             elif isinstance(node, ast.arg):
                 names.add(node.arg)
     return names
+
+
+def _walk_own(node):
+    """Walk ``node`` without descending into nested functions or classes.
+
+    A nested function's *defaults* are evaluated in this scope, but they are
+    usually module constants the checker has already accounted for; descending
+    into a nested definition is what turned test helpers into false positives.
+    """
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef,
+                              ast.ClassDef)):
+            yield child
+            continue
+        yield child
+        yield from _walk_own(child)
 
 
 def main() -> int:
@@ -84,7 +104,7 @@ def main() -> int:
                    if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]:
             scope = globals_ | function_locals(fn) | BUILTINS
             for statement in fn.body:
-                for node in ast.walk(statement):
+                for node in _walk_own(statement):
                     if not isinstance(node, ast.Name):
                         continue
                     if not isinstance(node.ctx, ast.Load):
