@@ -771,7 +771,7 @@ def main() -> None:
     assert loo == [1], loo
     assert ("equip_item", "Cape of Awe") in later.calls, later.calls
     assert "Phase 3: Solo Classes & Weapon - LoO Daily" in joined, later.bot.logs
-    assert "stops after LordOfOrder" in joined, later.bot.logs
+    assert "stops after the side classes it can reach" in joined, later.bot.logs
     assert "EndGame is not ported yet" in joined, later.bot.logs
     print("later      : level 75-100 runs CoA then names its frontier")
 

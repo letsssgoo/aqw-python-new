@@ -51,6 +51,8 @@ from bot.other.classes.cryomancer import get_cryomancer
 from bot.other.classes.dragon_shinobi import get_dss
 from bot.other.classes.dragonslayer import get_dragonslayer
 from bot.other.classes.glacial_berserker import get_gb
+from bot.other.classes.northlands_monk import get_nl_monk
+from bot.other.classes.shaman import get_shaman
 from bot.other.classes.dragonslayer_general import get_ds_general
 from bot.other.classes.rep_based.master_ranger import get_mr
 from bot.other.classes.scarlet_sorceress import get_ssorc
@@ -558,7 +560,7 @@ async def level_75_to_100(cmd: Command) -> None:
 
     await complete13loc(cmd)
 
-    # --- Phase 3: the Lord of Order daily --------------------------------
+    # --- Phase 3: the Lord of Order daily ------------------------------
     cmd.bot.log("Phase 3: Solo Classes & Weapon - LoO Daily")
     await set_class(cmd)
     await get_loo(cmd)
@@ -567,11 +569,27 @@ async def level_75_to_100(cmd: Command) -> None:
     if rewards:
         await cmd.inv_to_bank(rewards)
 
+    # --- Phase 3: the solo side classes --------------------------------
+    # ``additionalClasses`` / ``getters``: FSR, Northlands Monk, Shaman.  Each one
+    # is attempted once when it is missing, and reported as unavailable when it
+    # still is -- the reference's own "seasonal / unavailable" branch.
+    for class_name, getter in (("Northlands Monk", get_nl_monk),
+                               ("Shaman", get_shaman)):
+        if not await cmd.has_item(class_name):
+            cmd.bot.log(f"{class_name} not owned - attempting acquisition.")
+            await set_class(cmd)
+            await getter(cmd)
+            if not await cmd.has_item(class_name):
+                cmd.bot.log(f"{class_name} unavailable - skipping.")
+                continue
+        await set_class(cmd)
+
     report_once(cmd, "lvl75",
-                "Level75to100 stops after LordOfOrder: the next steps are Frost "
-                "Spirit Reaver/Northlands Monk/Shaman, the forge set, "
-                "CelestialArena+BurningBladeOfAbezeth, CoreYnR, KingsEcho and "
-                "ShadowrealmMerge -- none of them ported yet.")
+                "Level75to100 stops after the side classes it can reach: "
+                "FrostSpiritReaver needs Core.Relogin inside its GlaceraREP step "
+                "(no counterpart yet), and Praxis needs CoreYnR.Yami. After those "
+                "come the forge set, CelestialArena+BurningBladeOfAbezeth, "
+                "CoreYnR, KingsEcho and ShadowrealmMerge.")
 
 
 async def end_game(cmd: Command) -> None:
