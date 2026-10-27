@@ -10,6 +10,8 @@ here consumes them.
 from bot.core_bots import buy_item
 from bot.other.gear_of_awe.core_awe import AWE_SHOP, AWE_SHOP_MAP, get_awe_relic
 from core.command import Command
+from bot.script_log import ScriptLog
+TAG = "Cape of Awe"
 
 CAPE = "Cape of Awe"
 #: ``Awe.GetAweRelic("Cape", 4178, 1, 1, "doomvault", "Binky")``.
@@ -33,3 +35,11 @@ async def get_coa(cmd: Command) -> None:
 
 async def main(cmd: Command):
     await get_coa(cmd)
+
+
+if __name__ == "__main__":
+    # Runs this script on its own account, the way
+    # ``bot/enhancements/valiance.py`` does.
+    from bot.standalone import run_standalone
+
+    run_standalone(main)

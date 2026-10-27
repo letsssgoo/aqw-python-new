@@ -25,6 +25,8 @@ from bot.other.classes.paladin import get_paladin
 from bot.story.xans_lair import do_all as xans_lair_do_all
 from core.command import Command
 from templates.hunt import hunt_item
+from bot.script_log import ScriptLog
+TAG = "ArchPaladin"
 
 ARCH_PALADIN = "ArchPaladin"
 #: ``Core.CheckInventory(36920)`` -- the class item, bought at the end.
@@ -285,3 +287,11 @@ async def get_ap(cmd: Command, rank_up_class: bool = True,
 
 async def main(cmd: Command):
     await get_ap(cmd)
+
+
+if __name__ == "__main__":
+    # Runs this script on its own account, the way
+    # ``bot/enhancements/valiance.py`` does.
+    from bot.standalone import run_standalone
+
+    run_standalone(main)

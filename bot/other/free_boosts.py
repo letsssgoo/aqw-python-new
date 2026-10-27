@@ -16,6 +16,8 @@ still demand the item exists, and the loop would never end.
 """
 from bot.core_bots import equip_class, hunt_monster_quest
 from core.command import Command
+from bot.script_log import ScriptLog
+TAG = "Free Boosts"
 
 GOLD_BOOST = "GOLD Boost! (10 min)"
 CLASS_BOOST = "CLASS Boost! (10 min)"
@@ -38,7 +40,7 @@ async def get_boosts_select(cmd: Command, gold_quant: int = 9999,
         rep_quant (int): How many REPUTATION boosts to end up with.
     """
     cmd.add_drop([GOLD_BOOST, CLASS_BOOST, REP_BOOST])
-    cmd.bot.log("RNG Quest Rewards: drops are randomly received, and may take a "
+    ScriptLog(cmd, TAG).info("RNG Quest Rewards: drops are randomly received, and may take a "
                 "while... be prepared if quantities are high.")
 
     # A quantity of 0 means "I do not want this one" -- the caller
@@ -62,3 +64,11 @@ async def get_boosts_select(cmd: Command, gold_quant: int = 9999,
 
 async def main(cmd: Command):
     await get_boosts_select(cmd)
+
+
+if __name__ == "__main__":
+    # Runs this script on its own account, the way
+    # ``bot/enhancements/valiance.py`` does.
+    from bot.standalone import run_standalone
+
+    run_standalone(main)

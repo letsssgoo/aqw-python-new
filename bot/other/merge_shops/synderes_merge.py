@@ -13,6 +13,8 @@ from bot.core_advanced import buy_item, start_buy_all_merge
 from bot.core_bots import equip_class, register_quests
 from core.command import Command
 from templates.hunt import hunt_item
+from bot.script_log import ScriptLog
+TAG = "SynderesMerge"
 
 SYNDERES_MAP = "enemyforest"
 SYNDERES_SHOP = 332
@@ -27,7 +29,7 @@ async def find_ingredients(cmd: Command, item_id: int, name: str,
                            qty: int) -> None:
     """The merge script's own ``findIngredients`` for ``item_id``/``name``."""
     if name != SOUVENIR:
-        cmd.bot.log(f"The bot hasn't been taught how to get {name}.")
+        ScriptLog(cmd, TAG).info(f"The bot hasn't been taught how to get {name}.")
         return
 
     cmd.farming_logger(name, qty)
@@ -60,3 +62,11 @@ async def no_bots_armor(cmd: Command) -> None:
 
 async def main(cmd: Command):
     await buy_all_merge(cmd)
+
+
+if __name__ == "__main__":
+    # Runs this script on its own account, the way
+    # ``bot/enhancements/valiance.py`` does.
+    from bot.standalone import run_standalone
+
+    run_standalone(main)

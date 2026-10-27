@@ -25,6 +25,8 @@ from bot.other.merge_shops.twilight_zone_merge import twilight_zone_merge
 from bot.other.merge_shops.undine_commissary_merge import undine_commissary_merge
 from core.command import Command
 from templates.hunt import hunt_item
+from bot.script_log import ScriptLog
+TAG = "Kathool Adept Prereqs"
 
 #: The class the prerequisite unlocks, and the boss that hands it over.
 CLASS = "Adeptus Kathooli"
@@ -55,17 +57,17 @@ async def kathool_adept_prerequisite(cmd: Command,
             unused, exactly as the source leaves it.
     """
     if await cmd.has_item(CLASS):
-        cmd.bot.log(f'Prerequisites already in inventory ({CLASS})')
+        ScriptLog(cmd, TAG).success(f'Prerequisites already in inventory ({CLASS})')
         return
 
     if all([await cmd.has_item(item) for item in (
             "Ashray Villager", "Undine Defence Director",
             "Evacuation Protocol Suit", "Elven Heritage Guardian",
             "Ashray Elf Warden", "DeepWater Drow", GLAUCUS, ACOLYTE[0])]):
-        cmd.bot.log("Prerequisites already in inventory (Method 1)")
+        ScriptLog(cmd, TAG).success("Prerequisites already in inventory (Method 1)")
         return
 
-    cmd.bot.log("Farming Prerequisites")
+    ScriptLog(cmd, TAG).info("Farming Prerequisites")
 
     for item, merge in MERGE_STEPS:
         await merge(cmd, buy_only_this=item)
@@ -89,3 +91,11 @@ async def main(cmd: Command):
     await kathool_adept_prerequisite(cmd)
     await fishing_rep(cmd)
     await somnia_rep(cmd)
+
+
+if __name__ == "__main__":
+    # Runs this script on its own account, the way
+    # ``bot/enhancements/valiance.py`` does.
+    from bot.standalone import run_standalone
+
+    run_standalone(main)

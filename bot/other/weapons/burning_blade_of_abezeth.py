@@ -13,6 +13,8 @@ from bot.core_bots import equip_class
 from bot.story.queen_of_monsters.celestial_arena import do_all as arena_do_all
 from core.command import Command
 from templates.hunt import hunt_item
+from bot.script_log import ScriptLog
+TAG = "Burning Blade"
 
 BBOA = "Burning Blade Of Abezeth"
 SHOP_MAP = "celestialarena"
@@ -42,3 +44,11 @@ async def get_bboa(cmd: Command) -> None:
 
 async def main(cmd: Command):
     await get_bboa(cmd)
+
+
+if __name__ == "__main__":
+    # Runs this script on its own account, the way
+    # ``bot/enhancements/valiance.py`` does.
+    from bot.standalone import run_standalone
+
+    run_standalone(main)

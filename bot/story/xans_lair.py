@@ -7,6 +7,8 @@ XanTown quests because that map is aggro; the same jump is kept.
 from bot.core_story import kill_quest, map_item_quest, quest_progression, CustomError
 from core.command import Command
 from templates.hunt import hunt_item
+from bot.script_log import ScriptLog
+TAG = "Xan's Lair"
 
 XANTOWN_SAFE_CELL = "r12"
 
@@ -139,3 +141,11 @@ async def do_all(cmd: Command) -> None:
 
 async def main(cmd: Command):
     await do_all(cmd)
+
+
+if __name__ == "__main__":
+    # Runs this script on its own account, the way
+    # ``bot/enhancements/valiance.py`` does.
+    from bot.standalone import run_standalone
+
+    run_standalone(main)

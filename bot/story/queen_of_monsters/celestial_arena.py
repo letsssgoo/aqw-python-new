@@ -14,6 +14,8 @@ from bot.core_advanced import gear_store
 from bot.core_bots import equip_class
 from bot.core_story import kill_quest
 from core.command import Command
+from bot.script_log import ScriptLog
+TAG = "Celestial Arena"
 
 ARENA_B = "celestialarenab"
 ARENA_C = "celestialarenac"
@@ -88,3 +90,11 @@ async def do_all(cmd: Command) -> None:
 
 async def main(cmd: Command):
     await do_all(cmd)
+
+
+if __name__ == "__main__":
+    # Runs this script on its own account, the way
+    # ``bot/enhancements/valiance.py`` does.
+    from bot.standalone import run_standalone
+
+    run_standalone(main)

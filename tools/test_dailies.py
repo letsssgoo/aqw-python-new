@@ -1,4 +1,4 @@
-﻿"""``CoreDailies``: the helpers' contract and the not-ported list.
+"""``CoreDailies``: the helpers' contract and the not-ported list.
 
     python tools/test_dailies.py
 

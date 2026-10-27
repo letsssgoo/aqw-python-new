@@ -7,6 +7,8 @@ from bot.core_bots import equip_class
 from bot.core_story import CustomError, kill_quest, quest_progression
 from core.command import Command
 from templates.hunt import hunt_item
+from bot.script_log import ScriptLog
+TAG = "Mazumi"
 
 MAZUMI_LAST = 92
 MAZUMI_MAP = "greenguardwest"
@@ -61,3 +63,11 @@ async def mazumi_quests(cmd: Command) -> None:
 
 async def main(cmd: Command):
     await mazumi_quests(cmd)
+
+
+if __name__ == "__main__":
+    # Runs this script on its own account, the way
+    # ``bot/enhancements/valiance.py`` does.
+    from bot.standalone import run_standalone
+
+    run_standalone(main)

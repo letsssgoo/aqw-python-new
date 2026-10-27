@@ -595,15 +595,18 @@ async def elders_blood(cmd: Command) -> None:
 
 async def sparrows_blood(cmd: Command, quant: int = 3) -> None:
     """``CoreDailies.SparrowsBlood``: quest 803 in /arcangrove."""
-    if not await check_dailyv2(cmd, 803, any_item=False,
-                               items=("Sparrow's Blood",)):
+    item = "Sparrow's Blood"
+    if not await check_dailyv2(cmd, 803, any_item=False, items=(item,)):
         return
-    if await cmd.has_item("Sparrow's Blood", 3):
-        cmd.bot.log("You've maxed out Sparrow's Blood [3]")
+    if await cmd.has_item(item, 3):
+        cmd.bot.log(f"You've maxed out {item} [3]")
         return
-    if await cmd.has_item("Sparrow's Blood", quant):
-        cmd.bot.log(f"You already have enough Sparrow's Blood "
-                    f"({_qty(cmd, 'Sparrow\'s Blood')}/{quant}). Skipped")
+    if await cmd.has_item(item, quant):
+        # The item name is a variable, not a literal inside the f-string: a
+        # backslash in an f-string *expression* is only legal from Python 3.12,
+        # and a 3.11 host refused to import this module over exactly that.
+        cmd.bot.log(f"You already have enough {item} "
+                    f"({_qty(cmd, item)}/{quant}). Skipped")
         return
 
     cmd.bot.log("Daily: Sparrow's Blood")

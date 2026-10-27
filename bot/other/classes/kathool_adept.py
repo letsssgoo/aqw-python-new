@@ -31,6 +31,8 @@ from bot.other.merge_shops.undine_commissary_merge import undine_commissary_merg
 from bot.story.age_of_ruin.core_aor import sea_voice
 from core.command import Command
 from templates.hunt import hunt_item
+from bot.script_log import ScriptLog
+TAG = "Kathool Adept"
 
 CLASS = "Kathool Adept"
 #: ``Core.CheckInventory(104429, toInv: false)`` -- the class item itself.
@@ -87,7 +89,7 @@ async def accept_quest(cmd: Command, quest_id: int) -> bool:
     await cmd.ensure_accept_quest(quest_id)
     if cmd.quest_in_progress(quest_id):
         return True
-    cmd.bot.log(f"Quest {quest_id} was not accepted. Check its requirements.")
+    ScriptLog(cmd, TAG).warning(f"Quest {quest_id} was not accepted. Check its requirements.")
     return False
 
 
@@ -136,14 +138,14 @@ async def bottom_feeder(cmd: Command) -> bool:
 
     for armor in REQUIRED_ARMORS:
         if not await cmd.has_item(armor):
-            cmd.bot.log(f"Required armor is missing from inventory: {armor}.")
+            ScriptLog(cmd, TAG).warning(f"Required armor is missing from inventory: {armor}.")
             return False
 
     await somnia_rep(cmd)
     if not cmd.is_still_connected():
         return False
     if cmd.get_faction_rank("Somnia") < 10:
-        cmd.bot.log("Bottom Feeder requires rank 10 Somnia.")
+        ScriptLog(cmd, TAG).warning("Bottom Feeder requires rank 10 Somnia.")
         return False
 
     await fishing_rep(cmd)
@@ -153,8 +155,8 @@ async def bottom_feeder(cmd: Command) -> bool:
     # the catch frames' own rep is *not* added on top of it.
     fishing = cmd.get_faction_rank("Fishing")
     if fishing < 10:
-        cmd.bot.log("Johnnyfish requires rank 10 Fishing.")
-        cmd.bot.log(f"[kathool] the server reports Fishing rank {fishing}; the "
+        ScriptLog(cmd, TAG).warning("Johnnyfish requires rank 10 Fishing.")
+        ScriptLog(cmd, TAG).info(f"[kathool] the server reports Fishing rank {fishing}; the "
                     f"shop will refuse the purchase until it reaches 10.")
         return False
 
@@ -167,7 +169,7 @@ async def bottom_feeder(cmd: Command) -> bool:
     # real buy apart from a refused one.
     await wait_for_item(cmd, JOHNNYFISH)
     if not await cmd.has_item(JOHNNYFISH):
-        cmd.bot.log("Johnnyfish is missing from inventory.")
+        ScriptLog(cmd, TAG).warning("Johnnyfish is missing from inventory.")
         return False
 
     await cmd.join_map(CLASS_MAP)
@@ -180,7 +182,7 @@ async def bottom_feeder(cmd: Command) -> bool:
     if not cmd.is_still_connected():
         return False
     if not await cmd.has_item(MORSEL, MORSEL_QUANT):
-        cmd.bot.log(f"Bottom Feeder requires {MORSEL_QUANT} Kultist morsels in "
+        ScriptLog(cmd, TAG).warning(f"Bottom Feeder requires {MORSEL_QUANT} Kultist morsels in "
                     f"inventory.")
         return False
 
@@ -192,11 +194,11 @@ async def bottom_feeder(cmd: Command) -> bool:
 async def get_class(cmd: Command) -> None:
     """``KathoolAdept.GetClass``: the sage, the unlock, then quest 10920."""
     if owns_class(cmd):
-        cmd.bot.log("Kathool Adept is already owned.")
+        ScriptLog(cmd, TAG).success("Kathool Adept is already owned.")
         return
 
     if (cmd.get_player().LEVEL or 0) < CLASS_LEVEL:
-        cmd.bot.log(f"Kathool Adept requires level {CLASS_LEVEL}.")
+        ScriptLog(cmd, TAG).warning(f"Kathool Adept requires level {CLASS_LEVEL}.")
         return
 
     await sea_voice(cmd)
@@ -204,7 +206,7 @@ async def get_class(cmd: Command) -> None:
         return
 
     if not await cmd.is_completed_before(SAGA_LAST_QUEST):
-        cmd.bot.log("Voice in the Sea saga completion was not confirmed. Class "
+        ScriptLog(cmd, TAG).info("Voice in the Sea saga completion was not confirmed. Class "
                     "quests will not start.")
         return
 
@@ -215,7 +217,7 @@ async def get_class(cmd: Command) -> None:
     # stand-in; both unlock paths advance the same slot.
     if not await cmd.is_completed_before(CLASS_QUEST):
         if await cmd.has_item(SHORTCUT_ITEM):
-            cmd.bot.log("Using the owned Adeptus Kathooli shortcut.")
+            ScriptLog(cmd, TAG).info("Using the owned Adeptus Kathooli shortcut.")
             if not await accept_quest(cmd, SHORTCUT_QUEST):
                 return
             if await cmd.ensure_turn_in_quest(SHORTCUT_QUEST) is False:
@@ -233,7 +235,7 @@ async def get_class(cmd: Command) -> None:
     if not cmd.is_still_connected():
         return
     if cmd.bot.player.get_item_temp_inventory_by_id(CONSUMED_ITEM) is None:
-        cmd.bot.log("The Mad Morsel quest drop was not obtained.")
+        ScriptLog(cmd, TAG).success("The Mad Morsel quest drop was not obtained.")
         return
 
     if await cmd.ensure_turn_in_quest(CLASS_QUEST, CLASS_ITEM) is False:
@@ -243,11 +245,19 @@ async def get_class(cmd: Command) -> None:
     if not cmd.is_still_connected():
         return
     if await cmd.has_item(CLASS):
-        cmd.bot.log("Kathool Adept obtained.")
+        ScriptLog(cmd, TAG).success("Kathool Adept obtained.")
     else:
-        cmd.bot.log("The Kathool Adept reward was not received. Check the quest "
+        ScriptLog(cmd, TAG).info("The Kathool Adept reward was not received. Check the quest "
                     "and inventory space.")
 
 
 async def main(cmd: Command):
     await get_class(cmd)
+
+
+if __name__ == "__main__":
+    # Runs this script on its own account, the way
+    # ``bot/enhancements/valiance.py`` does.
+    from bot.standalone import run_standalone
+
+    run_standalone(main)

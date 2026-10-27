@@ -16,6 +16,8 @@ from bot.core_bots import buy_item, equip_class, wait_for_item
 from bot.core_farms import blade_of_awe_rep, farm_experience
 from core.command import Command
 from templates.hunt import hunt_item
+from bot.script_log import ScriptLog
+TAG = "CoreAwe"
 
 #: ``Core.BuyItem("tower", 53, 29403, shopItemID: 18569)`` -- the member pass.
 PASS_SHOP = 53
@@ -85,7 +87,7 @@ async def get_awe_relic(cmd: Command, item: str, legend_quest: int,
     while (cmd.is_still_connected()
            and not await cmd.has_item(fragment, fragment_amount)):
         if await cmd.ensure_accept_quest(quest_id) is False:
-            cmd.bot.log(f"[awe] quest {quest_id} could not be accepted; "
+            ScriptLog(cmd, TAG).warning(f"[awe] quest {quest_id} could not be accepted; "
                         f'"{fragment}" x{fragment_amount} is not farmable.')
             return
 
@@ -110,3 +112,11 @@ async def get_awe_relic(cmd: Command, item: str, legend_quest: int,
 
 async def main(cmd: Command):
     await get_awe_relic(cmd, "Cape", 4178, 1, 1, "doomvault", "Binky")
+
+
+if __name__ == "__main__":
+    # Runs this script on its own account, the way
+    # ``bot/enhancements/valiance.py`` does.
+    from bot.standalone import run_standalone
+
+    run_standalone(main)
