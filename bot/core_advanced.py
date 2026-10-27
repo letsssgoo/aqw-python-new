@@ -34,7 +34,7 @@ from core.command import Command, QUIET_PASSES
 GOLD_FARM_CAP = 100_000_000
 
 
-async def meet_shop_requirements(cmd: Command, entry, qty: int = 1) -> None:
+async def meet_shop_requirements(cmd: Command, entry, qty: int = 1) -> bool:
     """``CoreAdvanced.GetItemReq``: farm what a shop entry needs before buying.
 
     The reference runs this inside ``_BuyItem``, and it is what makes
@@ -42,8 +42,13 @@ async def meet_shop_requirements(cmd: Command, entry, qty: int = 1) -> None:
     then player level, then gold.  Its Gold Voucher and merge-item steps belong to
     ``StartBuyAllMerge``'s dependency walk, which is not ported.
 
-    A faction this engine has no farm for is reported by ``farm_faction`` rather
-    than quietly skipped -- the purchase would fail at the server either way.
+    A faction this engine has no farm for is reported by ``farm_faction`` and the
+    purchase is **refused** here: letting it through only asks the server for
+    something it will silently decline, which reads in a log like a successful
+    buy that never arrived.
+
+    Returns:
+        bool: True when every requirement is met, False when one cannot be.
     """
     faction = str(getattr(entry, "required_faction", "None") or "None").strip()
     required_rep = int(getattr(entry, "required_rep", 0) or 0)
@@ -52,7 +57,11 @@ async def meet_shop_requirements(cmd: Command, entry, qty: int = 1) -> None:
         if rank > cmd.get_faction_rank(faction):
             cmd.bot.log(f"Farming reputation for {faction} "
                         f"(Required: {required_rep})")
-            await farm_faction(cmd, faction, rank)
+            if not await farm_faction(cmd, faction, rank):
+                cmd.bot.log(
+                    f"[core] {faction} reputation cannot be farmed here, so "
+                    f"{getattr(entry, 'item_name', 'the item')!r} is not bought.")
+                return False
 
     required_level = int(getattr(entry, "level", 0) or 0)
     if required_level > (cmd.get_player().LEVEL or 0):
@@ -62,6 +71,8 @@ async def meet_shop_requirements(cmd: Command, entry, qty: int = 1) -> None:
     cost = int(getattr(entry, "cost", 0) or 0)
     if cost > 0 and not getattr(entry, "is_acs", False):
         await farm_gold(cmd, min(cost * qty, GOLD_FARM_CAP))
+
+    return True
 
 
 async def buy_item(cmd: Command, shop_id: int, item: Union[int, str],
@@ -80,7 +91,8 @@ async def buy_item(cmd: Command, shop_id: int, item: Union[int, str],
     if entry is None:
         return False
 
-    await meet_shop_requirements(cmd, entry, qty)
+    if not await meet_shop_requirements(cmd, entry, qty):
+        return False
     await cmd.buy_item(shop_id, entry.item_name, qty,
                        shop_item_id=entry.shop_item_id)
     return True

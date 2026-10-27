@@ -1,4 +1,4 @@
-"""Gold, experience and reputation farms: guards, bands and wiring.
+﻿"""Gold, experience and reputation farms: guards, bands and wiring.
 
     python tools/test_farm.py
 
@@ -674,11 +674,12 @@ def main() -> None:
 
     # --- the dispatcher -------------------------------------------------
     unknown = Stub()
-    assert asyncio.run(farm_faction(unknown, "Arcangrove", 10)) is False
+    assert asyncio.run(farm_faction(unknown, "Loremaster", 10)) is False
     assert unknown.calls == [], unknown.calls          # reported, never farmed
     assert set(FACTION_FARMS) == {"Good", "Vampire", "Yokai", "Evil",
                                   "ChronoSpan", "CraggleRock", "Sandsea",
-                                  "Somnia", "Glacera", "SpellCrafting"}, \
+                                  "Somnia", "Glacera", "SpellCrafting",
+                                  "Arcangrove"}, \
         sorted(FACTION_FARMS)
     known = Stub(vampire_rank=10)
     assert asyncio.run(farm_faction(known, "Vampire", 10)) is True

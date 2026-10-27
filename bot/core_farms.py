@@ -1289,6 +1289,46 @@ async def spellcrafting_rep(cmd: Command, rank: int = 10) -> None:
             await cmd.sell_item(ink, held)
 
 
+# ---------------------------------------------------------------------------
+# Arcangrove
+# ---------------------------------------------------------------------------
+ARCANGROVE = "Arcangrove"
+ARCANGROVE_MAP = "arcangrove"
+#: The eight rep quests the reference registers at once.
+ARCANGROVE_QUESTS = (794, 795, 796, 797, 798, 799, 800, 801)
+#: ``KillMonster("arcangrove", cell, "Left", "*")`` -- the two kill cells.
+ARCANGROVE_CELLS = ("LeftBack", "RightBack")
+#: Ten kills per cell per pass, as the source's own loop does.
+ARCANGROVE_KILLS = 10
+
+
+async def arcangrove_rep(cmd: Command, rank: int = 10) -> None:
+    """``CoreFarms.ArcangroveREP``: the eight quests plus the two kill cells.
+
+    The reference toggles a reputation boost around this; this engine has no
+    boosts, so that part is left out (as in every other rep farm here).
+    """
+    if cmd.get_faction_rank(ARCANGROVE) >= rank:
+        return
+
+    await equip_class(cmd)
+    saved_state(cmd, True, ARCANGROVE_MAP)
+    cmd.bot.log(f"Farming {ARCANGROVE} rank {rank}")
+
+    for quest_id in ARCANGROVE_QUESTS:
+        await cmd.register_quest(quest_id)
+    while (cmd.is_still_connected()
+           and cmd.get_faction_rank(ARCANGROVE) < rank):
+        for cell in ARCANGROVE_CELLS:
+            for _ in range(ARCANGROVE_KILLS):
+                await kill_once(cmd, ARCANGROVE_MAP, cell, "Left", "*")
+        if check_save_state(cmd):
+            await execute_save_state(cmd)
+    cmd.cancel_registered_quests()
+    saved_state(cmd, False)
+
+
+
 #: Faction name -> the ported method, mirroring ``CoreFarms.<Name>REP``.
 FACTION_FARMS = {
     "Good": good_rep,
@@ -1301,6 +1341,7 @@ FACTION_FARMS = {
     "CraggleRock": craggle_rock_rep,
     "Glacera": glacera_rep,
     "SpellCrafting": spellcrafting_rep,
+    "Arcangrove": arcangrove_rep,
 }
 
 async def farm_faction(cmd: Command, faction: str, rank: int = 10) -> bool:
