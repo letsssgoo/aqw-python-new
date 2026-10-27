@@ -1551,6 +1551,214 @@ async def horc_rep(cmd: Command, rank: int = 10) -> None:
 
 
 
+# ---------------------------------------------------------------------------
+# The second REP batch
+# ---------------------------------------------------------------------------
+SWORDHAVEN = "Swordhaven"
+SWORDHAVEN_MAP = "castle"
+SWORDHAVEN_QUESTS = (3065, 3066, 3067, 3070, 3085, 3086, 3087)
+#: ``(monster, item, qty)`` -- the source's ten hunts, in order.
+SWORDHAVEN_HUNTS = (("Castle Spider", "Eradicated Arachnid", 10),
+                    ("Castle Spider", "Castle Spider Silk", 8),
+                    ("Castle Spider", "Castle Spider Silk Yarn", 2),
+                    ("Castle Wraith", "Castle Wraith Defeated", 10),
+                    ("Castle Wraith", "Jarred Wraith", 5),
+                    ("Castle Wraith", "Castle Wraith Wool", 2),
+                    ("Gargoyle", "Stony Plating", 6),
+                    ("Gargoyle", "Gargoyle Gems", 2),
+                    ("Dungeon Fiend", "Dungeon Fiend Hair Bow", 5),
+                    ("Dungeon Fiend", "Dungeon Fiend Bow Tie", 5),
+                    ("Dungeon Fiend", "Dungeon Fiend Textiles", 2))
+
+
+async def swordhaven_rep(cmd: Command, rank: int = 10) -> None:
+    """``CoreFarms.SwordhavenREP``: the seven castle quests at once."""
+    if cmd.get_faction_rank(SWORDHAVEN) >= rank:
+        return
+
+    await equip_class(cmd)
+    saved_state(cmd, True, SWORDHAVEN_MAP)
+    cmd.bot.log(f"Farming rank {rank}")
+
+    async def pass_() -> None:
+        for quest_id in SWORDHAVEN_QUESTS:
+            await cmd.ensure_accept_quest(quest_id)
+        for monster, item, qty in SWORDHAVEN_HUNTS:
+            await hunt_item(cmd, item, qty, SWORDHAVEN_MAP,
+                            monster_name=monster)
+        for quest_id in SWORDHAVEN_QUESTS:
+            await cmd.ensure_turn_in_quest(quest_id)
+
+    await _rep_loop(cmd, SWORDHAVEN, rank, pass_)
+    cmd.cancel_registered_quests()
+    saved_state(cmd, False)
+
+
+TROLL = "Troll"
+TROLL_QUEST = 1263
+TROLL_MAP = "bloodtuskwar"
+#: Same three drops as HorcREP, under quest 1263.
+TROLL_DROPS = (("Chaotic Lemurphant", "Chaorrupted Eye", 3),
+               ("Chaotic Horcboar", "Chaorrupted Tentacle", 5),
+               ("Chaotic Chinchilizard", "Chaorrupted Tusk", 5))
+
+
+async def troll_rep(cmd: Command, rank: int = 10) -> None:
+    """``CoreFarms.TrollREP``: quest 1263 in /bloodtuskwar, per pass."""
+    if cmd.get_faction_rank(TROLL) >= rank:
+        return
+
+    await equip_class(cmd)
+    saved_state(cmd, True, TROLL_MAP)
+    cmd.bot.log(f"Farming rank {rank}")
+
+    async def pass_() -> None:
+        await cmd.ensure_accept_quest(TROLL_QUEST)
+        for monster, item, qty in TROLL_DROPS:
+            await hunt_item(cmd, item, qty, TROLL_MAP, monster_name=monster)
+        await cmd.ensure_turn_in_quest(TROLL_QUEST)
+
+    await _rep_loop(cmd, TROLL, rank, pass_)
+    saved_state(cmd, False)
+
+
+RAVENLOSS = "Ravenloss"
+RAVENLOSS_QUEST = 3445
+RAVENLOSS_MAP = "twilightedge"
+
+
+async def ravenloss_rep(cmd: Command, rank: int = 10) -> None:
+    """``CoreFarms.RavenlossREP``: quest 3445 in /twilightedge.
+
+    ``Bot.Quests.IsAvailable(3445)`` is the story gate; the port asks the accept
+    probe, which is the same question the server answers.
+    """
+    if cmd.get_faction_rank(RAVENLOSS) >= rank:
+        return
+
+    await equip_class(cmd)
+    saved_state(cmd, True, RAVENLOSS_MAP)
+    cmd.bot.log(f"Farming rank {rank}")
+
+    if await cmd.ensure_accept_quest(RAVENLOSS_QUEST) is False:
+        cmd.bot.log('Quest Locked Run: "Story/RavenlossSaga.cs"')
+        saved_state(cmd, False)
+        return
+    await cmd.register_quest(RAVENLOSS_QUEST)
+
+    async def hunt() -> None:
+        await hunt_item(cmd, "ChaosWeaver Slain", 10, RAVENLOSS_MAP,
+                        monster_name="ChaosWeaver Mage")
+
+    await _rep_loop(cmd, RAVENLOSS, rank, hunt)
+    cmd.cancel_registered_quests()
+    saved_state(cmd, False)
+
+
+NECRO_CRYPT = "Necro Crypt"
+NECRO_CRYPT_QUEST = 3048
+NECRO_CRYPT_MAP = "castleundead"
+
+
+async def necro_crypt_rep(cmd: Command, rank: int = 10) -> None:
+    """``CoreFarms.NecroCryptREP``: quest 3048 in /castleundead."""
+    if cmd.get_faction_rank(NECRO_CRYPT) >= rank:
+        return
+
+    await equip_class(cmd)
+    saved_state(cmd, True, NECRO_CRYPT_MAP)
+    cmd.bot.log(f"Farming rank {rank}")
+
+    await cmd.register_quest(NECRO_CRYPT_QUEST)
+
+    async def hunt() -> None:
+        await hunt_item(cmd, "Old Bone", 25, NECRO_CRYPT_MAP,
+                        monster_name="Skeletal Viking")
+
+    await _rep_loop(cmd, NECRO_CRYPT, rank, hunt)
+    await wait_for_item(cmd, "Old Bone")
+    cmd.cancel_registered_quests()
+    saved_state(cmd, False)
+
+
+ETHERSTORM = "Etherstorm"
+ETHERSTORM_QUEST = 3494
+ETHERSTORM_MAP = "waterstorm"
+ETHERSTORM_CELL = ("r5", "Left")
+
+
+async def etherstorm_rep(cmd: Command, rank: int = 10) -> None:
+    """``CoreFarms.EtherStormREP``: quest 3494, killing /waterstorm r5/Left."""
+    if cmd.get_faction_rank(ETHERSTORM) >= rank:
+        return
+
+    await equip_class(cmd)
+    saved_state(cmd, True, "etherwardes")
+    cmd.bot.log(f"Farming rank {rank}")
+
+    await cmd.register_quest(ETHERSTORM_QUEST)
+
+    async def kill() -> None:
+        await kill_once(cmd, ETHERSTORM_MAP, ETHERSTORM_CELL[0],
+                        ETHERSTORM_CELL[1], "*")
+
+    await _rep_loop(cmd, ETHERSTORM, rank, kill)
+    saved_state(cmd, False)
+
+
+THUNDERFORGE = "ThunderForge"
+THUNDERFORGE_GATE_QUEST = 2733
+THUNDERFORGE_MAP = "deathpits"
+#: Member path: four quests, killing Darkblood.
+THUNDERFORGE_MEMBER_QUESTS = (2734, 2735, 2736, 2737)
+#: Free path: two quests, one drop from Wrathful Vestis.
+THUNDERFORGE_FREE_QUESTS = (2733, 2734)
+
+
+async def thunderforge_rep(cmd: Command, rank: int = 10) -> None:
+    """``CoreFarms.ThunderForgeREP``: two routes, by membership.
+
+    ``IsAvailable(2733)`` is the "finish the ThunderForge saga" gate; the accept
+    probe stands in for it, and the source's own line is logged when it fails.
+    """
+    if cmd.get_faction_rank(THUNDERFORGE) >= rank:
+        return
+
+    saved_state(cmd, True, THUNDERFORGE_MAP)
+    cmd.bot.log(f"Farming rank {rank}")
+
+    if cmd.get_player().is_member:
+        await equip_class(cmd)
+        for quest_id in THUNDERFORGE_MEMBER_QUESTS:
+            await cmd.register_quest(quest_id)
+
+        async def member_pass() -> None:
+            await hunt_item(cmd, "Rotting Darkblood Slain", 1,
+                            THUNDERFORGE_MAP,
+                            monster_name="Rotting Darkblood")
+
+        await _rep_loop(cmd, THUNDERFORGE, rank, member_pass)
+    else:
+        await equip_class(cmd, solo=True)
+        if await cmd.ensure_accept_quest(THUNDERFORGE_GATE_QUEST) is False:
+            cmd.bot.log("Quest not avaible for farm, do ThunderForge saga till "
+                        "Deathpits [The Chaos Eye of Vestis]")
+            saved_state(cmd, False)
+            return
+        for quest_id in THUNDERFORGE_FREE_QUESTS:
+            await cmd.register_quest(quest_id)
+
+        async def free_pass() -> None:
+            await hunt_item(cmd, "Vestis's Chaos Eye", 1, THUNDERFORGE_MAP,
+                            monster_name="Wrathful Vestis")
+
+        await _rep_loop(cmd, THUNDERFORGE, rank, free_pass)
+
+    cmd.cancel_registered_quests()
+    saved_state(cmd, False)
+
+
+
 #: Faction name -> the ported method, mirroring ``CoreFarms.<Name>REP``.
 FACTION_FARMS = {
     "Good": good_rep,
@@ -1570,6 +1778,12 @@ FACTION_FARMS = {
     "Dwarfhold": dwarfhold_rep,
     "Lycan": lycan_rep,
     "Horc": horc_rep,
+    "Swordhaven": swordhaven_rep,
+    "Troll": troll_rep,
+    "Ravenloss": ravenloss_rep,
+    "Necro Crypt": necro_crypt_rep,
+    "Etherstorm": etherstorm_rep,
+    "ThunderForge": thunderforge_rep,
 }
 
 async def farm_faction(cmd: Command, faction: str, rank: int = 10) -> bool:

@@ -683,7 +683,10 @@ def main() -> None:
                                   "ChronoSpan", "CraggleRock", "Sandsea",
                                   "Somnia", "Glacera", "SpellCrafting",
                                   "Arcangrove", "Mythsong", "DoomWood",
-                                  "Embersea", "Dwarfhold", "Lycan", "Horc"}, \
+                                  "Embersea", "Dwarfhold", "Lycan", "Horc",
+                                  "Swordhaven", "Troll", "Ravenloss",
+                                  "Necro Crypt", "Etherstorm",
+                                  "ThunderForge"}, \
         sorted(FACTION_FARMS)
     known = Stub(vampire_rank=10)
     assert asyncio.run(farm_faction(known, "Vampire", 10)) is True
