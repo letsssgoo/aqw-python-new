@@ -2651,6 +2651,57 @@ try:
 finally:
     restore(dsg, leaf)
 
+# --- "Missing Badge" -------------------------------------------------------
+# A turn-in the server refuses with "Missing Badge" cannot succeed by farming:
+# the badge is a web or achievement reward.  The old loop asked again on every
+# attempt (and the auto turn-in loop every two seconds), which is the
+# ``ccqr ... Missing Badge`` spam the Elders' Blood daily (quest 802) produced.
+from core.command import Command  # noqa: E402
+
+
+class BadgeCommand(Command):
+    """A Command with the packet layer removed: only the guards under test."""
+
+    def __init__(self, badge_ids=()):
+        self.sends = []
+        self.bot = type("B", (), {
+            "missing_badge_questid": list(badge_ids),
+            "failed_get_quest_datas": [],
+        })()
+
+    def is_still_connected(self):
+        return True
+
+    def is_player_alive(self):
+        return True
+
+    def quest_in_progress(self, quest_id):
+        return True
+
+    def can_turnin_quest(self, quest_id):
+        return True
+
+    async def turn_in_quest(self, quest_id, item_id=-1, qty=1):
+        self.sends.append(("turnin", quest_id))
+
+    async def sleep(self, milliseconds):
+        return None
+
+
+known = BadgeCommand(badge_ids=(802,))
+check("badge refusal: the turn-in is not retried",
+      run(known.ensure_turn_in_quest(802)), False)
+check("badge refusal: not even one packet goes out", known.sends, [])
+
+fresh = BadgeCommand()
+async def _refuse(quest_id, item_id=-1, qty=1):
+    fresh.sends.append(("turnin", quest_id))
+    fresh.bot.missing_badge_questid.append(802)   # the ccqr reply lands here
+fresh.turn_in_quest = _refuse
+check("badge refusal: the loop stops as soon as the reply arrives",
+      run(fresh.ensure_turn_in_quest(802)), False)
+check("badge refusal: exactly one packet is sent", len(fresh.sends), 1)
+
 print(f"passed {passed}   failed {len(failures)}")
 if failures:
     for line in failures:

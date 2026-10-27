@@ -343,6 +343,23 @@ for name in dir(dailies):
     params = list(inspect.signature(value).parameters)
     check(f"{name} takes cmd first", params[0] if params else None, "cmd")
 
+# --- "Missing Badge" -------------------------------------------------------
+# Quest 802's turn-in was refused with "Missing Badge" on a live account: the
+# daily must then be skipped instead of farming fifty gorillaphants again.
+badge = StubCommand()
+badge.bot.missing_badge_questid = [802]
+check("badge refusal: the daily is skipped, not farmed",
+      run(dailies.check_dailyv2(badge, 802, items=("Elders' Blood",))), False)
+check("badge refusal: nothing is accepted or hunted", badge.calls, [])
+check("badge refusal: it says why",
+      any("does not have" in line for line in badge.bot.logs), True)
+
+elders = StubCommand()
+elders.bot.missing_badge_questid = [802]
+run(dailies.elders_blood(elders))
+check("badge refusal: Elders' Blood accepts nothing",
+      [call for call in elders.calls if call[0] == "accept"], [])
+
 print(f"passed {passed}   failed {len(failures)}")
 if failures:
     for line in failures:
