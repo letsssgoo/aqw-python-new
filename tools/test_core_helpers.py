@@ -2656,6 +2656,7 @@ finally:
 # the badge is a web or achievement reward.  The old loop asked again on every
 # attempt (and the auto turn-in loop every two seconds), which is the
 # ``ccqr ... Missing Badge`` spam the Elders' Blood daily (quest 802) produced.
+from core.bot import Bot  # noqa: E402
 from core.command import Command  # noqa: E402
 
 
@@ -2701,6 +2702,23 @@ fresh.turn_in_quest = _refuse
 check("badge refusal: the loop stops as soon as the reply arrives",
       run(fresh.ensure_turn_in_quest(802)), False)
 check("badge refusal: exactly one packet is sent", len(fresh.sends), 1)
+
+# "Missing Badge" is the daily gate, so it only holds for the day it arrived:
+# a bot running past midnight must be able to try that daily again.
+class DayStub:
+    def __init__(self, day, ids):
+        self.missing_badge_day = day
+        self.missing_badge_questid = list(ids)
+
+
+yesterday = DayStub("1999-01-01", [802])
+check("badge refusal: yesterday's refusal does not block today",
+      Bot.daily_unavailable(yesterday, 802), False)
+check("badge refusal: and the record is dropped",
+      yesterday.missing_badge_questid, [])
+today = DayStub(time.strftime("%Y-%m-%d"), [802])
+check("badge refusal: today's refusal does block",
+      Bot.daily_unavailable(today, 802), True)
 
 print(f"passed {passed}   failed {len(failures)}")
 if failures:

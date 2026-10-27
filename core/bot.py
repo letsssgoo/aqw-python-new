@@ -300,11 +300,15 @@ class Bot:
         self.missing_turn_in_item_questid: list[int] = [] # this mean quest is unlocked (green quest)
         self.missing_quest_progress_questid: list[int] = [] # this mean quest is locked (red quest)
         self.one_time_questid: list[int] = [] # one-time story quests already completed
-        #: Quests the server refused with "Missing Badge".  Those never become
-        #: turnable on this account (the badge is not something a farm can earn),
-        #: so retrying is pure noise -- the auto turn-in loop and
-        #: ``ensure_turn_in_quest`` both stop at this list.
+        #: Quests whose turn-in the server refused with "Missing Badge"; the
+        #: reply carries no reason beyond that, and it is what a daily answers
+        #: when it is not available right now (already done today, or not open
+        #: yet).  Farming cannot change it, so retrying is pure noise -- the
+        #: turn-in loop and the auto turn-in loop both stop at this list, and
+        #: :meth:`daily_unavailable` empties it when the day changes.
         self.missing_badge_questid: list[int] = []
+        #: The day (:meth:`daily_unavailable`) that list was last written on.
+        self.missing_badge_day: str = ""
 
         self.player_in_area: list[PlayerArea] = []
 
@@ -1366,15 +1370,19 @@ class Bot:
                     if quest_id and "Missing Quest Progress" in ccqr_msg:
                         self.missing_quest_progress_questid.append(quest_id)
                     if quest_id and "Missing Badge" in ccqr_msg:
-                        # Not something the account can earn by farming: the
-                        # badge is a web/achievement reward.  Recorded so the
-                        # turn-in loop stops instead of asking every 2 seconds.
+                        # The server's answer when a daily is not available
+                        # right now (already done today, or not yet open):
+                        # {"bSuccess":0,"QuestID":802,"msg":"Missing Badge"}.
+                        # Farmed progress will never turn it in, so it is
+                        # recorded and the turn-in loop stops; the record is
+                        # dropped when the day changes (see daily_unavailable).
                         quest_id_int = int(quest_id)
                         if quest_id_int not in self.missing_badge_questid:
                             self.missing_badge_questid.append(quest_id_int)
-                        print(Fore.YELLOW + f"[quest] {quest_id} needs a badge this "
-                              f"account does not have; turn-in will not be "
-                              f"retried." + Fore.RESET)
+                        self.missing_badge_day = datetime.now().strftime("%Y-%m-%d")
+                        print(Fore.YELLOW + f"[quest] {quest_id} is not available "
+                              f"right now (\"Missing Badge\"); turn-in will not "
+                              f"be retried today." + Fore.RESET)
                     if "One Time Quest Only" in ccqr_msg:
                         if quest_id is not None and int(quest_id) not in self.one_time_questid:
                             self.one_time_questid.append(int(quest_id))
@@ -1856,6 +1864,22 @@ class Bot:
     def quest_not_in_progress(self, quest_id: int) -> bool:
         """Return True when the quest is not currently tracked in progress."""
         return self.get_loaded_quest(quest_id) is None
+
+    def daily_unavailable(self, quest_id) -> bool:
+        """True when the server refused this quest's turn-in on the same day.
+
+        ``{"cmd":"ccqr","bSuccess":0,"QuestID":802,"msg":"Missing Badge"}`` is
+        how a daily says "not right now" -- already completed today, or not open
+        yet.  The refusal is remembered so nothing farms it again, but only for
+        the day it arrived: past midnight the daily may well be available, so
+        the record is cleared the first time it is read on a new date.
+        """
+        today = datetime.now().strftime("%Y-%m-%d")
+        if self.missing_badge_day != today:
+            self.missing_badge_questid.clear()
+            self.missing_badge_day = today
+            return False
+        return normalize_quest_id(quest_id) in self.missing_badge_questid
 
     def reset_cmds(self):
         self.index = 0
