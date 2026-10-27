@@ -1,4 +1,4 @@
-"""``CoreFarmerJoe`` -- the Farmer Joe kit's pre-endgame progression.
+﻿"""``CoreFarmerJoe`` -- the Farmer Joe kit's pre-endgame progression.
 
 Port of ``Other/FarmJoeKits/CoreFarmerJoe.cs``.  The kit is what
 ``0_farmer_joe_do_all`` runs, and it is being ported step by step:
@@ -34,6 +34,7 @@ from bot.core_advanced import gear_store, rank_up_class, smart_enhance
 from bot.core_bots import (buy_item, check_class_rank, equip_class,
                            farming_logger)
 from bot.core_dailies import elders_blood
+from bot.daily.lord_of_order import get_loo
 from bot.core_farms import blade_of_awe_rep, farm_experience, get_boost
 from bot.enhancements.anima import anima
 from bot.enhancements.forge_helm import forge_helm_enhancement
@@ -557,10 +558,18 @@ async def level_75_to_100(cmd: Command) -> None:
 
     await complete13loc(cmd)
 
+    # --- Phase 3: the Lord of Order daily --------------------------------
+    cmd.bot.log("Phase 3: Solo Classes & Weapon - LoO Daily")
+    await set_class(cmd)
+    await get_loo(cmd)
+    # ``Core.ToBank(Core.EnsureLoad(7156).Rewards)`` -- the daily's own rewards
+    rewards = cmd.get_quest_rewards(7156)
+    if rewards:
+        await cmd.inv_to_bank(rewards)
+
     report_once(cmd, "lvl75",
-                "Level75to100 stops after Core13LoC.Complete13LOC: the next step "
-                "is LordOfOrder (daily 7156-7165), then Frost Spirit "
-                "Reaver/Northlands Monk/Shaman, the forge set, "
+                "Level75to100 stops after LordOfOrder: the next steps are Frost "
+                "Spirit Reaver/Northlands Monk/Shaman, the forge set, "
                 "CelestialArena+BurningBladeOfAbezeth, CoreYnR, KingsEcho and "
                 "ShadowrealmMerge -- none of them ported yet.")
 
