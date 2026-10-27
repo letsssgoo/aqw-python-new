@@ -1,4 +1,4 @@
-"""The CoreBots / CoreAdvanced helpers added after the first port pass.
+﻿"""The CoreBots / CoreAdvanced helpers added after the first port pass.
 
     python tools/test_core_helpers.py
 
@@ -1877,8 +1877,8 @@ try:
     cmd = Cand()
     await_unknown = run(sy.find_ingredients(cmd, 1, "Some Other Item", 1))
     check("synderes: an unknown ingredient says so",
-          "The bot hasn't been taught how to get Some Other Item."
-          in cmd.bot.logs, True)
+          any("The bot hasn't been taught how to get Some Other Item." in line
+              for line in cmd.bot.logs), True)
 finally:
     restore(sy, leaf)
 
@@ -1907,7 +1907,7 @@ run(cb.kill_doom_kitten(shinobi, "DoomKitten Claw", is_temp=True))
 check("doomkitten: the Shinobi rotation is what gets cast",
       [c[1] for c in shinobi.calls if c[0] == "skills"], [(4, 1), (4, 1)])
 check("doomkitten: and it says why",
-      "RNG GL due to class + kitten hit range." in shinobi.bot.logs, True)
+      any("RNG GL due to class + kitten hit range." in line for line in shinobi.bot.logs), True)
 
 blaze = Cand([ItemInventory({"sName": "Blaze Binder", "iQty": 1})])
 run(cb.kill_doom_kitten(blaze, "DoomKitten Claw", is_temp=True))
@@ -1989,14 +1989,14 @@ try:
     run(ka.get_class(cmd))
     check("kathool: an owned class stops at once", steps, [])
     check("kathool: and says so",
-          "Kathool Adept is already owned." in cmd.bot.logs, True)
+          any("Kathool Adept is already owned." in line for line in cmd.bot.logs), True)
 
     low_level = Cand()
     low_level.bot.player.LEVEL = 70
     steps.clear()
     run(ka.get_class(low_level))
     check("kathool: needs level 80",
-          "Kathool Adept requires level 80." in low_level.bot.logs, True)
+          any("Kathool Adept requires level 80." in line for line in low_level.bot.logs), True)
     check("kathool: before touching the saga", steps, [])
 
     cmd = Cand()
@@ -2010,8 +2010,8 @@ try:
     steps.clear()
     run(ka.get_class(low))
     check("kathool: without the saga quest the class quests stop",
-          "Voice in the Sea saga completion was not confirmed. Class quests "
-          "will not start." in low.bot.logs, True)
+          any("Voice in the Sea saga completion was not confirmed. Class quests "
+              "will not start." in line for line in low.bot.logs), True)
     check("kathool: and no quest is accepted",
           [c for c in low.calls if c[0] == "accept"], [])
 
@@ -2022,7 +2022,7 @@ try:
     shortcut.bot.player.temp["104534"] = object()
     run(ka.get_class(shortcut))
     check("kathool: the shortcut is logged",
-          "Using the owned Adeptus Kathooli shortcut." in shortcut.bot.logs, True)
+          any("Using the owned Adeptus Kathooli shortcut." in line for line in shortcut.bot.logs), True)
     check("kathool: shortcut quest then the class quest",
           [c[1] for c in shortcut.calls if c[0] == "accept"], [10919, 10920])
     check("kathool: the class quest is turned in with its item id",
@@ -2051,8 +2051,8 @@ try:
     check_ok = run(ka.bottom_feeder(missing))
     check("kathool: a missing armor stops bottom feeder", check_ok, False)
     check("kathool: and names it",
-          "Required armor is missing from inventory: Kathool Acolyte."
-          in missing.bot.logs, True)
+          any("Required armor is missing from inventory: Kathool Acolyte."
+              in line for line in missing.bot.logs), True)
 
     # the server's own rank is what gates the Johnnyfish purchase
     low_rank = Cand([ItemInventory({"sName": name, "iQty": 1})
@@ -2510,7 +2510,7 @@ try:
     cmd = Cand()
     loc._ledgermayne_listener(cmd, zone_frame("A"))
     check("ledgermayne: the listener sends the walk packet",
-          "packet: %xt%zm%mv%1%292%355%9%" in cmd.bot.logs, True)
+          any("packet: %xt%zm%mv%1%292%355%9%" in line for line in cmd.bot.logs), True)
 
     dead = Cand()
     dead.bot.player.ISDEAD = True
@@ -2543,10 +2543,10 @@ try:
     loc_steps.clear()
     run(loc.complete13loc(cmd))
     check("13loc: the walk names the segment it stops at",
-          "[13loc] Iadoa is not ported yet, so Complete13LOC stops here; "
-          "nothing after it runs." in cmd.bot.logs, True)
+          any("[13loc] Iadoa is not ported yet, so Complete13LOC stops here; "
+              "nothing after it runs." in line for line in cmd.bot.logs), True)
     check("13loc: and Wolfwing declares Good before chaining 597",
-          "packet: %xt%zm%updateQuest%1%41%1%" in cmd.bot.logs, True)
+          any("packet: %xt%zm%updateQuest%1%41%1%" in line for line in cmd.bot.logs), True)
 finally:
     restore(loc, leaf)
 
