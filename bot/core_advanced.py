@@ -1,4 +1,4 @@
-﻿"""``CoreAdvanced`` -- the core that re-implements several of ``CoreBots``' names.
+"""``CoreAdvanced`` -- the core that re-implements several of ``CoreBots``' names.
 
 Port of ``CoreAdvanced.cs``, and it matters *which* of the two a kit meant: the
 reference's cores do not inherit from one another (there is no

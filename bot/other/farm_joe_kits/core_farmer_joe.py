@@ -1,4 +1,4 @@
-﻿"""``CoreFarmerJoe`` -- the Farmer Joe kit's pre-endgame progression.
+"""``CoreFarmerJoe`` -- the Farmer Joe kit's pre-endgame progression.
 
 Port of ``Other/FarmJoeKits/CoreFarmerJoe.cs``.  The kit is what
 ``0_farmer_joe_do_all`` runs, and it is being ported step by step:

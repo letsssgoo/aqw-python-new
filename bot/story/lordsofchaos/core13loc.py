@@ -1,4 +1,4 @@
-﻿"""``Core13LoC`` -- the thirteen Lords of Chaos, five of them so far.
+"""``Core13LoC`` -- the thirteen Lords of Chaos, five of them so far.
 
 Port of ``Story/LordsofChaos/Core13LoC.cs``.  The forge enhancement unlocks need
 ``Escherion()``, the Farmer Joe kit needs the whole chain, so the file is being

@@ -1,4 +1,4 @@
-﻿"""Farmer Joe kit: class resolution, the level ladder, the extras.
+"""Farmer Joe kit: class resolution, the level ladder, the extras.
 
     python tools/test_farmer_joe.py
 
