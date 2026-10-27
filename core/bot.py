@@ -46,6 +46,14 @@ RELOGIN_MAX_ATTEMPTS = 0
 #: The largest relogin delay, in seconds, once the attempts start adding up.
 RELOGIN_MAX_DELAY_S = 300.0
 
+#: What one session did; ``start_bot`` reads this to tell "the script finished"
+#: (nothing left to do -- stop) apart from "the session died" (log back in).
+SESSION_COMPLETED = "completed"
+#: The bot ran and then the connection went away, so a relogin is the right move.
+SESSION_RAN = "ran"
+#: Login, connect or the character load never came through: retry per policy.
+SESSION_FAILED = "failed"
+
 #: A session that sends nothing at all for this long is treated as stuck and is
 #: re-established, and so is one that receives nothing back for that long.
 #: Sending nothing is the stronger signal: /shadowblast's "stuck at Enter" keeps
@@ -345,8 +353,14 @@ class Bot:
 
         attempts = 0
         while True:
-            ran = await self._run_session()
-            if ran:
+            outcome = await self._run_session()
+            if outcome == SESSION_COMPLETED:
+                # The script ran to its end on its own.  That is the end of the
+                # run, not a reason to log back in: anything that wants the
+                # script again (the app panes, the slavery hub) restarts it
+                # itself, and it can see the thread has finished.
+                return
+            if outcome == SESSION_RAN:
                 # The bot really ran this time, so the count is about consecutive
                 # failures to get it running again -- not about how long it has
                 # been alive.  Without this a scheduled save-state relogin every
@@ -372,22 +386,24 @@ class Bot:
                 print("[relogin] cancelled (the bot was stopped).")
                 return
 
-    async def _run_session(self) -> bool:
+    async def _run_session(self) -> str:
         """One login, one connection, one script run.
 
         Returns:
-            bool: True when a session ran to its end; False when the login or the
-            connection failed, which is what the caller's own retry is for.
+            str: ``SESSION_COMPLETED`` when the script ran to its own end,
+            ``SESSION_RAN`` when it was cut off mid-run by a dropped connection,
+            and ``SESSION_FAILED`` when the login, the connect or the character
+            load never came through -- which is what the caller's retry is for.
         """
         self._reset_session_state()
         self.login(self.username, self.password, self.server)
         if not self.server_info:
             print("[relogin] the login did not go through; retrying.")
-            return False
+            return SESSION_FAILED
         await self.connect_client()
         if not self.is_client_connected:
             print("[relogin] could not connect; retrying.")
-            return False
+            return SESSION_FAILED
 
         if self.isScriptable and self.bot_main:
             self._start_reader()
@@ -398,7 +414,7 @@ class Bot:
                     # already ended, and waiting for it without this check hung
                     # the thread for good -- the pane looked alive and never ran.
                     if not self.is_client_connected:
-                        return False
+                        return SESSION_FAILED
                     await asyncio.sleep(0.01)
 
                 # The bank arrives on its own login packet -- the one that
@@ -443,18 +459,24 @@ class Bot:
                             await script
                         except asyncio.CancelledError:
                             pass
-                    elif not script.cancelled() and script.exception() is not None:
-                        # let the traceback out through the task machinery
-                        script.result()
+                        outcome = SESSION_RAN
+                    else:
+                        if script.cancelled() or script.exception() is None:
+                            outcome = SESSION_COMPLETED
+                        else:
+                            # Let the traceback out through the task machinery
+                            # (the caller logs it); nothing is left to retry.
+                            script.result()
+                            outcome = SESSION_COMPLETED
                 finally:
                     # A script that raised used to skip this, leaving the socket
                     # open: the pane went dead but the character stayed in the
                     # game, so the restart logged into a session still in use.
                     self.stop_bot()
-            return True
+            return outcome
 
         await self.run_commands()
-        return True
+        return SESSION_COMPLETED
 
     def _start_reader(self) -> None:
         """Start this session's reader, ending the previous one first."""

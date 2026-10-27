@@ -107,6 +107,21 @@ def main() -> None:
           False)
     print("  -> finished -> stopped, no relogin asked for")
 
+    # --- 2b. ...and a finished script does not relogin even with it on --
+    # This is the class-quest case: the script turns the last quest in, logs
+    # "obtained", and the old loop then asked for a relogin it had no use for.
+    print("\n-- the script finishes with autoRelogin on --")
+    bot2b = _stub_bot(auto_relogin=True)
+    finished = []
+
+    async def finished_script(cmd):
+        finished.append(True)
+
+    asyncio.run(asyncio.wait_for(bot2b.start_bot(finished_script), timeout=10))
+    check("it ran once, and only once", finished, [True])
+    check("no relogin was attempted", bot2b.is_client_connected, False)
+    print("  -> finished -> stopped, autoRelogin had nothing to do")
+
     # --- 3. a crashing script still surfaces ---------------------------
     print("\n-- the script raises --")
     bot3 = _stub_bot(auto_relogin=False)
