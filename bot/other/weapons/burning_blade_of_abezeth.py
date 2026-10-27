@@ -44,3 +44,11 @@ async def get_bboa(cmd: Command) -> None:
 
 async def main(cmd: Command):
     await get_bboa(cmd)
+
+
+if __name__ == "__main__":
+    # Runs this script on its own account, the way
+    # ``bot/enhancements/valiance.py`` does.
+    from bot.standalone import run_standalone
+
+    run_standalone(main)

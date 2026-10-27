@@ -63,3 +63,11 @@ async def unlock_mine_crafting(cmd: Command) -> None:
 
 async def main(cmd: Command):
     await unlock_mine_crafting(cmd)
+
+
+if __name__ == "__main__":
+    # Runs this script on its own account, the way
+    # ``bot/enhancements/valiance.py`` does.
+    from bot.standalone import run_standalone
+
+    run_standalone(main)

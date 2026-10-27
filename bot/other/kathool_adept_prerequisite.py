@@ -91,3 +91,11 @@ async def main(cmd: Command):
     await kathool_adept_prerequisite(cmd)
     await fishing_rep(cmd)
     await somnia_rep(cmd)
+
+
+if __name__ == "__main__":
+    # Runs this script on its own account, the way
+    # ``bot/enhancements/valiance.py`` does.
+    from bot.standalone import run_standalone
+
+    run_standalone(main)

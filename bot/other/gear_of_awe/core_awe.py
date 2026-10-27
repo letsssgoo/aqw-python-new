@@ -112,3 +112,11 @@ async def get_awe_relic(cmd: Command, item: str, legend_quest: int,
 
 async def main(cmd: Command):
     await get_awe_relic(cmd, "Cape", 4178, 1, 1, "doomvault", "Binky")
+
+
+if __name__ == "__main__":
+    # Runs this script on its own account, the way
+    # ``bot/enhancements/valiance.py`` does.
+    from bot.standalone import run_standalone
+
+    run_standalone(main)

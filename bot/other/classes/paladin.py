@@ -39,3 +39,11 @@ async def get_paladin(cmd: Command, rank_up_class: bool = True) -> None:
 
 async def main(cmd: Command):
     await get_paladin(cmd)
+
+
+if __name__ == "__main__":
+    # Runs this script on its own account, the way
+    # ``bot/enhancements/valiance.py`` does.
+    from bot.standalone import run_standalone
+
+    run_standalone(main)
