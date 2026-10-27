@@ -1,4 +1,4 @@
-"""The reference bot's ``CoreBots``: the helpers every other core leans on.
+﻿"""The reference bot's ``CoreBots``: the helpers every other core leans on.
 
 Port of ``CoreBots.cs``, kept in ``bot/`` next to the other root cores because
 that is where the reference keeps it.  Only the parts the ported cores actually
@@ -36,7 +36,7 @@ from typing import List, Optional, Sequence, Tuple, Union
 from core.command import Command
 from core.utils import is_valid_json
 from model.inventory import ItemType
-from templates.hunt import DEFAULT_SKILL_LIST, hunt_item
+from templates.hunt import DEFAULT_SKILL_LIST, hunt_item, warn_ambiguous_target
 
 #: Kitsune's own name -- ``KillKitsune`` attacks it by name.
 KITSUNE = "Kitsune"
@@ -800,6 +800,7 @@ async def kill_once(cmd: Command, map_name: str = "", cell: str = "",
     """
     if map_name:
         await cmd.join_map(map_name)
+    warn_ambiguous_target(cmd, monster, map_name)
     if cell:
         await cmd.jump_cell(cell, pad)
 

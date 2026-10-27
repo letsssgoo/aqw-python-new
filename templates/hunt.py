@@ -31,6 +31,39 @@ STALL_GIVE_UP_S: float = 15 * 60.0
 #: can fix.
 REJOIN_AFTER_LOOKS: int = 3
 
+#: Map+name pairs already reported as ambiguous, so the line appears once.
+_AMBIGUOUS_SEEN: set = set()
+
+
+def warn_ambiguous_target(cmd, target: str, map_name: str = "") -> None:
+    """Say so when a plain name matches several monsters in the map.
+
+    AQW reuses names across monster *types*: /junkyard has five "Wild ..." ones
+    and the reference kills them by map id, as does the /finalbattle Drakath
+    (ids 1, 14, 23) and Embersea's Blazebinder.  A name target picks whichever
+    entry the server lists first -- the wrong monster when the quest wants one
+    specific one -- so the ambiguity is reported once per map+name instead of
+    being left to luck.
+
+    Args:
+        cmd: Facade to act through.
+        target (str): The monster being hunted, by name.
+        map_name (str): The map it is being hunted in.
+    """
+    if not target or target == "*" or target.startswith("id."):
+        return
+    where = str(map_name or getattr(cmd.bot, "strMapName", "") or "").lower()
+    key = (where, target.lower())
+    if key in _AMBIGUOUS_SEEN:
+        return
+    ids = {str(mon.mon_map_id) for mon in getattr(cmd.bot, "monsters", []) or []
+           if (mon.mon_name or "").lower() == target.lower()}
+    if len(ids) > 1:
+        _AMBIGUOUS_SEEN.add(key)
+        cmd.bot.log(f"[hunt] {target!r} matches {len(ids)} monsters in {where} "
+                    f"(ids {', '.join(sorted(ids))}); a name target takes one of "
+                    f"them. Hunt `id.N` when it has to be a specific one.")
+
 
 def _held_count(cmd: Command, item_name: str, is_temp: bool) -> int:
     """How many of ``item_name`` the account holds, temp bag included."""
@@ -214,6 +247,7 @@ async def hunt_item(
 
     # One line saying exactly what is being farmed, where, and how much is
     # already in hand -- every caller's log then reads the same way.
+    warn_ambiguous_target(cmd, monster_name, map_name)
     if is_temp:
         found = cmd.bot.player.get_item_temp_inventory(item_name)
     else:
