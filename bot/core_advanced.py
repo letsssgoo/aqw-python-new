@@ -1,4 +1,4 @@
-"""``CoreAdvanced`` -- the core that re-implements several of ``CoreBots``' names.
+﻿"""``CoreAdvanced`` -- the core that re-implements several of ``CoreBots``' names.
 
 Port of ``CoreAdvanced.cs``, and it matters *which* of the two a kit meant: the
 reference's cores do not inherit from one another (there is no
@@ -25,15 +25,20 @@ Voucher and merge-item steps).
 """
 from typing import Optional, Union
 
-from bot.core_bots import _find_shop, load_shop_entry, points_to_level
+from bot.core_bots import (_find_shop, check_class_rank, load_shop_entry,
+                           points_to_level)
 from bot.core_farms import farm_experience, farm_faction, farm_gold, icestorm_arena
 from core.command import Command, QUIET_PASSES
+
+#: How long ``buy_item`` waits for the bought item to appear before saying the
+#: server refused it.
+PURCHASE_WAIT_MS = 5_000
 
 #: ``GetItemReq`` caps its gold farm here (``Math.Min(cost * quant, 100000000)``).
 GOLD_FARM_CAP = 100_000_000
 
 
-async def meet_shop_requirements(cmd: Command, entry, qty: int = 1) -> None:
+async def meet_shop_requirements(cmd: Command, entry, qty: int = 1) -> bool:
     """``CoreAdvanced.GetItemReq``: farm what a shop entry needs before buying.
 
     The reference runs this inside ``_BuyItem``, and it is what makes
@@ -41,8 +46,13 @@ async def meet_shop_requirements(cmd: Command, entry, qty: int = 1) -> None:
     then player level, then gold.  Its Gold Voucher and merge-item steps belong to
     ``StartBuyAllMerge``'s dependency walk, which is not ported.
 
-    A faction this engine has no farm for is reported by ``farm_faction`` rather
-    than quietly skipped -- the purchase would fail at the server either way.
+    A faction this engine has no farm for is reported by ``farm_faction`` and the
+    purchase is **refused** here: letting it through only asks the server for
+    something it will silently decline, which reads in a log like a successful
+    buy that never arrived.
+
+    Returns:
+        bool: True when every requirement is met, False when one cannot be.
     """
     faction = str(getattr(entry, "required_faction", "None") or "None").strip()
     required_rep = int(getattr(entry, "required_rep", 0) or 0)
@@ -51,16 +61,47 @@ async def meet_shop_requirements(cmd: Command, entry, qty: int = 1) -> None:
         if rank > cmd.get_faction_rank(faction):
             cmd.bot.log(f"Farming reputation for {faction} "
                         f"(Required: {required_rep})")
-            await farm_faction(cmd, faction, rank)
+            if not await farm_faction(cmd, faction, rank):
+                cmd.bot.log(
+                    f"[core] {faction} reputation cannot be farmed here, so "
+                    f"{getattr(entry, 'item_name', 'the item')!r} is not bought.")
+                return False
 
     required_level = int(getattr(entry, "level", 0) or 0)
     if required_level > (cmd.get_player().LEVEL or 0):
         cmd.bot.log(f"Farming experience to reach level {required_level}")
         await farm_experience(cmd, min(required_level, 100))
 
+    # ``sQuest``: an entry unlocked by a quest.  Sending the buy packet anyway
+    # is what produced "bought" lines for items that never appeared.
+    required_quest = str(getattr(entry, "required_quest", "") or "").strip()
+    if required_quest and required_quest.lower() not in ("", "none", "0"):
+        try:
+            quest_id = int(required_quest)
+        except ValueError:
+            quest_id = 0
+        if quest_id and not await cmd.is_completed_before(quest_id):
+            cmd.bot.log(f"[core] {getattr(entry, 'item_name', 'the item')!r} needs "
+                        f"quest {quest_id}, which is not done; not bought.")
+            return False
+
+    if getattr(entry, "is_upgrade", False) and not cmd.get_player().is_member:
+        cmd.bot.log(f"[core] {getattr(entry, 'item_name', 'the item')!r} is "
+                    f"member-only; not bought.")
+        return False
+
+    if getattr(entry, "is_acs", False):
+        # The reference never spends AdventureCoins from a script either; saying
+        # so beats a packet the server declines.
+        cmd.bot.log(f"[core] {getattr(entry, 'item_name', 'the item')!r} costs "
+                    f"AC; leaving that purchase to the account owner.")
+        return False
+
     cost = int(getattr(entry, "cost", 0) or 0)
     if cost > 0 and not getattr(entry, "is_acs", False):
         await farm_gold(cmd, min(cost * qty, GOLD_FARM_CAP))
+
+    return True
 
 
 async def buy_item(cmd: Command, shop_id: int, item: Union[int, str],
@@ -79,9 +120,23 @@ async def buy_item(cmd: Command, shop_id: int, item: Union[int, str],
     if entry is None:
         return False
 
-    await meet_shop_requirements(cmd, entry, qty)
+    if not await meet_shop_requirements(cmd, entry, qty):
+        return False
     await cmd.buy_item(shop_id, entry.item_name, qty,
                        shop_item_id=entry.shop_item_id)
+    # The buy packet is answered a moment later, and a refusal is otherwise
+    # invisible: the log says "buying", the item never appears, and every caller
+    # reads its own True as success.  Wait (bounded) for the item itself.
+    waited = 0
+    while (cmd.is_still_connected() and waited < PURCHASE_WAIT_MS
+           and not await cmd.has_item(entry.item_name, qty)):
+        await cmd.sleep(500)
+        waited += 500
+    if not await cmd.has_item(entry.item_name, qty):
+        cmd.bot.log(f"[core] {entry.item_name!r} did not arrive after the buy "
+                    f"(shop {shop_id}); the server refused it -- check gold, the "
+                    f"entry's requirements and inventory space.")
+        return False
     return True
 
 
@@ -827,9 +882,21 @@ async def rank_up_class(cmd: Command, class_name: str = "", item_id: int = 0,
     if item is None and banked is not None:
         await cmd.bank_to_inv(banked.item_name)
         item = next((i for i in cmd.bot.player.INVENTORY if matches(i)), None)
+        if item is None and item_id:
+            # The class is already in the inventory: the bank move can refuse
+            # (a full stack, or the item was pulled over while it ran), and then
+            # the lookup by id is the one that still finds it.
+            item = cmd.bot.player.get_item_inventory_by_id(item_id)
         if item is None:
-            cmd.bot.log("Failed to unbank class item.")
-            return
+            item = cmd.bot.player.get_item_inventory(banked.item_name)
+        if item is not None:
+            cmd.bot.log(f"[class] {item.item_name} is in the inventory already")
+    if item is None:
+        equipped = cmd.get_equipped_class()
+        if equipped is not None and matches(equipped):
+            # Wearing it is enough to rank it -- the arena keeps the worn class.
+            item = equipped
+            cmd.bot.log(f"[class] {item.item_name} is already equipped")
     if item is None:
         cmd.bot.log(f"Can't level up "
                     f"{item_id if item_id else class_name!r} because you don't "
@@ -849,6 +916,9 @@ async def rank_up_class(cmd: Command, class_name: str = "", item_id: int = 0,
     if gear_restore:
         await gear_store(cmd)
 
+    rank_now = check_class_rank(cmd, item.item_name)
+    cmd.bot.log(f"[class] Ranking {item.item_name} (rank {rank_now} -> 10)")
+
     await smart_enhance(cmd, item.item_name)
 
     item = next((i for i in cmd.bot.player.INVENTORY if matches(i)), None)
@@ -861,6 +931,13 @@ async def rank_up_class(cmd: Command, class_name: str = "", item_id: int = 0,
         return
     if not item.is_equipped:
         await cmd.equip_item(item.item_name)
+        worn = cmd.get_equipped_class()
+        if worn is None or not matches(worn):
+            # The arena ranks whatever is worn, so entering it without the class
+            # on would rank something else and report success for the wrong one.
+            cmd.bot.log(f"[class] could not equip {item.item_name}; the arena is "
+                        f"not entered.")
+            return
 
     # The reference toggles a class boost here; this engine has no boosts.
     await icestorm_arena(cmd, cmd.get_player().LEVEL, rank_up_class=True,

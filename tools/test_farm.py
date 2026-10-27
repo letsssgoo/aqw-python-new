@@ -1,4 +1,4 @@
-"""Gold, experience and reputation farms: guards, bands and wiring.
+﻿"""Gold, experience and reputation farms: guards, bands and wiring.
 
     python tools/test_farm.py
 
@@ -285,6 +285,9 @@ class Stub:
 
     async def buy_item(self, shop_id, item_name, qty=1, shop_item_id=0):
         self.calls.append(("buy_item", shop_id, item_name, qty, shop_item_id))
+        # a purchase that goes through puts the item in the bag; the caller now
+        # waits for exactly that, so the stub has to deliver it
+        self.inv[item_name] = self.inv.get(item_name, 0) + qty
 
     async def ensure_load_shop(self, shop_id):
         self.calls.append(("ensure_load_shop", shop_id))
@@ -674,11 +677,16 @@ def main() -> None:
 
     # --- the dispatcher -------------------------------------------------
     unknown = Stub()
-    assert asyncio.run(farm_faction(unknown, "Arcangrove", 10)) is False
+    assert asyncio.run(farm_faction(unknown, "Loremaster", 10)) is False
     assert unknown.calls == [], unknown.calls          # reported, never farmed
     assert set(FACTION_FARMS) == {"Good", "Vampire", "Yokai", "Evil",
                                   "ChronoSpan", "CraggleRock", "Sandsea",
-                                  "Somnia", "Glacera", "SpellCrafting"}, \
+                                  "Somnia", "Glacera", "SpellCrafting",
+                                  "Arcangrove", "Mythsong", "DoomWood",
+                                  "Embersea", "Dwarfhold", "Lycan", "Horc",
+                                  "Swordhaven", "Troll", "Ravenloss",
+                                  "Necro Crypt", "Etherstorm",
+                                  "ThunderForge"}, \
         sorted(FACTION_FARMS)
     known = Stub(vampire_rank=10)
     assert asyncio.run(farm_faction(known, "Vampire", 10)) is True
@@ -790,6 +798,15 @@ def main() -> None:
     async def fake_gold(cmd, quant=0):
         done.append(("gold", quant))
 
+    async def fake_buy(shop_id, item_name, qty=1, shop_item_id=0):
+        # bound on the stub, so no `cmd`: the stub grants the item, which is what
+        # the post-purchase check is waiting for
+        done.append(("buy", item_name))
+        needs.inv[item_name] = needs.inv.get(item_name, 0) + qty
+
+    real_buy = getattr(needs, "buy_item")
+    needs.buy_item = fake_buy
+
     core_advanced.farm_faction = fake_faction
     core_advanced.farm_experience = fake_exp
     core_advanced.farm_gold = fake_gold
@@ -797,15 +814,17 @@ def main() -> None:
         assert asyncio.run(adv_buy_item(needs, 1129, "Cape of Awe",
                                         map_name="museum")) is True
     finally:
+        needs.buy_item = real_buy
         for name, fn in real_farm.items():
             setattr(core_advanced, name, fn)
 
-    assert done == [("faction", "Sandsea", 6), ("exp", 35), ("gold", 1000)], done
+    assert done == [("faction", "Sandsea", 6), ("exp", 35), ("gold", 1000),
+                    ("buy", "cape of awe")], done
     assert any(line.startswith("Farming reputation for Sandsea (Required: 44100)")
                for line in needs.bot.logs), needs.bot.logs
     assert "Farming experience to reach level 35" in needs.bot.logs, \
         needs.bot.logs
-    assert ("buy_item", 1129, "cape of awe", 1, 0) in needs.calls, needs.calls
+    assert ("buy", "cape of awe") in done, done
     print("advbuy     : rep, level and gold are farmed before the purchase")
 
     # the plain CoreBots one buys straight away -- that is the difference, and

@@ -71,6 +71,8 @@ class Player:
         self.last_target = None
         self.intAQ = 0
         self.ISDEAD = False
+        self.CELL = "Enter"
+        self.PAD = "Spawn"
         self.temp = {}
 
     def get_item_inventory(self, name):
@@ -208,6 +210,9 @@ class Cand:
         return self.bot.player.get_item_inventory(name) is not None
 
     def is_not_in_map(self, map_name):
+        return False
+
+    def is_not_in_cell(self, cell):
         return False
 
     def subscribe(self, callback):
@@ -798,8 +803,13 @@ async def ds_buy(cmd, shop, item, qty=1, map_name=None, shop_item_id=0):
     ds_order.append(f"buy{shop}:{item if isinstance(item, str) else 'id'}")
 
 
+ds_rank_state = {"rank": 0}
+
+
 async def ds_rank(cmd, name="", item_id=0, gear_restore=True):
     ds_order.append(f"rank:{name}")
+    # the rank-up is what makes quest 5294 turnable, so the stub follows it
+    ds_rank_state["rank"] = 10
 
 
 async def ds_gear(cmd, restore=False, enh_after=False):
@@ -816,7 +826,8 @@ async def ds_equip(cmd, solo=False):
 
 leaf = patch(dg, farm_gold=ds_gold, kill_quest=ds_kill, buy_item=ds_buy,
              advance_class=ds_rank, gear_store=ds_gear, hunt_item=ds_hunt,
-             equip_class=ds_equip, check_class_rank=lambda cmd, name: 0)
+             equip_class=ds_equip,
+             check_class_rank=lambda cmd, name: ds_rank_state["rank"])
 try:
     cmd = Cand([ItemInventory({"sName": "Dragonslayer General", "ItemID": 35996,
                                "iQty": 1})])
@@ -827,6 +838,7 @@ try:
 
     cmd = Cand()
     ds_order.clear()
+    ds_rank_state["rank"] = 0          # fresh account: the class is not ranked
     run(dg.get_ds_general(cmd, rank_up_class=False))
     check("dsg: the source's order", ds_order, [
         "gear0", "gold30000",
@@ -2539,12 +2551,20 @@ try:
           [("turnin", 1281, -1)])
 
     cmd = Cand()
-    cmd.completed = {6219, 272, 363, 488, 710, 2814}
+    # every segment's own last quest: complete13loc then has nothing left to do
+    cmd.completed = {6219, 272, 363, 488, 597, 710, 847, 1005, 1473, 2519,
+                     2814, 3189, 3160, 3799, 3881}
     loc_steps.clear()
     run(loc.complete13loc(cmd))
-    check("13loc: the walk names the segment it stops at",
-          any("[13loc] Iadoa is not ported yet, so Complete13LOC stops here; "
-              "nothing after it runs." in line for line in cmd.bot.logs), True)
+    check("13loc: all fourteen segments are ported now",
+          [name for name, fn in loc.SEGMENTS if fn is None], [])
+    check("13loc: a finished chain runs nothing and stops nowhere",
+          [line for line in cmd.bot.logs if line.startswith("[13loc]")], [])
+
+    # Wolfwing's own run declares Good before chaining 597 (its own guard is 597)
+    cmd = Cand()
+    loc_steps.clear()
+    run(loc.wolfwing(cmd))
     check("13loc: and Wolfwing declares Good before chaining 597",
           any("packet: %xt%zm%updateQuest%1%41%1%" in line for line in cmd.bot.logs), True)
 finally:
@@ -2565,6 +2585,71 @@ check("factions: a reload refreshes the rep, it does not freeze",
 real.get_faction("Fishing").add_rep(1520)
 check("factions: and a server rep gain adds on top",
       real.get_faction("Fishing").total_rep(), 204020)
+
+# ============================================================================
+# 30. Dragonslayer General: rank 10 before quest 5294
+# ============================================================================
+from bot.other.classes import dragonslayer_general as dsg  # noqa: E402
+
+dsg_calls = []
+dsg_rank = {"value": 5}
+
+
+async def dsg_noop(cmd, *a, **k):
+    dsg_calls.append("noop")
+
+
+async def dsg_buy(cmd, shop, item, qty=1, map_name=None, shop_item_id=0):
+    dsg_calls.append(("buy", shop, item))
+
+
+async def dsg_rank_up(cmd, name="", item_id=0, gear_restore=True):
+    dsg_calls.append(("rank", name))
+    dsg_rank["value"] = 10
+
+
+def dsg_check(cmd, name=None, current_class=False):
+    return dsg_rank["value"]
+
+
+leaf = patch(dsg, kill_quest=dsg_noop, gear_store=dsg_noop, buy_item=dsg_buy,
+             advance_class=dsg_rank_up, equip_class=dsg_noop,
+             hunt_item=dsg_noop, check_class_rank=dsg_check)
+try:
+    # owned but only rank 5: the class must still be ranked (the reference's
+    # `!CheckInventory(582) && rank < 10` skipped exactly this case)
+    cmd = Cand([ItemInventory({"sName": "Dragonslayer", "ItemID": 582,
+                               "iQty": 1})])
+    dsg_rank["value"] = 5
+    dsg_calls.clear()
+    check_ok = run(dsg.enchanted_scale_and_claw(cmd, 0, 0))
+    check("dragonslayer general: an owned rank-5 class is ranked anyway",
+          [c for c in dsg_calls if c[0] == "rank"], [("rank", "Dragonslayer")])
+    check("dragonslayer general: and no second purchase", 
+          [c for c in dsg_calls if c[0] == "buy"], [])
+    check("dragonslayer general: then the farm is allowed", check_ok, True)
+
+    # the class never reaches rank 10: quest 5294 must not be registered
+    cmd = Cand([ItemInventory({"sName": "Dragonslayer", "ItemID": 582,
+                               "iQty": 1})])
+    dsg_rank["value"] = 5
+
+    async def dsg_rank_stuck(cmd, name="", item_id=0, gear_restore=True):
+        dsg_calls.append(("rank", name))          # rank stays 5
+
+    leaf2 = patch(dsg, advance_class=dsg_rank_stuck)
+    try:
+        check_ok = run(dsg.enchanted_scale_and_claw(cmd, 75, 100))
+    finally:
+        restore(dsg, leaf2)
+    check("dragonslayer general: a stuck rank stops the farm", check_ok, False)
+    check("dragonslayer general: and 5294 is never registered",
+          [c for c in cmd.calls if c[0] == "register_quest"], [])
+    check("dragonslayer general: it says why",
+          any("Higher Class Rank Required" in line for line in cmd.bot.logs),
+          True)
+finally:
+    restore(dsg, leaf)
 
 print(f"passed {passed}   failed {len(failures)}")
 if failures:

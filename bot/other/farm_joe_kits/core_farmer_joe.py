@@ -1,4 +1,4 @@
-"""``CoreFarmerJoe`` -- the Farmer Joe kit's pre-endgame progression.
+﻿"""``CoreFarmerJoe`` -- the Farmer Joe kit's pre-endgame progression.
 
 Port of ``Other/FarmJoeKits/CoreFarmerJoe.cs``.  The kit is what
 ``0_farmer_joe_do_all`` runs, and it is being ported step by step:
@@ -34,6 +34,7 @@ from bot.core_advanced import gear_store, rank_up_class, smart_enhance
 from bot.core_bots import (buy_item, check_class_rank, equip_class,
                            farming_logger)
 from bot.core_dailies import elders_blood
+from bot.daily.lord_of_order import get_loo
 from bot.core_farms import blade_of_awe_rep, farm_experience, get_boost
 from bot.enhancements.anima import anima
 from bot.enhancements.forge_helm import forge_helm_enhancement
@@ -50,6 +51,8 @@ from bot.other.classes.cryomancer import get_cryomancer
 from bot.other.classes.dragon_shinobi import get_dss
 from bot.other.classes.dragonslayer import get_dragonslayer
 from bot.other.classes.glacial_berserker import get_gb
+from bot.other.classes.northlands_monk import get_nl_monk
+from bot.other.classes.shaman import get_shaman
 from bot.other.classes.dragonslayer_general import get_ds_general
 from bot.other.classes.rep_based.master_ranger import get_mr
 from bot.other.classes.scarlet_sorceress import get_ssorc
@@ -57,6 +60,7 @@ from bot.other.free_boosts import get_boosts_select
 from bot.other.gear_of_awe.cape_of_awe import get_coa
 from bot.other.merge_shops.synderes_merge import no_bots_armor
 from bot.other.weapons.burning_blade import get_burning_blade
+from bot.story.lordsofchaos.core13loc import complete13loc
 from bot.story.mazumi import mazumi_quests
 from bot.story.tutorial import badges as tutorial_badges
 from core.command import Command
@@ -554,6 +558,39 @@ async def level_75_to_100(cmd: Command) -> None:
                     "ShadowrealmMerge -- are not ported either.")
         return
 
+    await complete13loc(cmd)
+
+    # --- Phase 3: the Lord of Order daily ------------------------------
+    cmd.bot.log("Phase 3: Solo Classes & Weapon - LoO Daily")
+    await set_class(cmd)
+    await get_loo(cmd)
+    # ``Core.ToBank(Core.EnsureLoad(7156).Rewards)`` -- the daily's own rewards
+    rewards = cmd.get_quest_rewards(7156)
+    if rewards:
+        await cmd.inv_to_bank(rewards)
+
+    # --- Phase 3: the solo side classes --------------------------------
+    # ``additionalClasses`` / ``getters``: FSR, Northlands Monk, Shaman.  Each one
+    # is attempted once when it is missing, and reported as unavailable when it
+    # still is -- the reference's own "seasonal / unavailable" branch.
+    for class_name, getter in (("Northlands Monk", get_nl_monk),
+                               ("Shaman", get_shaman)):
+        if not await cmd.has_item(class_name):
+            cmd.bot.log(f"{class_name} not owned - attempting acquisition.")
+            await set_class(cmd)
+            await getter(cmd)
+            if not await cmd.has_item(class_name):
+                cmd.bot.log(f"{class_name} unavailable - skipping.")
+                continue
+        await set_class(cmd)
+
+    report_once(cmd, "lvl75",
+                "Level75to100 stops after the side classes it can reach: "
+                "FrostSpiritReaver needs Core.Relogin inside its GlaceraREP step "
+                "(no counterpart yet), and Praxis needs CoreYnR.Yami. After those "
+                "come the forge set, CelestialArena+BurningBladeOfAbezeth, "
+                "CoreYnR, KingsEcho and ShadowrealmMerge.")
+
 
 async def end_game(cmd: Command) -> None:
     """``CoreFarmerJoe.EndGame``: the remaining enhancements (step 5)."""
@@ -597,7 +634,7 @@ HEALER_SHOP = 176
 #: The frontier of step 4: the first step this port does not reach yet is
 #: ``Core13LoC.Complete13LOC``.  Flip this to True only when the whole phase-2
 #: sequence is ported, so a run cannot claim a phase it skipped.
-AWE_AND_THIRTEEN_LOC_PORTED = False
+AWE_AND_THIRTEEN_LOC_PORTED = True
 
 #: ``Handlelevel80`` checks for either spelling, and stops if it finds one.
 VOID_HIGHLORD_NAMES = ("Void Highlord", "Void Highlord (IoDA)")

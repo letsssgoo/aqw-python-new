@@ -47,3 +47,19 @@ class ScriptLog:
     def error(self, message: str) -> None:
         """Something failed; the step (or the run) stops here."""
         self._emit("error: ", message)
+
+    def farming(self, item: str, qty: int, where: str = "",
+                held=None) -> None:
+        """Report one farm step: what, how many, where, and how many are held.
+
+        Every hunt already logs its own ``[farm]`` line; this is for a script that
+        wants the step to say what it is doing *before* it starts, e.g.
+        ``Farming Enchanted Scale x75 (held 12/75) @ dragontown/r4 vs Tempest
+        Dracolich``.
+        """
+        line = f"Farming {item} x{qty}"
+        if held is not None:
+            line += f" (held {held}/{qty})"
+        if where:
+            line += f" @ {where}"
+        self.info(line)

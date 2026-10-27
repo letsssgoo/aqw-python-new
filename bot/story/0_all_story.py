@@ -14,10 +14,18 @@ from core.command import Command
 
 TAG = "All Stories"
 
-#: Modules that expose ``main`` but are not a story to run here.
+#: Modules that expose ``main`` but are not a chapter to run here.
 SKIP = {
     "bot.story.0_all_story",
 }
+
+
+def _is_chapter(module_path: str) -> bool:
+    """True for a chapter entry, false for a core or a region's own ``00_`` all."""
+    name = module_path.rsplit(".", 1)[-1]
+    if name.startswith(("0_", "00_", "core", "Core")):
+        return False
+    return True
 
 #: The package directory, for the file walk below.  ``pkgutil`` is not used
 #: because the sub-folders are namespace packages (no ``__init__.py``), which it
@@ -40,7 +48,7 @@ def story_modules():
             module = importlib.import_module(module_path)
         except Exception:  # noqa: BLE001 - a broken module is reported on use
             continue
-        if callable(getattr(module, "main", None)):
+        if callable(getattr(module, "main", None)) and _is_chapter(module_path):
             found.append(module_path)
     return found
 

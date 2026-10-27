@@ -9,8 +9,11 @@ from bot.core_advanced import rank_up_class as advance_class
 from bot.core_bots import check_class_rank, equip_class
 from bot.core_farms import farm_gold
 from bot.core_story import kill_quest
+from bot.script_log import ScriptLog
 from core.command import Command
 from templates.hunt import hunt_item
+
+TAG = "Dragonslayer General"
 
 DS_GENERAL_NAME = "Dragonslayer General"
 #: ``Adv.BuyItem("dragontown", 1286, 35996, shopItemID: 3937)``.
@@ -44,26 +47,42 @@ async def lair_story(cmd: Command) -> None:
 
 
 async def enchanted_scale_and_claw(cmd: Command, scale_qty: int = SCALE_QTY,
-                                   claw_qty: int = CLAW_QTY) -> None:
+                                   claw_qty: int = CLAW_QTY) -> bool:
     """``EnchantedScaleandClaw``: Dragonslayer ranked, then the two drops.
+
+    Quest 5294 cannot be turned in until **Dragonslayer is rank 10** -- the
+    server answers "Higher Class Rank Required" otherwise.  The reference only
+    ranks the class when it is missing *as well* (``!CheckInventory(582) &&
+    rank < 10``), which leaves an owned-but-unranked class refused; the rank
+    check alone decides here, and the purchase happens only when it is missing.
 
     Args:
         cmd (Command): Facade to act through.
         scale_qty (int): Enchanted Scale wanted; zero skips its quest.
         claw_qty (int): Dragon Claw wanted.
+
+    Returns:
+        bool: False when Dragonslayer could not be brought to rank 10, which is
+        what quest 5294 needs before it may be registered.
     """
     await lair_story(cmd)
 
     await gear_store(cmd)
-    if not await cmd.has_item_id(DRAGONSLAYER_ITEM) \
-            and check_class_rank(cmd, DRAGONSLAYER_NAME) < 10:
-        await buy_item(cmd, DRAGONSLAYER_SHOP, DRAGONSLAYER_NAME,
-                       map_name=DRAGONSLAYER_MAP)
+    if check_class_rank(cmd, DRAGONSLAYER_NAME) < 10:
+        if not await cmd.has_item_id(DRAGONSLAYER_ITEM):
+            await buy_item(cmd, DRAGONSLAYER_SHOP, DRAGONSLAYER_NAME,
+                           map_name=DRAGONSLAYER_MAP)
         await advance_class(cmd, DRAGONSLAYER_NAME)
     await gear_store(cmd, restore=True, enh_after=True)
 
+    if check_class_rank(cmd, DRAGONSLAYER_NAME) < 10:
+        ScriptLog(cmd, TAG).error(
+            "Dragonslayer is not rank 10, so quest 5294 would be refused with "
+            "\"Higher Class Rank Required\"; the scale farm is skipped.")
+        return False
+
     if scale_qty <= 0 and claw_qty <= 0:
-        return
+        return True
 
     cmd.add_drop([SCALE, CLAW])
     cmd.bot.log(f"Farming {scale_qty} Scale / {claw_qty} Claw")
@@ -76,6 +95,7 @@ async def enchanted_scale_and_claw(cmd: Command, scale_qty: int = SCALE_QTY,
     await hunt_item(cmd, CLAW, claw_qty, DROP_MAP, cell=DROP_CELL,
                     pad=DROP_PAD, monster_name=DROP_MONSTER, is_temp=False)
     cmd.cancel_registered_quests()
+    return True
 
 
 async def get_ds_general(cmd: Command, rank_up_class: bool = True) -> None:
@@ -92,7 +112,8 @@ async def get_ds_general(cmd: Command, rank_up_class: bool = True) -> None:
         return
 
     await farm_gold(cmd, 30000)
-    await enchanted_scale_and_claw(cmd)
+    if not await enchanted_scale_and_claw(cmd):
+        return
     await buy_item(cmd, DS_GENERAL_SHOP, DS_GENERAL_ITEM,
                    map_name=DS_GENERAL_MAP,
                    shop_item_id=DS_GENERAL_SHOP_ITEM_ID)

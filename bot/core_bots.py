@@ -1,4 +1,4 @@
-"""The reference bot's ``CoreBots``: the helpers every other core leans on.
+﻿"""The reference bot's ``CoreBots``: the helpers every other core leans on.
 
 Port of ``CoreBots.cs``, kept in ``bot/`` next to the other root cores because
 that is where the reference keeps it.  Only the parts the ported cores actually
@@ -36,7 +36,7 @@ from typing import List, Optional, Sequence, Tuple, Union
 from core.command import Command
 from core.utils import is_valid_json
 from model.inventory import ItemType
-from templates.hunt import DEFAULT_SKILL_LIST, hunt_item
+from templates.hunt import DEFAULT_SKILL_LIST, hunt_item, warn_ambiguous_target
 
 #: Kitsune's own name -- ``KillKitsune`` attacks it by name.
 KITSUNE = "Kitsune"
@@ -220,6 +220,9 @@ async def buy_item(cmd: Command, shop_id: int, item: Union[int, str],
     wanted = _resolve_shop_item(cmd, _find_shop(cmd, shop_id), item, shop_item_id)
     if wanted is None:
         return False
+    display = getattr(wanted, "s_name", "") or wanted.item_name
+    cmd.bot.log(f"[buy] {display} x{qty} from shop "
+                f"{shop_id}" + (f" @ {map_name}" if map_name else ""))
     await cmd.buy_item(shop_id, wanted.item_name, qty,
                        shop_item_id=wanted.shop_item_id)
     return True
@@ -341,8 +344,11 @@ def find_class_item(cmd: Command, class_name: str):
     is a class.
     """
     for candidate in list(cmd.bot.player.INVENTORY) + list(cmd.bot.player.BANK):
-        if (candidate.s_name.strip().lower() == class_name.strip().lower()
-                and candidate.s_es == ItemType.CLASS.value):
+        name = (getattr(candidate, "s_name", "")
+                or getattr(candidate, "item_name", "") or "")
+        slot = getattr(candidate, "s_es", "")
+        if (str(name).strip().lower() == class_name.strip().lower()
+                and str(slot) == str(ItemType.CLASS.value)):
             return candidate
     return None
 
@@ -734,6 +740,44 @@ async def ensure_complete_choose(cmd: Command, quest_id: int,
 KILL_ONE_TRIES = 60
 
 
+async def kill_by_map_id(cmd: Command, map_name: str, monster_map_id: int,
+                         cell: str = "", pad: str = "Left") -> bool:
+    """``CoreBots.HuntMonsterMapID``: kill the monster carrying that map id.
+
+    The reference targets a monster by its **map id** (``id.X``) when two
+    monsters share a name or the name is not known; ``is_monster_alive`` and
+    ``jump_to_monster`` already understand that form, so this carries no
+    substitution of its own.
+
+    Args:
+        cmd (Command): Facade to act through.
+        map_name (str): Map to join first.
+        monster_map_id (int): The monster's ``monMapID``.
+        cell (str): Cell to hold, when given; otherwise walk to the monster.
+        pad (str): Pad inside ``cell``.
+
+    Returns:
+        bool: True when the monster is dead (or was not there), False when the
+        bounded loop ran out.
+    """
+    target = f"id.{monster_map_id}"
+    if map_name and cmd.is_not_in_map(map_name):
+        await cmd.join_map(map_name)
+    if cell:
+        await cmd.jump_cell(cell, pad)
+    else:
+        await cmd.jump_to_monster(target)
+
+    for _ in range(KILL_ONE_TRIES):
+        if not cmd.is_still_connected():
+            return False
+        if not cmd.is_monster_alive(target):
+            return True
+        await cmd.use_next_skill(DEFAULT_SKILL_LIST, target)
+    return False
+
+
+
 async def kill_once(cmd: Command, map_name: str = "", cell: str = "",
                     pad: str = "Left", monster: str = "*") -> bool:
     """``Core.KillMonster(map, cell, pad, monster)``: one kill, with no item.
@@ -756,6 +800,7 @@ async def kill_once(cmd: Command, map_name: str = "", cell: str = "",
     """
     if map_name:
         await cmd.join_map(map_name)
+    warn_ambiguous_target(cmd, monster, map_name)
     if cell:
         await cmd.jump_cell(cell, pad)
 
@@ -821,6 +866,58 @@ def doom_kitten_rotation(cmd: Command, rotation) -> list:
             continue
         slots.append(slot)
     return slots
+
+
+# ---------------------------------------------------------------------------
+# Xiang
+# ---------------------------------------------------------------------------
+XIANG_MAP = "mirrorportal"
+#: ``RankFiveOrHigher`` is 22500 class points, the rank-5 threshold.
+XIANG_CLASS_POINTS = 22_500
+#: The classes the reference picks from, in its order; the healing ones carry
+#: Xiang's fight, which is why they are here at all.
+XIANG_CLASSES = ("Dragon of Time", "Healer (Rare)", "Healer")
+
+
+async def kill_xiang(cmd: Command, item: str = None, quant: int = 1,
+                     ultra: bool = False, is_temp: bool = False,
+                     log: bool = True) -> None:
+    """``CoreBots.KillXiang``: fight Chaos Lord (or Ultra) Xiang.
+
+    The reference swaps in a healing class at rank 5 or better before the fight
+    (``Dragon of Time``, then ``Healer (Rare)``, then ``Healer``) and starts that
+    class's rotation; this engine equips the same class and uses its own skill
+    scheduler.
+
+    Args:
+        cmd (Command): Facade to act through.
+        item (str): Drop to wait for; ``None`` kills once.
+        quant (int): How many.
+        ultra (bool): Fight Ultra Xiang in ``r6`` instead of ``r4``.
+        is_temp (bool): Whether the drop lands in the temporary bag.
+        log (bool): Kept for signature parity; the fight always reports itself.
+    """
+    if item is not None and await cmd.has_item(item, quant, isTemp=is_temp):
+        return
+
+    for class_name in XIANG_CLASSES:
+        found = cmd.bot.player.get_item_inventory(class_name) \
+            or cmd.bot.player.get_item_bank(class_name)
+        if found is None:
+            continue
+        if int(getattr(found, "qty", 0) or 0) >= XIANG_CLASS_POINTS:
+            await cmd.equip_item(class_name)
+            break
+
+    monster = "Ultra Xiang" if ultra else "Chaos Lord Xiang"
+    cell = "r6" if ultra else "r4"
+    if item is None:
+        await kill_once(cmd, XIANG_MAP, cell, "Right", monster)
+        await cmd.sleep(500)
+        return
+
+    await hunt_item(cmd, item, quant, XIANG_MAP, cell=cell, pad="Right",
+                    monster_name=monster, is_temp=is_temp)
 
 
 async def kill_doom_kitten(cmd: Command, item: str = None, quant: int = 1,

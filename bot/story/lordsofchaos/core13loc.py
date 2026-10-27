@@ -14,8 +14,9 @@ class, different job: this one is the whole /mobius story.
 from typing import Optional, Sequence, Tuple, Union
 
 from bot.core_advanced import buy_item as adv_buy_item
+from bot.core_advanced import gear_store
 from bot.core_bots import (Alignment, buy_item, chain_complete,
-                           change_alignment, equip_class, kill_once,
+                           change_alignment, equip_class, kill_once, kill_xiang,
                            parse_message, wait_for_item)
 from bot.core_story import (chain_quest, item_id_by_name, kill_quest,
                             map_item_quest, quest_progression)
@@ -1266,6 +1267,754 @@ async def khasaanda_horc(cmd: Command) -> None:
     await _farm(cmd, KHASAANDA_LAST, q1473)
 
 
+IADOA_LAST = 2519
+#: ``Story.MapItemQuest(2239, "thespan", new[] {1358 .. 1363})``.
+IADOA_SPAN_ITEMS = (1358, 1359, 1360, 1361, 1362, 1363)
+#: Quest 2378's two map-item groups, and 2470's eight.
+IADOA_2378_ITEMS = ((1468, 8), (1469, 1))
+IADOA_2470_ITEMS = ((1549, 8),)
+#: 2379/2380's own ``GetMapItems`` pairs.
+IADOA_2379_ITEMS = ((1470, 3), (1471, 3))
+IADOA_2380_ITEMS = ((1472, 3), (1473, 3))
+
+
+async def iadoa(cmd: Command) -> None:
+    """``Core13LoC.Iadoa``: quests 2239-2521, /thespan to /timespace.
+
+    ``Story.MapItemQuest`` calls *inside* a hand-written block are folded into
+    that block here (the map items are collected in the body, and the block's own
+    turn-in is what the source's call would have done).  Quest 2258 is the one
+    exception: the source passes ``AutoCompleteQuest: false``, so it is accepted
+    and the kill is made, and it is deliberately left in progress.
+    """
+    if await cmd.is_completed_before(IADOA_LAST):
+        return
+
+    # Time to Learn the Truth 2239
+    await map_item_quest(cmd, 2239, "thespan", list(IADOA_SPAN_ITEMS))
+
+    # Gain Access to Doors 2240
+    async def q2240() -> None:
+        await hunt_item(cmd, "AQ Dimension Key", 1, "timelibrary",
+                        monster_name="Sneak")
+        await hunt_item(cmd, "DF Dimension Key", 1, "timelibrary",
+                        monster_name="Tog")
+        await hunt_item(cmd, "MQ Dimension Key", 1, "timelibrary",
+                        monster_name="Shadowscythe")
+
+    # Adventures and Quests 2241
+    async def q2241() -> None:
+        await hunt_item(cmd, "Necromancy in AQ Knowledge", 1, "timelibrary",
+                        monster_name="Moglin Ghost")
+        await hunt_item(cmd, "Tales of Planet-Peril Page", 6, "timelibrary",
+                        monster_name="Undead Knight")
+        await _map_items(cmd, "timelibrary", ((1365, 3),))
+
+    # A Fable of Dragons 2242
+    async def q2242() -> None:
+        await hunt_item(cmd, "Elemental Orb Knowledge", 8, "timelibrary",
+                        monster_name="Tog")
+        await hunt_item(cmd, '"Draconic Prophecy" Page', 6, "timelibrary",
+                        monster_name="Tog")
+        await _map_items(cmd, "timelibrary", ((1366, 2),))
+
+    # Mechas and Quests 2243
+    async def q2243() -> None:
+        await hunt_item(cmd, "Shadowscythe Combat Strategy", 7, "timelibrary",
+                        monster_name="Shadowscythe")
+        await hunt_item(cmd, "Galactic Hypertron Engines: A Primer", 1,
+                        "timelibrary", monster_name="Training Globe")
+        await _map_items(cmd, "timelibrary", ((1367, 1),))
+
+    # After the Chaos 2244
+    async def q2244() -> None:
+        await hunt_item(cmd, "The Future is Now", 3, "timelibrary",
+                        monster_name="Queen's Recruit")
+        await hunt_item(cmd, "Past Failures Brought Us Here", 2, "timelibrary",
+                        monster_name="Queen's Recruit")
+        await hunt_item(cmd, "Princess Freed... but for what?", 2,
+                        "timelibrary", monster_name="Queen's Knight")
+        await _map_items(cmd, "timelibrary", ((1368, 1),))
+
+    await _farm(cmd, 2240, q2240)
+    await _farm(cmd, 2241, q2241)
+    await _farm(cmd, 2242, q2242)
+    await _farm(cmd, 2243, q2243)
+    await _farm(cmd, 2244, q2244)
+
+    # Trust is Not Ephemeral 2253
+    await kill_quest(cmd, 2253, "timevoid", "Ephemerite")
+
+    # In a Split Exasecond 2254
+    async def q2254() -> None:
+        await hunt_item(cmd, "Exaglass", 4, "timevoid",
+                        monster_name="Time-Travel Fairy")
+        await hunt_item(cmd, "Fairy Plasma", 8, "timevoid",
+                        monster_name="Time-Travel Fairy")
+        await _map_items(cmd, "timevoid", ((1438, 16),))
+
+    # Time to Prove Yourself 2255
+    async def q2255() -> None:
+        await _map_items(cmd, "timevoid", ((1439, 12),))
+        await hunt_item(cmd, "Ephemeral Dust", 4, "timevoid",
+                        monster_name="Ephemerite")
+        await hunt_item(cmd, "Fairy Plasma", 4, "timevoid",
+                        monster_name="Time-Travel Fairy")
+
+    # Fill the Empty Hours 2256
+    async def q2256() -> None:
+        await hunt_item(cmd, "Powdered Fairy Wings", 6, "timevoid",
+                        monster_name="Time-Travel Fairy")
+        await hunt_item(cmd, "Dried Phoenix Tears", 6, "timevoid",
+                        monster_name="Void Phoenix")
+
+    await _farm(cmd, 2254, q2254)
+    await _farm(cmd, 2255, q2255)
+    await _farm(cmd, 2256, q2256)
+
+    # Clock of the Long Now 2257
+    await map_item_quest(cmd, 2257, "timevoid", [1440, 1441, 1442, 1443])
+
+    # Unending Avatar 2258 -- ``AutoCompleteQuest: false``: kill, no turn-in
+    if not await quest_progression(cmd, 2258):
+        if await cmd.ensure_accept_quest(2258) is False:
+            cmd.bot.log("[13loc] quest 2258 could not be accepted; Iadoa stops "
+                        "here.")
+            return
+        await kill_once(cmd, "timevoid", monster="Unending Avatar")
+
+    # Construct Your Reality 2376, Reach the Temple 2377
+    await map_item_quest(cmd, 2376, "aqlesson", 1467)
+    await kill_quest(cmd, 2377, "aqlesson", "Ninja")
+
+    # Not All Hope is Lost 2378
+    async def q2378() -> None:
+        await _map_items(cmd, "aqlesson", IADOA_2378_ITEMS)
+
+    await _farm(cmd, 2378, q2378)
+
+    # Bolster the Elements 2379
+    async def q2379() -> None:
+        await _map_items(cmd, "aqlesson", IADOA_2379_ITEMS)
+        await hunt_item(cmd, "TimeSpark Acquired", 3, "aqlesson",
+                        monster_name="Eternite Ore")
+        await hunt_item(cmd, "Tears of Joy Acquired", 3, "aqlesson",
+                        monster_name="Water Elemental")
+
+    # Maintain Elemental Strength 2380
+    async def q2380() -> None:
+        await _map_items(cmd, "aqlesson", IADOA_2380_ITEMS)
+        await hunt_item(cmd, "Frigid Liquid Acquired", 3, "aqlesson",
+                        monster_name="Ice Elemental")
+        await hunt_item(cmd, "Heart of Lava Acquired", 3, "aqlesson",
+                        monster_name="Fire Elemental")
+
+    await _farm(cmd, 2379, q2379)
+    await _farm(cmd, 2380, q2380)
+
+    # Rescue the Innocent 2381 .. Proto-Chaos Beast Battle! 2386
+    await kill_quest(cmd, 2381, "aqlesson", "Void Dragon")
+    await kill_quest(cmd, 2382, "aqlesson", "Firezard")
+    await kill_quest(cmd, 2383, "aqlesson", "Ice Elemental")
+    await map_item_quest(cmd, 2384, "thespan", 1474)
+    await kill_quest(cmd, 2385, "aqlesson", "Akriloth")
+    await kill_quest(cmd, 2386, "aqlesson", "Carnax")
+
+    # Elemental Orb Awareness 2470
+    await map_item_quest(cmd, 2470, "dflesson", 1549, 8)
+
+    # Fight Chaos with Fire! 2471
+    async def q2471() -> None:
+        await hunt_item(cmd, "Slain Flame Elemental", 8, "dflesson",
+                        monster_name="Fire Elemental")
+        await hunt_item(cmd, "Chaos Gemerald", 4, "dflesson",
+                        monster_name="Fire Elemental")
+
+    # Save Aria 2472
+    async def q2472() -> None:
+        await hunt_item(cmd, "Slain Slime", 5, "dflesson",
+                        monster_name="Lava Slime")
+        await hunt_item(cmd, "Slain Elemental", 6, "dflesson",
+                        monster_name="Fire Elemental")
+        await hunt_item(cmd, "Blue Clue", 1, "dflesson",
+                        monster_name="Fire Elemental")
+
+    # Find the Time to Travel 2473
+    async def q2473() -> None:
+        await hunt_item(cmd, "Life AND the Universe", 4, "dflesson",
+                        monster_name="Tog")
+        await hunt_item(cmd, "Everything", 5, "dflesson",
+                        monster_name="Agitated Orb")
+        await hunt_item(cmd, "Hoopy Frood's Towel", 3, "dflesson",
+                        monster_name="Agitated Orb")
+
+    await _farm(cmd, 2471, q2471)
+    await _farm(cmd, 2472, q2472)
+    await _farm(cmd, 2473, q2473)
+
+    # Dragon Egg... or Junk? 2474 .. Bone up on the Boss 2476
+    await kill_quest(cmd, 2474, "dflesson", "Vultragon")
+    await kill_quest(cmd, 2475, "dflesson", "Chaos Sp-Eye")
+    await kill_quest(cmd, 2476, "dflesson", "Chaorrupted Evil Soldier")
+
+    # Defend the Town! 2477
+    async def q2477() -> None:
+        await hunt_item(cmd, "Golem Crushed", 6, "dflesson",
+                        monster_name="Lava Golem")
+        await hunt_item(cmd, "Elemental Eliminated", 3, "dflesson",
+                        monster_name="Fire Elemental")
+
+    # ChickenCows, Bacon, and Battle! 2478
+    async def q2478() -> None:
+        await hunt_item(cmd, "Hero Protein", 1, "dflesson",
+                        monster_name="Chaotic Horcboar")
+        await hunt_item(cmd, "Spell Rune", 5, "dflesson",
+                        monster_name="Chaotic Chicken")
+
+    await _farm(cmd, 2477, q2477)
+    await _farm(cmd, 2478, q2478)
+
+    # The 2nd Proto-Chaos Beast 2479
+    await kill_quest(cmd, 2479, "dflesson", "Fluffy the Dracolich")
+
+    # Board the Ship to Your Future 2504
+    await map_item_quest(cmd, 2504, "mqlesson", 1580)
+
+    # Heal the Chaos Lord 2505 .. Secrets of the Universe 2510
+    await kill_quest(cmd, 2505, "mqlesson", "Asteroid")
+    await map_item_quest(cmd, 2506, "mqlesson", 1581, 5)
+    await kill_quest(cmd, 2507, "mqlesson", "MystRaven Student")
+    await kill_quest(cmd, 2508, "mqlesson", "Training Globe")
+    await kill_quest(cmd, 2509, "mqlesson", "MystRaven Student")
+    await kill_quest(cmd, 2510, "mqlesson", "Chaos Shadowscythe")
+
+    # Mysterious! 2511
+    async def q2511() -> None:
+        await hunt_item(cmd, "Truth Glasses", 1, "mqlesson",
+                        monster_name="Chaos Shadowscythe")
+        await hunt_item(cmd, "Darkness Destroyed", 13, "mqlesson",
+                        monster_name="Chaos Shadowscythe")
+
+    await _farm(cmd, 2511, q2511)
+
+    # The 3rd Proto-Chaos Beast 2512
+    await kill_quest(cmd, 2512, "mqlesson", "Dragonoid")
+
+    # Chaos Waits and Watches 2513 .. Chaos Beast Kathool 2517
+    await kill_quest(cmd, 2513, "deepchaos", "Chaotic Merdrac")
+    await kill_quest(cmd, 2515, "deepchaos", "Chaos Angler")
+    await map_item_quest(cmd, 2516, "deepchaos", 1582, 3)
+    await kill_quest(cmd, 2517, "deepchaos", "Kathool")
+
+    await cmd.sleep(2500)
+
+    # Starry, Starry Night 2518
+    async def q2518() -> None:
+        await hunt_item(cmd, "Star Death", 6, "timespace",
+                        monster_name="Astral Ephemerite")
+
+    await _farm(cmd, 2518, q2518)
+
+    # Chaos Lord Iadoa 2519
+    async def q2519() -> None:
+        await equip_class(cmd, solo=True)
+        if not await cmd.has_item("Dragonoid of Hours"):
+            cmd.bot.log('Getting "Dragonoid of Hours" from "Dragonoid" in '
+                        '"mqlesson" to make Iadoa easier.')
+            await hunt_item(cmd, "Dragonoid of Hours", 1, "mqlesson",
+                            monster_name="Dragonoid", is_temp=False)
+        await hunt_item(cmd, "Iadoa Defeated", 1, "timespace",
+                        monster_name="Chaos Lord Iadoa")
+
+    await _farm(cmd, IADOA_LAST, q2519)
+
+    # The member-only extra fights 2520 / 2521 / 2388
+    if cmd.get_player().is_member:
+        await kill_quest(cmd, 2520, "ultravoid", "Ultra Kathool")
+        await kill_quest(cmd, 2521, "ultravoid", "Ultra Iadoa")
+        await kill_quest(cmd, 2388, "ultracarnax", "Ultra-Carnax")
+
+
+XIANG_LAST = 3189
+XIANG_STORY_ADD_DROPS = ("Perfect Prism", "Unchaorrupted Sample", "Harpy Feather")
+#: The three /mirrorportal support quests and what each one pays out.
+XIANG_3184 = (3184, "earthstorm", "Shard Spinner", "Reflective Fragment",
+              "Perfect Prism")
+XIANG_3185 = (3185, "bloodtuskwar", "Chaotic Horcboar", "Vials of Blood",
+              "Unchaorrupted Sample")
+XIANG_3186 = (3186, "bloodtuskwar", "Chaos Tigriff", "Feathers", "Harpy Feather")
+POTION = "Shriekward Potion"
+POTION_SHOP_MAP = "mirrorportal"
+POTION_SHOP = 774
+POTION_QTY = 99
+POTION_ITEM = 20771
+
+
+async def _xiang_support_quest(cmd: Command, quest_id: int, map_name: str,
+                               monster: str, drop: str,
+                               reward: str) -> None:
+    """One of 3184/3185/3186: register, hunt ``drop`` x5, wait for ``reward``."""
+    guard = cmd.pass_guard(f'"{reward}" (quest {quest_id})')
+    while (cmd.is_still_connected()
+           and not await cmd.has_item(reward)):
+        await cmd.register_quest(quest_id)
+        await hunt_item(cmd, drop, 5, map_name, monster_name=monster)
+        cmd.cancel_registered_quests()
+        if not await guard.tick():
+            return
+
+
+async def xiang(cmd: Command) -> None:
+    """``Core13LoC.Xiang``: quests 2909-3189, /battleoff to /mirrorportal."""
+    if await cmd.is_completed_before(XIANG_LAST):
+        return
+
+    cmd.add_drop(list(XIANG_STORY_ADD_DROPS))
+
+    # Bright Idea 2909 .. Cut Off The Head 2917
+    await map_item_quest(cmd, 2909, "battleoff", 1779)
+    await map_item_quest(cmd, 2910, "battleoff", 1780, 8)
+    await kill_quest(cmd, 2911, "battleoff", "Evil Moglin")
+    await kill_quest(cmd, 2912, "battleoff", "Evil Moglin")
+    await kill_quest(cmd, 2913, "brightfall", "Undead Minion")
+    await kill_quest(cmd, 2914, "brightfall", "Undead Mage")
+    await map_item_quest(cmd, 2915, "brightfall", 1781, 6)
+    await map_item_quest(cmd, 2916, "brightfall", 1782, 8)
+    await kill_quest(cmd, 2917, "brightfall", "Painadin Overlord")
+
+    # Rearm The Legion of Light 2918
+    await cmd.join_map("overworld")
+    await chain_quest(cmd, 2918)
+
+    # Speak to Dage The Good 2919 .. Undead Artix Returns! 2932
+    await kill_quest(cmd, 2919, "overworld", "Undead Minion")
+    await kill_quest(cmd, 2920, "overworld", "Undead Minion")
+    await kill_quest(cmd, 2921, "overworld", "Undead Minion")
+    await kill_quest(cmd, 2922, "overworld", "Undead Mage")
+    await map_item_quest(cmd, 2923, "overworld", 1800, 6)
+    await kill_quest(cmd, 2924, "overworld", "Undead Bruiser")
+    await kill_quest(cmd, 2925, "overworld", "Undead Bruiser")
+    await kill_quest(cmd, 2926, "overworld", "Undead Minion")
+    await map_item_quest(cmd, 2927, "overworld", 1801, 8)
+    await kill_quest(cmd, 2928, "overworld", "Undead Minion")
+    await kill_quest(cmd, 2929, "overworld", "Undead Minion")
+    await kill_quest(cmd, 2930, "overworld", "Undead Minion")
+    await map_item_quest(cmd, 2931, "overworld", 1802, 10)
+    await kill_quest(cmd, 2932, "overworld", "Undead Artix")
+
+    # I Can't Touch This 3166
+    await kill_quest(cmd, 3166, "reddeath", "Fire Leech")
+
+    # Nope, Still a Ghost 3167
+    async def q3167() -> None:
+        await _map_items(cmd, "reddeath", ((2178, 1), (2179, 1)))
+        await hunt_item(cmd, "Boneweed", 5, "reddeath",
+                        monster_name="RedDeath Moglin")
+
+    await _farm(cmd, 3167, q3167)
+
+    # First We Need a Beacon... 3168 .. Still To Fragile 3172
+    await map_item_quest(cmd, 3168, "reddeath", 2180)
+    await kill_quest(cmd, 3169, "reddeath", "Fire Leech")
+    await kill_quest(cmd, 3170, "reddeath", "Grim Widow")
+    await kill_quest(cmd, 3171, "reddeath", "Swamp Wraith")
+    await kill_quest(cmd, 3172, "reddeath", "Swamp Wraith")
+
+    # Craft a Better Defense 3183
+    await map_item_quest(cmd, 3183, "battleontown", 2203)
+
+    # The Shriekward Potion chain: 3184/3185/3186 under quest 3187
+    if not await cmd.is_completed_before(3188):
+        if await cmd.ensure_accept_quest(3187) is False:
+            cmd.bot.log("[13loc] quest 3187 could not be accepted; Xiang stops "
+                        "here.")
+            return
+        await equip_class(cmd)
+        cmd.add_drop(["Harpy Feather", "Perfect Prism", "Unchaorrupted Sample",
+                      POTION])
+
+        await _xiang_support_quest(cmd, *XIANG_3184)
+        await wait_for_item(cmd, "Perfect Prism")
+        await _xiang_support_quest(cmd, *XIANG_3185)
+        await wait_for_item(cmd, "Unchaorrupted Sample")
+        await _xiang_support_quest(cmd, *XIANG_3186)
+        await wait_for_item(cmd, "Harpy Feather")
+
+        # Ward Off the Beast: the turn-in happens in /mirrorportal
+        await cmd.join_map(POTION_SHOP_MAP)
+        await cmd.ensure_turn_in_quest(3187)
+        await wait_for_item(cmd, POTION)
+        held = cmd.get_quant_item(POTION)
+        if held:
+            await cmd.sell_item(POTION, held)
+
+        # The source hops out and back to settle the map after the turn-in.
+        cmd.bot.log("Fixing soemthing with teh chaos harpy, one moment")
+        await cmd.join_map("whitemap")
+        await cmd.join_map(POTION_SHOP_MAP)
+
+    # Horror Takes Flight 3188
+    if not await quest_progression(cmd, 3188):
+        await equip_class(cmd, solo=True)
+        if await cmd.ensure_accept_quest(3188) is False:
+            cmd.bot.log("[13loc] quest 3188 could not be accepted; Xiang stops "
+                        "here.")
+            return
+        await adv_buy_item(cmd, POTION_SHOP, POTION, POTION_QTY,
+                           map_name=POTION_SHOP_MAP)
+        await hunt_item(cmd, "Chaos Harpy Defeated", 1, POTION_SHOP_MAP,
+                        cell="r3", pad="Left", monster_name="Chaos Harpy")
+        await cmd.ensure_turn_in_quest(3188)
+        if await cmd.has_item(POTION):
+            await cmd.jump_cell(cmd.bot.player.CELL, cmd.bot.player.PAD)
+            worn = cmd.bot.player.get_item_inventory_by_id(POTION_ITEM)
+            if worn is not None and getattr(worn, "is_equipped", False):
+                await cmd.send_packet(f"%xt%zm%unequipItem%{cmd.bot.areaId}%"
+                                      f"{POTION_ITEM}%")
+                await cmd.sleep(500)
+            held = cmd.get_quant_item(POTION)
+            if held:
+                await cmd.sell_item(POTION, held)
+
+    # Good, Evil and Chaos Battle! 3189
+    if not await quest_progression(cmd, XIANG_LAST):
+        await gear_store(cmd)
+        if await cmd.ensure_accept_quest(XIANG_LAST) is False:
+            cmd.bot.log("[13loc] quest 3189 could not be accepted; Xiang stops "
+                        "here.")
+            return
+        await kill_xiang(cmd, "Chaos Lord Xiang Defeated", is_temp=True)
+        await cmd.ensure_turn_in_quest(XIANG_LAST)
+        await gear_store(cmd, restore=True, enh_after=True)
+
+
+ALTEON_LAST = 3160
+#: Quest 3121 gathers letters from four maps before it can be turned in.
+ALTEON_3121 = (("yulgar", ((2108, 1), (2109, 1), (2110, 1))),
+               ("archives", ((2111, 1),)),
+               ("swordhaven", ((2112, 1), (2113, 1), (2114, 1), (2115, 1))))
+
+
+async def alteon(cmd: Command) -> None:
+    """``Core13LoC.Alteon``: quests 3077-3160, /archives to /swordhavenfalls."""
+    if await cmd.is_completed_before(ALTEON_LAST):
+        return
+
+    # Bandit Bounty 3077, Thwarting the Spies 3078
+    await kill_quest(cmd, 3077, "archives", "Chaos Bandit")
+    await kill_quest(cmd, 3078, "archives", "Camouflaged Sp-eye")
+
+    # Fight Chaos With Clerics 3079
+    async def q3079() -> None:
+        await hunt_item(cmd, "Clump of Tentacles", 3, "archives",
+                        monster_name="Chaos Bandit")
+        await hunt_item(cmd, "Chaorrupted Humor", 3, "archives",
+                        monster_name="Camouflaged Sp-eye")
+
+    # Locate the Source 3080
+    async def q3080() -> None:
+        await _map_items(cmd, "archives", ((1937, 1),))
+        await hunt_item(cmd, "Reeking Clue", 6, "archives",
+                        monster_name="Chaos Bandit")
+
+    await _farm(cmd, 3079, q3079)
+    await _farm(cmd, 3080, q3080)
+
+    # Plagued Rats 3081, Nope, Nope, Nope! 3082
+    await kill_quest(cmd, 3081, "archives", "Chaos Rat")
+    await kill_quest(cmd, 3082, "archives", "Chaos Spider")
+
+    # Still More Research To Be Done! 3083
+    async def q3083() -> None:
+        await hunt_item(cmd, "Intact Rat Brain", 5, "archives",
+                        monster_name="Chaos Rat")
+        await hunt_item(cmd, "Vial of Ichor", 5, "archives",
+                        monster_name="Chaos Spider")
+
+    await _farm(cmd, 3083, q3083)
+
+    # That's One Big Sludgebeast. 3084
+    await kill_quest(cmd, 3084, "archives", "Sludgelord")
+
+    # Back to Jail With You! 3094
+    await kill_quest(cmd, 3094, "armory", "Chaorrupted Prisoner")
+
+    # We May Need A Militia 3095
+    async def q3095() -> None:
+        await _map_items(cmd, "armory", ((1956, 4),))
+        await hunt_item(cmd, "Weapon Recovered", 4, "armory",
+                        monster_name="Chaorrupted Prisoner")
+
+    await _farm(cmd, 3095, q3095)
+
+    # An Ounce Of Prevention 3096 .. No, NOW We're Under Siege 3093
+    await kill_quest(cmd, 3096, "armory", "Chaos Drifter")
+    await kill_quest(cmd, 3089, "armory", "Chaorrupted Prisoner")
+    await kill_quest(cmd, 3090, "armory", "Chaos Mage")
+    await kill_quest(cmd, 3091, "armory", "Chaos Mage")
+    await map_item_quest(cmd, 3092, "armory", 1957)
+    await kill_quest(cmd, 3093, "armory", "Chaos General")
+
+    # Chaos Not Invited 3120
+    await kill_quest(cmd, 3120, "ceremony", "Chaos Invader")
+
+    # Better Letter Go! 3121 -- letters from four maps
+    async def q3121() -> None:
+        for map_name, items in ALTEON_3121:
+            await _map_items(cmd, map_name, items)
+
+    await _farm(cmd, 3121, q3121)
+
+    # Decor Rater 3122
+    await map_item_quest(cmd, 3122, "swordhaven", 2116, 8)
+
+    # Cold Feet, Warm Heart 3123
+    await kill_quest(cmd, 3123, "mafic", "Living Fire")
+
+    # Chaos STILL Not Invited 3124, Protect the Princesses 3125
+    await kill_quest(cmd, 3124, "ceremony", "Chaos Invader")
+    await map_item_quest(cmd, 3125, "ceremony", 2118, 6)
+
+    # Seal the Chapel 3126
+    async def q3126() -> None:
+        await _map_items(cmd, "ceremony", ((2119, 1),))
+        await hunt_item(cmd, "Invaders Defeated", 8, "ceremony",
+                        monster_name="Chaos Invader")
+
+    await _farm(cmd, 3126, q3126)
+
+    # Chaos Kills! 3127
+    await kill_quest(cmd, 3127, "ceremony", "Chaos Justicar")
+
+    # Endless Aisle of Chaos 3133
+    await map_item_quest(cmd, 3133, "chaosaltar", 2127, 12)
+
+    # Save the Princess... Again! 3134
+    await kill_quest(cmd, 3134, "chaosaltar", "Princess Thrall")
+
+    # Chaos Dragon Confrontation 3158
+    await kill_quest(cmd, 3158, "castleroof", "Chaos Dragon")
+
+    # To Catch a King 3159
+    await map_item_quest(cmd, 3159, "swordhavenfalls", 2158)
+
+    # Chaos Lord Alteon 3160
+    await kill_quest(cmd, ALTEON_LAST, "swordhavenfalls", "Chaos Lord Alteon")
+
+
+HERO_LAST = 3799
+HERO_FINAL_QUEST = 3881
+#: ``ResetShadowAttack`` uses the bot's private room number for the re-entry.
+HERO_PRIVATE_ROOM = 9099
+#: ``PrivateRoomNumber`` when the bot has one set; the reset uses "whitemap-100000".
+HERO_RESET_HOME = "whitemap-100000"
+
+
+async def _reset_shadow_attack(cmd: Command) -> None:
+    """``ResetShadowAttack``: leave, hop home, come back in the private room."""
+    cmd.bot.log("Resetting shadowAttack Map")
+    await cmd.jump_cell(cmd.bot.player.CELL, cmd.bot.player.PAD)
+    await cmd.sleep(2500)
+    await cmd.join_map(HERO_RESET_HOME)
+    await cmd.sleep(2500)
+    await cmd.join_map("shadowattack",
+                       getattr(cmd.bot, "roomNumber", None) or HERO_PRIVATE_ROOM)
+    await cmd.sleep(2500)
+
+
+async def _hit_until_temp(cmd: Command, map_name: str, item_name: str = None,
+                          item_id: int = 0) -> bool:
+    """``while (!ShouldExit) { Attack("*"); if (TempInv has it) break; }``."""
+    def held() -> bool:
+        if item_id:
+            return cmd.bot.player.get_item_temp_inventory_by_id(item_id) is not None
+        return cmd.is_in_inventory(item_name, 1, ">=", True)
+
+    guard = cmd.pass_guard(f"{item_name or item_id} ({map_name})")
+    while cmd.is_still_connected() and not held():
+        await kill_once(cmd, map_name, "r2", "Left", "*")
+        if not await guard.tick():
+            return False
+    return held()
+
+
+async def hero(cmd: Command) -> None:
+    """``Core13LoC.Hero``: quests 3578-3881, the 13th Lord of Chaos.
+
+    Three source quirks are kept as they are: ``3789`` is accepted, hunted and
+    accepted again instead of turned in (the reference never completes it), the
+    "become a Chaos Lord" achievement packet is written with the room id the
+    source hard-codes, and the last two fights are "attack everything until the
+    temporary drop appears".
+    """
+    if (await cmd.is_completed_before(HERO_LAST)
+            and await cmd.is_completed_before(HERO_FINAL_QUEST)):
+        return
+
+    # 12 Lords of Chaos .. 12th Lord of Chaos
+    for quest_id in (3578, 3579, 3580, 3581, 3582, 3583, 3584, 3585, 3586,
+                     3587, 3588, 3589, 3590, 3591, 3764):
+        await chain_quest(cmd, quest_id)
+
+    # Drakath Faced 3765
+    await map_item_quest(cmd, 3765, "mountdoomskull", 2726)
+
+    # Who is the 13th Lord of Chaos? 3766, World War Lore! 3779
+    await chain_quest(cmd, 3766)
+    await chain_quest(cmd, 3779)
+
+    # Battle for Chaos in Willowcreek! 3781, Defeat the Chaos Challenger 3788
+    await kill_quest(cmd, 3781, "newfinale", "Alliance Virago")
+    await kill_quest(cmd, 3788, "newfinale", "Chaos Challenger")
+
+    # Battle for Chaos in Doomwood! 3783
+    await kill_quest(cmd, 3783, "newfinale", "Alliance Virago")
+
+    # Beat Chaorrupted Lycan Hunter 3789 -- accepted twice, never completed
+    if not await quest_progression(cmd, 3789):
+        if await cmd.ensure_accept_quest(3789) is False:
+            cmd.bot.log("[13loc] quest 3789 could not be accepted; Hero stops "
+                        "here.")
+            return
+        await hunt_item(cmd, "Chaorrupted Lycan Hunter Defeated", 1, "newfinale",
+                        monster_name="Chaorrupted Lycan Hunter")
+        # the reference's second EnsureAccept, kept: 3789 stays in progress
+        await cmd.ensure_accept_quest(3789)
+
+    # Battle for Chaos in Darkovia! 3785, Defeat the Memory of Vampires 3790
+    await kill_quest(cmd, 3785, "newfinale", "Alliance Virago")
+    await kill_quest(cmd, 3790, "newfinale", "Memory of Vampires")
+
+    # Battle for Chaos in the Lair! 3787
+    await kill_quest(cmd, 3787, "newfinale", "Alliance Virago")
+
+    # 1st .. 12th Chaos Beast, then three chains
+    for quest_id in (3608, 3618, 3609, 3610, 3611, 3612, 3613, 3614, 3615,
+                     3616, 3617, 3619):
+        await chain_quest(cmd, quest_id)
+    await chain_quest(cmd, 3791)
+    await chain_quest(cmd, 3792)
+
+    # Battle for Chaos in Battleon! 3794
+    await kill_quest(cmd, 3794, "newfinale", "Alliance Soldier")
+
+    # Become a Chaos Lord -- the source's own achievement packet
+    await cmd.join_map("newfinale")
+    await cmd.jump_cell("NPC2", "Left")
+    await cmd.send_packet("%xt%zm%setAchievement%15075%ia1%20%1%")
+
+    # Battle the Champion of Chaos! 3795
+    await map_item_quest(cmd, 3795, "drakathfight", 2894)
+
+    # Arrive in the Underworld 3620, Search for Death's Lair 3796
+    await kill_quest(cmd, 3620, "shadowrise", "Darkness Elemental")
+    await map_item_quest(cmd, 3796, "shadowrise", 2895)
+
+    # Arrive in Shadowattack 3797
+    await chain_quest(cmd, 3797)
+
+    # Find your way to Death's lair 3798
+    if not await quest_progression(cmd, 3798):
+        await _reset_shadow_attack(cmd)
+        if await cmd.ensure_accept_quest(3798) is False:
+            cmd.bot.log("[13loc] quest 3798 could not be accepted; Hero stops "
+                        "here.")
+            return
+        await cmd.join_map("shadowattack")
+        await cmd.get_map_item(2896)
+        await _wait_temp_either(cmd, 25903, "Hunt for Death")
+        await cmd.ensure_turn_in_quest(3798)
+
+    # Beat Death! 3799
+    await equip_class(cmd, solo=True)
+    if not await quest_progression(cmd, HERO_LAST):
+        await _reset_shadow_attack(cmd)
+        if await cmd.ensure_accept_quest(HERO_LAST) is False:
+            cmd.bot.log("[13loc] quest 3799 could not be accepted; Hero stops "
+                        "here.")
+            return
+        await hunt_item(cmd, "You Beat Death?!", 1, "shadowattack",
+                        monster_name="Death")
+        await cmd.ensure_turn_in_quest(HERO_LAST)
+
+    # Enter Confrontation 3875
+    if not await cmd.is_completed_before(3876):
+        if await cmd.ensure_accept_quest(3875) is False:
+            cmd.bot.log("[13loc] quest 3875 could not be accepted; Hero stops "
+                        "here.")
+            return
+        await cmd.join_map("confrontation")
+        await cmd.ensure_turn_in_quest(3875)
+
+    await equip_class(cmd, solo=True)
+
+    # Defeat Drakath! 3876 / ..again! 3877 / 3878 -- by monster map id + item id
+    async def q3876() -> None:
+        await hunt_item_by_id(cmd, 26875, 1, "finalbattle", cell="r1",
+                              pad="Left", monster_map_id=1)
+
+    async def q3877() -> None:
+        await hunt_item_by_id(cmd, 26876, 1, "finalbattle", cell="r4",
+                              pad="Left", monster_map_id=14)
+
+    async def q3878() -> None:
+        await hunt_item_by_id(cmd, 26877, 1, "finalbattle", cell="r9",
+                              pad="Left", monster_map_id=23)
+        await cmd.join_map("whitemap")
+
+    await _farm(cmd, 3876, q3876)
+    await _farm(cmd, 3877, q3877)
+    await _farm(cmd, 3878, q3878)
+
+    # Defeat the 12 Lords of Chaos! 3879
+    async def q3879() -> None:
+        await hunt_item(cmd, "Chaos Lord Alteon Defeated", 1, "chaosrealm",
+                        cell="r24", pad="Left", monster_name="Alteon")
+        await cmd.join_map("whitemap")
+
+    await _farm(cmd, 3879, q3879)
+
+    # Defeat the 13th Lord of Chaos 3880
+    if not await cmd.is_completed_before(3880):
+        if await cmd.ensure_accept_quest(3880) is False:
+            cmd.bot.log("[13loc] quest 3880 could not be accepted; Hero stops "
+                        "here.")
+            return
+        await cmd.join_map("chaoslord")
+        await cmd.jump_cell("r2", "Left")
+        await equip_class(cmd, solo=True)
+        if await _hit_until_temp(cmd, "chaoslord", "13th Lord of Chaos Defeated"):
+            await cmd.jump_cell(cmd.bot.player.CELL, cmd.bot.player.PAD)
+            await cmd.ensure_turn_in_quest(3880)
+        await cmd.join_map("whitemap")
+
+    # The Final Showdown! 3881 -- the drop is a temp item id, not a name
+    if not await cmd.is_completed_before(HERO_FINAL_QUEST):
+        if await cmd.ensure_accept_quest(HERO_FINAL_QUEST) is False:
+            cmd.bot.log("[13loc] quest 3881 could not be accepted; Hero stops "
+                        "here.")
+            return
+        await cmd.join_map("finalshowdown")
+        await cmd.jump_cell("r2", "Left")
+        if await _hit_until_temp(cmd, "finalshowdown", item_id=26881):
+            await cmd.jump_cell(cmd.bot.player.CELL, cmd.bot.player.PAD)
+            await cmd.ensure_turn_in_quest(HERO_FINAL_QUEST)
+        await cmd.join_map("whitemap")
+
+
+async def _wait_temp_either(cmd: Command, item_id: int, item_name: str,
+                            timeout_ms: int = 20000) -> bool:
+    """``Wait.ForTrue(() => TempInv has id or name, 20)``."""
+    waited = 0
+    while cmd.is_still_connected() and waited < timeout_ms:
+        if (cmd.bot.player.get_item_temp_inventory_by_id(item_id) is not None
+                or cmd.is_in_inventory(item_name, 1, ">=", True)):
+            return True
+        await cmd.sleep(500)
+        waited += 500
+    return False
+
+
 LIONFANG_LAST = 2814
 
 #: Quest 2615's own block: the map item, then the two drops it wants.
@@ -1444,11 +2193,11 @@ SEGMENTS = (
     ("Ledgermayne", ledgermayne),
     ("Tibicenas", tibicenas),
     ("KhasaandaHorc", khasaanda_horc),
-    ("Iadoa", None),
+    ("Iadoa", iadoa),
     ("Lionfang", lionfang),
-    ("Xiang", None),
-    ("Alteon", None),
-    ("Hero", None),
+    ("Xiang", xiang),
+    ("Alteon", alteon),
+    ("Hero", hero),
 )
 
 
