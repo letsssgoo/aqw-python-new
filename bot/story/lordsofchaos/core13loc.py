@@ -14,8 +14,9 @@ class, different job: this one is the whole /mobius story.
 from typing import Optional, Sequence, Tuple, Union
 
 from bot.core_advanced import buy_item as adv_buy_item
+from bot.core_advanced import gear_store
 from bot.core_bots import (Alignment, buy_item, chain_complete,
-                           change_alignment, equip_class, kill_once,
+                           change_alignment, equip_class, kill_once, kill_xiang,
                            parse_message, wait_for_item)
 from bot.core_story import (chain_quest, item_id_by_name, kill_quest,
                             map_item_quest, quest_progression)
@@ -1534,6 +1535,159 @@ async def iadoa(cmd: Command) -> None:
         await kill_quest(cmd, 2388, "ultracarnax", "Ultra-Carnax")
 
 
+XIANG_LAST = 3189
+XIANG_STORY_ADD_DROPS = ("Perfect Prism", "Unchaorrupted Sample", "Harpy Feather")
+#: The three /mirrorportal support quests and what each one pays out.
+XIANG_3184 = (3184, "earthstorm", "Shard Spinner", "Reflective Fragment",
+              "Perfect Prism")
+XIANG_3185 = (3185, "bloodtuskwar", "Chaotic Horcboar", "Vials of Blood",
+              "Unchaorrupted Sample")
+XIANG_3186 = (3186, "bloodtuskwar", "Chaos Tigriff", "Feathers", "Harpy Feather")
+POTION = "Shriekward Potion"
+POTION_SHOP_MAP = "mirrorportal"
+POTION_SHOP = 774
+POTION_QTY = 99
+POTION_ITEM = 20771
+
+
+async def _xiang_support_quest(cmd: Command, quest_id: int, map_name: str,
+                               monster: str, drop: str,
+                               reward: str) -> None:
+    """One of 3184/3185/3186: register, hunt ``drop`` x5, wait for ``reward``."""
+    guard = cmd.pass_guard(f'"{reward}" (quest {quest_id})')
+    while (cmd.is_still_connected()
+           and not await cmd.has_item(reward)):
+        await cmd.register_quest(quest_id)
+        await hunt_item(cmd, drop, 5, map_name, monster_name=monster)
+        cmd.cancel_registered_quests()
+        if not await guard.tick():
+            return
+
+
+async def xiang(cmd: Command) -> None:
+    """``Core13LoC.Xiang``: quests 2909-3189, /battleoff to /mirrorportal."""
+    if await cmd.is_completed_before(XIANG_LAST):
+        return
+
+    cmd.add_drop(list(XIANG_STORY_ADD_DROPS))
+
+    # Bright Idea 2909 .. Cut Off The Head 2917
+    await map_item_quest(cmd, 2909, "battleoff", 1779)
+    await map_item_quest(cmd, 2910, "battleoff", 1780, 8)
+    await kill_quest(cmd, 2911, "battleoff", "Evil Moglin")
+    await kill_quest(cmd, 2912, "battleoff", "Evil Moglin")
+    await kill_quest(cmd, 2913, "brightfall", "Undead Minion")
+    await kill_quest(cmd, 2914, "brightfall", "Undead Mage")
+    await map_item_quest(cmd, 2915, "brightfall", 1781, 6)
+    await map_item_quest(cmd, 2916, "brightfall", 1782, 8)
+    await kill_quest(cmd, 2917, "brightfall", "Painadin Overlord")
+
+    # Rearm The Legion of Light 2918
+    await cmd.join_map("overworld")
+    await chain_quest(cmd, 2918)
+
+    # Speak to Dage The Good 2919 .. Undead Artix Returns! 2932
+    await kill_quest(cmd, 2919, "overworld", "Undead Minion")
+    await kill_quest(cmd, 2920, "overworld", "Undead Minion")
+    await kill_quest(cmd, 2921, "overworld", "Undead Minion")
+    await kill_quest(cmd, 2922, "overworld", "Undead Mage")
+    await map_item_quest(cmd, 2923, "overworld", 1800, 6)
+    await kill_quest(cmd, 2924, "overworld", "Undead Bruiser")
+    await kill_quest(cmd, 2925, "overworld", "Undead Bruiser")
+    await kill_quest(cmd, 2926, "overworld", "Undead Minion")
+    await map_item_quest(cmd, 2927, "overworld", 1801, 8)
+    await kill_quest(cmd, 2928, "overworld", "Undead Minion")
+    await kill_quest(cmd, 2929, "overworld", "Undead Minion")
+    await kill_quest(cmd, 2930, "overworld", "Undead Minion")
+    await map_item_quest(cmd, 2931, "overworld", 1802, 10)
+    await kill_quest(cmd, 2932, "overworld", "Undead Artix")
+
+    # I Can't Touch This 3166
+    await kill_quest(cmd, 3166, "reddeath", "Fire Leech")
+
+    # Nope, Still a Ghost 3167
+    async def q3167() -> None:
+        await _map_items(cmd, "reddeath", ((2178, 1), (2179, 1)))
+        await hunt_item(cmd, "Boneweed", 5, "reddeath",
+                        monster_name="RedDeath Moglin")
+
+    await _farm(cmd, 3167, q3167)
+
+    # First We Need a Beacon... 3168 .. Still To Fragile 3172
+    await map_item_quest(cmd, 3168, "reddeath", 2180)
+    await kill_quest(cmd, 3169, "reddeath", "Fire Leech")
+    await kill_quest(cmd, 3170, "reddeath", "Grim Widow")
+    await kill_quest(cmd, 3171, "reddeath", "Swamp Wraith")
+    await kill_quest(cmd, 3172, "reddeath", "Swamp Wraith")
+
+    # Craft a Better Defense 3183
+    await map_item_quest(cmd, 3183, "battleontown", 2203)
+
+    # The Shriekward Potion chain: 3184/3185/3186 under quest 3187
+    if not await cmd.is_completed_before(3188):
+        if await cmd.ensure_accept_quest(3187) is False:
+            cmd.bot.log("[13loc] quest 3187 could not be accepted; Xiang stops "
+                        "here.")
+            return
+        await equip_class(cmd)
+        cmd.add_drop(["Harpy Feather", "Perfect Prism", "Unchaorrupted Sample",
+                      POTION])
+
+        await _xiang_support_quest(cmd, *XIANG_3184)
+        await wait_for_item(cmd, "Perfect Prism")
+        await _xiang_support_quest(cmd, *XIANG_3185)
+        await wait_for_item(cmd, "Unchaorrupted Sample")
+        await _xiang_support_quest(cmd, *XIANG_3186)
+        await wait_for_item(cmd, "Harpy Feather")
+
+        # Ward Off the Beast: the turn-in happens in /mirrorportal
+        await cmd.join_map(POTION_SHOP_MAP)
+        await cmd.ensure_turn_in_quest(3187)
+        await wait_for_item(cmd, POTION)
+        held = cmd.get_quant_item(POTION)
+        if held:
+            await cmd.sell_item(POTION, held)
+
+        # The source hops out and back to settle the map after the turn-in.
+        cmd.bot.log("Fixing soemthing with teh chaos harpy, one moment")
+        await cmd.join_map("whitemap")
+        await cmd.join_map(POTION_SHOP_MAP)
+
+    # Horror Takes Flight 3188
+    if not await quest_progression(cmd, 3188):
+        await equip_class(cmd, solo=True)
+        if await cmd.ensure_accept_quest(3188) is False:
+            cmd.bot.log("[13loc] quest 3188 could not be accepted; Xiang stops "
+                        "here.")
+            return
+        await adv_buy_item(cmd, POTION_SHOP, POTION, POTION_QTY,
+                           map_name=POTION_SHOP_MAP)
+        await hunt_item(cmd, "Chaos Harpy Defeated", 1, POTION_SHOP_MAP,
+                        cell="r3", pad="Left", monster_name="Chaos Harpy")
+        await cmd.ensure_turn_in_quest(3188)
+        if await cmd.has_item(POTION):
+            await cmd.jump_cell(cmd.bot.player.CELL, cmd.bot.player.PAD)
+            worn = cmd.bot.player.get_item_inventory_by_id(POTION_ITEM)
+            if worn is not None and getattr(worn, "is_equipped", False):
+                await cmd.send_packet(f"%xt%zm%unequipItem%{cmd.bot.areaId}%"
+                                      f"{POTION_ITEM}%")
+                await cmd.sleep(500)
+            held = cmd.get_quant_item(POTION)
+            if held:
+                await cmd.sell_item(POTION, held)
+
+    # Good, Evil and Chaos Battle! 3189
+    if not await quest_progression(cmd, XIANG_LAST):
+        await gear_store(cmd)
+        if await cmd.ensure_accept_quest(XIANG_LAST) is False:
+            cmd.bot.log("[13loc] quest 3189 could not be accepted; Xiang stops "
+                        "here.")
+            return
+        await kill_xiang(cmd, "Chaos Lord Xiang Defeated", is_temp=True)
+        await cmd.ensure_turn_in_quest(XIANG_LAST)
+        await gear_store(cmd, restore=True, enh_after=True)
+
+
 LIONFANG_LAST = 2814
 
 #: Quest 2615's own block: the map item, then the two drops it wants.
@@ -1714,7 +1868,7 @@ SEGMENTS = (
     ("KhasaandaHorc", khasaanda_horc),
     ("Iadoa", iadoa),
     ("Lionfang", lionfang),
-    ("Xiang", None),
+    ("Xiang", xiang),
     ("Alteon", None),
     ("Hero", None),
 )

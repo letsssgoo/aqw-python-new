@@ -829,6 +829,58 @@ def doom_kitten_rotation(cmd: Command, rotation) -> list:
     return slots
 
 
+# ---------------------------------------------------------------------------
+# Xiang
+# ---------------------------------------------------------------------------
+XIANG_MAP = "mirrorportal"
+#: ``RankFiveOrHigher`` is 22500 class points, the rank-5 threshold.
+XIANG_CLASS_POINTS = 22_500
+#: The classes the reference picks from, in its order; the healing ones carry
+#: Xiang's fight, which is why they are here at all.
+XIANG_CLASSES = ("Dragon of Time", "Healer (Rare)", "Healer")
+
+
+async def kill_xiang(cmd: Command, item: str = None, quant: int = 1,
+                     ultra: bool = False, is_temp: bool = False,
+                     log: bool = True) -> None:
+    """``CoreBots.KillXiang``: fight Chaos Lord (or Ultra) Xiang.
+
+    The reference swaps in a healing class at rank 5 or better before the fight
+    (``Dragon of Time``, then ``Healer (Rare)``, then ``Healer``) and starts that
+    class's rotation; this engine equips the same class and uses its own skill
+    scheduler.
+
+    Args:
+        cmd (Command): Facade to act through.
+        item (str): Drop to wait for; ``None`` kills once.
+        quant (int): How many.
+        ultra (bool): Fight Ultra Xiang in ``r6`` instead of ``r4``.
+        is_temp (bool): Whether the drop lands in the temporary bag.
+        log (bool): Kept for signature parity; the fight always reports itself.
+    """
+    if item is not None and await cmd.has_item(item, quant, isTemp=is_temp):
+        return
+
+    for class_name in XIANG_CLASSES:
+        found = cmd.bot.player.get_item_inventory(class_name) \
+            or cmd.bot.player.get_item_bank(class_name)
+        if found is None:
+            continue
+        if int(getattr(found, "qty", 0) or 0) >= XIANG_CLASS_POINTS:
+            await cmd.equip_item(class_name)
+            break
+
+    monster = "Ultra Xiang" if ultra else "Chaos Lord Xiang"
+    cell = "r6" if ultra else "r4"
+    if item is None:
+        await kill_once(cmd, XIANG_MAP, cell, "Right", monster)
+        await cmd.sleep(500)
+        return
+
+    await hunt_item(cmd, item, quant, XIANG_MAP, cell=cell, pad="Right",
+                    monster_name=monster, is_temp=is_temp)
+
+
 async def kill_doom_kitten(cmd: Command, item: str = None, quant: int = 1,
                            is_temp: bool = False, log: bool = True) -> None:
     """``CoreBots.KillDoomKitten``: fight DoomKitten until its drop lands.
