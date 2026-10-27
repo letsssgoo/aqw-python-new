@@ -1688,6 +1688,120 @@ async def xiang(cmd: Command) -> None:
         await gear_store(cmd, restore=True, enh_after=True)
 
 
+ALTEON_LAST = 3160
+#: Quest 3121 gathers letters from four maps before it can be turned in.
+ALTEON_3121 = (("yulgar", ((2108, 1), (2109, 1), (2110, 1))),
+               ("archives", ((2111, 1),)),
+               ("swordhaven", ((2112, 1), (2113, 1), (2114, 1), (2115, 1))))
+
+
+async def alteon(cmd: Command) -> None:
+    """``Core13LoC.Alteon``: quests 3077-3160, /archives to /swordhavenfalls."""
+    if await cmd.is_completed_before(ALTEON_LAST):
+        return
+
+    # Bandit Bounty 3077, Thwarting the Spies 3078
+    await kill_quest(cmd, 3077, "archives", "Chaos Bandit")
+    await kill_quest(cmd, 3078, "archives", "Camouflaged Sp-eye")
+
+    # Fight Chaos With Clerics 3079
+    async def q3079() -> None:
+        await hunt_item(cmd, "Clump of Tentacles", 3, "archives",
+                        monster_name="Chaos Bandit")
+        await hunt_item(cmd, "Chaorrupted Humor", 3, "archives",
+                        monster_name="Camouflaged Sp-eye")
+
+    # Locate the Source 3080
+    async def q3080() -> None:
+        await _map_items(cmd, "archives", ((1937, 1),))
+        await hunt_item(cmd, "Reeking Clue", 6, "archives",
+                        monster_name="Chaos Bandit")
+
+    await _farm(cmd, 3079, q3079)
+    await _farm(cmd, 3080, q3080)
+
+    # Plagued Rats 3081, Nope, Nope, Nope! 3082
+    await kill_quest(cmd, 3081, "archives", "Chaos Rat")
+    await kill_quest(cmd, 3082, "archives", "Chaos Spider")
+
+    # Still More Research To Be Done! 3083
+    async def q3083() -> None:
+        await hunt_item(cmd, "Intact Rat Brain", 5, "archives",
+                        monster_name="Chaos Rat")
+        await hunt_item(cmd, "Vial of Ichor", 5, "archives",
+                        monster_name="Chaos Spider")
+
+    await _farm(cmd, 3083, q3083)
+
+    # That's One Big Sludgebeast. 3084
+    await kill_quest(cmd, 3084, "archives", "Sludgelord")
+
+    # Back to Jail With You! 3094
+    await kill_quest(cmd, 3094, "armory", "Chaorrupted Prisoner")
+
+    # We May Need A Militia 3095
+    async def q3095() -> None:
+        await _map_items(cmd, "armory", ((1956, 4),))
+        await hunt_item(cmd, "Weapon Recovered", 4, "armory",
+                        monster_name="Chaorrupted Prisoner")
+
+    await _farm(cmd, 3095, q3095)
+
+    # An Ounce Of Prevention 3096 .. No, NOW We're Under Siege 3093
+    await kill_quest(cmd, 3096, "armory", "Chaos Drifter")
+    await kill_quest(cmd, 3089, "armory", "Chaorrupted Prisoner")
+    await kill_quest(cmd, 3090, "armory", "Chaos Mage")
+    await kill_quest(cmd, 3091, "armory", "Chaos Mage")
+    await map_item_quest(cmd, 3092, "armory", 1957)
+    await kill_quest(cmd, 3093, "armory", "Chaos General")
+
+    # Chaos Not Invited 3120
+    await kill_quest(cmd, 3120, "ceremony", "Chaos Invader")
+
+    # Better Letter Go! 3121 -- letters from four maps
+    async def q3121() -> None:
+        for map_name, items in ALTEON_3121:
+            await _map_items(cmd, map_name, items)
+
+    await _farm(cmd, 3121, q3121)
+
+    # Decor Rater 3122
+    await map_item_quest(cmd, 3122, "swordhaven", 2116, 8)
+
+    # Cold Feet, Warm Heart 3123
+    await kill_quest(cmd, 3123, "mafic", "Living Fire")
+
+    # Chaos STILL Not Invited 3124, Protect the Princesses 3125
+    await kill_quest(cmd, 3124, "ceremony", "Chaos Invader")
+    await map_item_quest(cmd, 3125, "ceremony", 2118, 6)
+
+    # Seal the Chapel 3126
+    async def q3126() -> None:
+        await _map_items(cmd, "ceremony", ((2119, 1),))
+        await hunt_item(cmd, "Invaders Defeated", 8, "ceremony",
+                        monster_name="Chaos Invader")
+
+    await _farm(cmd, 3126, q3126)
+
+    # Chaos Kills! 3127
+    await kill_quest(cmd, 3127, "ceremony", "Chaos Justicar")
+
+    # Endless Aisle of Chaos 3133
+    await map_item_quest(cmd, 3133, "chaosaltar", 2127, 12)
+
+    # Save the Princess... Again! 3134
+    await kill_quest(cmd, 3134, "chaosaltar", "Princess Thrall")
+
+    # Chaos Dragon Confrontation 3158
+    await kill_quest(cmd, 3158, "castleroof", "Chaos Dragon")
+
+    # To Catch a King 3159
+    await map_item_quest(cmd, 3159, "swordhavenfalls", 2158)
+
+    # Chaos Lord Alteon 3160
+    await kill_quest(cmd, ALTEON_LAST, "swordhavenfalls", "Chaos Lord Alteon")
+
+
 LIONFANG_LAST = 2814
 
 #: Quest 2615's own block: the map item, then the two drops it wants.
@@ -1869,7 +1983,7 @@ SEGMENTS = (
     ("Iadoa", iadoa),
     ("Lionfang", lionfang),
     ("Xiang", xiang),
-    ("Alteon", None),
+    ("Alteon", alteon),
     ("Hero", None),
 )
 

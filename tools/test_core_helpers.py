@@ -2555,7 +2555,7 @@ try:
     loc_steps.clear()
     run(loc.complete13loc(cmd))
     check("13loc: the walk names the segment it stops at",
-          any("[13loc] Alteon is not ported yet, so Complete13LOC stops here; "
+          any("[13loc] Hero is not ported yet, so Complete13LOC stops here; "
               "nothing after it runs." in line for line in cmd.bot.logs), True)
     check("13loc: and Wolfwing declares Good before chaining 597",
           any("packet: %xt%zm%updateQuest%1%41%1%" in line for line in cmd.bot.logs), True)
