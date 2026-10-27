@@ -1,4 +1,4 @@
-"""``Core13LoC`` -- the thirteen Lords of Chaos, five of them so far.
+﻿"""``Core13LoC`` -- the thirteen Lords of Chaos, five of them so far.
 
 Port of ``Story/LordsofChaos/Core13LoC.cs``.  The forge enhancement unlocks need
 ``Escherion()``, the Farmer Joe kit needs the whole chain, so the file is being
@@ -1266,6 +1266,274 @@ async def khasaanda_horc(cmd: Command) -> None:
     await _farm(cmd, KHASAANDA_LAST, q1473)
 
 
+IADOA_LAST = 2519
+#: ``Story.MapItemQuest(2239, "thespan", new[] {1358 .. 1363})``.
+IADOA_SPAN_ITEMS = (1358, 1359, 1360, 1361, 1362, 1363)
+#: Quest 2378's two map-item groups, and 2470's eight.
+IADOA_2378_ITEMS = ((1468, 8), (1469, 1))
+IADOA_2470_ITEMS = ((1549, 8),)
+#: 2379/2380's own ``GetMapItems`` pairs.
+IADOA_2379_ITEMS = ((1470, 3), (1471, 3))
+IADOA_2380_ITEMS = ((1472, 3), (1473, 3))
+
+
+async def iadoa(cmd: Command) -> None:
+    """``Core13LoC.Iadoa``: quests 2239-2521, /thespan to /timespace.
+
+    ``Story.MapItemQuest`` calls *inside* a hand-written block are folded into
+    that block here (the map items are collected in the body, and the block's own
+    turn-in is what the source's call would have done).  Quest 2258 is the one
+    exception: the source passes ``AutoCompleteQuest: false``, so it is accepted
+    and the kill is made, and it is deliberately left in progress.
+    """
+    if await cmd.is_completed_before(IADOA_LAST):
+        return
+
+    # Time to Learn the Truth 2239
+    await map_item_quest(cmd, 2239, "thespan", list(IADOA_SPAN_ITEMS))
+
+    # Gain Access to Doors 2240
+    async def q2240() -> None:
+        await hunt_item(cmd, "AQ Dimension Key", 1, "timelibrary",
+                        monster_name="Sneak")
+        await hunt_item(cmd, "DF Dimension Key", 1, "timelibrary",
+                        monster_name="Tog")
+        await hunt_item(cmd, "MQ Dimension Key", 1, "timelibrary",
+                        monster_name="Shadowscythe")
+
+    # Adventures and Quests 2241
+    async def q2241() -> None:
+        await hunt_item(cmd, "Necromancy in AQ Knowledge", 1, "timelibrary",
+                        monster_name="Moglin Ghost")
+        await hunt_item(cmd, "Tales of Planet-Peril Page", 6, "timelibrary",
+                        monster_name="Undead Knight")
+        await _map_items(cmd, "timelibrary", ((1365, 3),))
+
+    # A Fable of Dragons 2242
+    async def q2242() -> None:
+        await hunt_item(cmd, "Elemental Orb Knowledge", 8, "timelibrary",
+                        monster_name="Tog")
+        await hunt_item(cmd, '"Draconic Prophecy" Page', 6, "timelibrary",
+                        monster_name="Tog")
+        await _map_items(cmd, "timelibrary", ((1366, 2),))
+
+    # Mechas and Quests 2243
+    async def q2243() -> None:
+        await hunt_item(cmd, "Shadowscythe Combat Strategy", 7, "timelibrary",
+                        monster_name="Shadowscythe")
+        await hunt_item(cmd, "Galactic Hypertron Engines: A Primer", 1,
+                        "timelibrary", monster_name="Training Globe")
+        await _map_items(cmd, "timelibrary", ((1367, 1),))
+
+    # After the Chaos 2244
+    async def q2244() -> None:
+        await hunt_item(cmd, "The Future is Now", 3, "timelibrary",
+                        monster_name="Queen's Recruit")
+        await hunt_item(cmd, "Past Failures Brought Us Here", 2, "timelibrary",
+                        monster_name="Queen's Recruit")
+        await hunt_item(cmd, "Princess Freed... but for what?", 2,
+                        "timelibrary", monster_name="Queen's Knight")
+        await _map_items(cmd, "timelibrary", ((1368, 1),))
+
+    await _farm(cmd, 2240, q2240)
+    await _farm(cmd, 2241, q2241)
+    await _farm(cmd, 2242, q2242)
+    await _farm(cmd, 2243, q2243)
+    await _farm(cmd, 2244, q2244)
+
+    # Trust is Not Ephemeral 2253
+    await kill_quest(cmd, 2253, "timevoid", "Ephemerite")
+
+    # In a Split Exasecond 2254
+    async def q2254() -> None:
+        await hunt_item(cmd, "Exaglass", 4, "timevoid",
+                        monster_name="Time-Travel Fairy")
+        await hunt_item(cmd, "Fairy Plasma", 8, "timevoid",
+                        monster_name="Time-Travel Fairy")
+        await _map_items(cmd, "timevoid", ((1438, 16),))
+
+    # Time to Prove Yourself 2255
+    async def q2255() -> None:
+        await _map_items(cmd, "timevoid", ((1439, 12),))
+        await hunt_item(cmd, "Ephemeral Dust", 4, "timevoid",
+                        monster_name="Ephemerite")
+        await hunt_item(cmd, "Fairy Plasma", 4, "timevoid",
+                        monster_name="Time-Travel Fairy")
+
+    # Fill the Empty Hours 2256
+    async def q2256() -> None:
+        await hunt_item(cmd, "Powdered Fairy Wings", 6, "timevoid",
+                        monster_name="Time-Travel Fairy")
+        await hunt_item(cmd, "Dried Phoenix Tears", 6, "timevoid",
+                        monster_name="Void Phoenix")
+
+    await _farm(cmd, 2254, q2254)
+    await _farm(cmd, 2255, q2255)
+    await _farm(cmd, 2256, q2256)
+
+    # Clock of the Long Now 2257
+    await map_item_quest(cmd, 2257, "timevoid", [1440, 1441, 1442, 1443])
+
+    # Unending Avatar 2258 -- ``AutoCompleteQuest: false``: kill, no turn-in
+    if not await quest_progression(cmd, 2258):
+        if await cmd.ensure_accept_quest(2258) is False:
+            cmd.bot.log("[13loc] quest 2258 could not be accepted; Iadoa stops "
+                        "here.")
+            return
+        await kill_once(cmd, "timevoid", monster="Unending Avatar")
+
+    # Construct Your Reality 2376, Reach the Temple 2377
+    await map_item_quest(cmd, 2376, "aqlesson", 1467)
+    await kill_quest(cmd, 2377, "aqlesson", "Ninja")
+
+    # Not All Hope is Lost 2378
+    async def q2378() -> None:
+        await _map_items(cmd, "aqlesson", IADOA_2378_ITEMS)
+
+    await _farm(cmd, 2378, q2378)
+
+    # Bolster the Elements 2379
+    async def q2379() -> None:
+        await _map_items(cmd, "aqlesson", IADOA_2379_ITEMS)
+        await hunt_item(cmd, "TimeSpark Acquired", 3, "aqlesson",
+                        monster_name="Eternite Ore")
+        await hunt_item(cmd, "Tears of Joy Acquired", 3, "aqlesson",
+                        monster_name="Water Elemental")
+
+    # Maintain Elemental Strength 2380
+    async def q2380() -> None:
+        await _map_items(cmd, "aqlesson", IADOA_2380_ITEMS)
+        await hunt_item(cmd, "Frigid Liquid Acquired", 3, "aqlesson",
+                        monster_name="Ice Elemental")
+        await hunt_item(cmd, "Heart of Lava Acquired", 3, "aqlesson",
+                        monster_name="Fire Elemental")
+
+    await _farm(cmd, 2379, q2379)
+    await _farm(cmd, 2380, q2380)
+
+    # Rescue the Innocent 2381 .. Proto-Chaos Beast Battle! 2386
+    await kill_quest(cmd, 2381, "aqlesson", "Void Dragon")
+    await kill_quest(cmd, 2382, "aqlesson", "Firezard")
+    await kill_quest(cmd, 2383, "aqlesson", "Ice Elemental")
+    await map_item_quest(cmd, 2384, "thespan", 1474)
+    await kill_quest(cmd, 2385, "aqlesson", "Akriloth")
+    await kill_quest(cmd, 2386, "aqlesson", "Carnax")
+
+    # Elemental Orb Awareness 2470
+    await map_item_quest(cmd, 2470, "dflesson", 1549, 8)
+
+    # Fight Chaos with Fire! 2471
+    async def q2471() -> None:
+        await hunt_item(cmd, "Slain Flame Elemental", 8, "dflesson",
+                        monster_name="Fire Elemental")
+        await hunt_item(cmd, "Chaos Gemerald", 4, "dflesson",
+                        monster_name="Fire Elemental")
+
+    # Save Aria 2472
+    async def q2472() -> None:
+        await hunt_item(cmd, "Slain Slime", 5, "dflesson",
+                        monster_name="Lava Slime")
+        await hunt_item(cmd, "Slain Elemental", 6, "dflesson",
+                        monster_name="Fire Elemental")
+        await hunt_item(cmd, "Blue Clue", 1, "dflesson",
+                        monster_name="Fire Elemental")
+
+    # Find the Time to Travel 2473
+    async def q2473() -> None:
+        await hunt_item(cmd, "Life AND the Universe", 4, "dflesson",
+                        monster_name="Tog")
+        await hunt_item(cmd, "Everything", 5, "dflesson",
+                        monster_name="Agitated Orb")
+        await hunt_item(cmd, "Hoopy Frood's Towel", 3, "dflesson",
+                        monster_name="Agitated Orb")
+
+    await _farm(cmd, 2471, q2471)
+    await _farm(cmd, 2472, q2472)
+    await _farm(cmd, 2473, q2473)
+
+    # Dragon Egg... or Junk? 2474 .. Bone up on the Boss 2476
+    await kill_quest(cmd, 2474, "dflesson", "Vultragon")
+    await kill_quest(cmd, 2475, "dflesson", "Chaos Sp-Eye")
+    await kill_quest(cmd, 2476, "dflesson", "Chaorrupted Evil Soldier")
+
+    # Defend the Town! 2477
+    async def q2477() -> None:
+        await hunt_item(cmd, "Golem Crushed", 6, "dflesson",
+                        monster_name="Lava Golem")
+        await hunt_item(cmd, "Elemental Eliminated", 3, "dflesson",
+                        monster_name="Fire Elemental")
+
+    # ChickenCows, Bacon, and Battle! 2478
+    async def q2478() -> None:
+        await hunt_item(cmd, "Hero Protein", 1, "dflesson",
+                        monster_name="Chaotic Horcboar")
+        await hunt_item(cmd, "Spell Rune", 5, "dflesson",
+                        monster_name="Chaotic Chicken")
+
+    await _farm(cmd, 2477, q2477)
+    await _farm(cmd, 2478, q2478)
+
+    # The 2nd Proto-Chaos Beast 2479
+    await kill_quest(cmd, 2479, "dflesson", "Fluffy the Dracolich")
+
+    # Board the Ship to Your Future 2504
+    await map_item_quest(cmd, 2504, "mqlesson", 1580)
+
+    # Heal the Chaos Lord 2505 .. Secrets of the Universe 2510
+    await kill_quest(cmd, 2505, "mqlesson", "Asteroid")
+    await map_item_quest(cmd, 2506, "mqlesson", 1581, 5)
+    await kill_quest(cmd, 2507, "mqlesson", "MystRaven Student")
+    await kill_quest(cmd, 2508, "mqlesson", "Training Globe")
+    await kill_quest(cmd, 2509, "mqlesson", "MystRaven Student")
+    await kill_quest(cmd, 2510, "mqlesson", "Chaos Shadowscythe")
+
+    # Mysterious! 2511
+    async def q2511() -> None:
+        await hunt_item(cmd, "Truth Glasses", 1, "mqlesson",
+                        monster_name="Chaos Shadowscythe")
+        await hunt_item(cmd, "Darkness Destroyed", 13, "mqlesson",
+                        monster_name="Chaos Shadowscythe")
+
+    await _farm(cmd, 2511, q2511)
+
+    # The 3rd Proto-Chaos Beast 2512
+    await kill_quest(cmd, 2512, "mqlesson", "Dragonoid")
+
+    # Chaos Waits and Watches 2513 .. Chaos Beast Kathool 2517
+    await kill_quest(cmd, 2513, "deepchaos", "Chaotic Merdrac")
+    await kill_quest(cmd, 2515, "deepchaos", "Chaos Angler")
+    await map_item_quest(cmd, 2516, "deepchaos", 1582, 3)
+    await kill_quest(cmd, 2517, "deepchaos", "Kathool")
+
+    await cmd.sleep(2500)
+
+    # Starry, Starry Night 2518
+    async def q2518() -> None:
+        await hunt_item(cmd, "Star Death", 6, "timespace",
+                        monster_name="Astral Ephemerite")
+
+    await _farm(cmd, 2518, q2518)
+
+    # Chaos Lord Iadoa 2519
+    async def q2519() -> None:
+        await equip_class(cmd, solo=True)
+        if not await cmd.has_item("Dragonoid of Hours"):
+            cmd.bot.log('Getting "Dragonoid of Hours" from "Dragonoid" in '
+                        '"mqlesson" to make Iadoa easier.')
+            await hunt_item(cmd, "Dragonoid of Hours", 1, "mqlesson",
+                            monster_name="Dragonoid", is_temp=False)
+        await hunt_item(cmd, "Iadoa Defeated", 1, "timespace",
+                        monster_name="Chaos Lord Iadoa")
+
+    await _farm(cmd, IADOA_LAST, q2519)
+
+    # The member-only extra fights 2520 / 2521 / 2388
+    if cmd.get_player().is_member:
+        await kill_quest(cmd, 2520, "ultravoid", "Ultra Kathool")
+        await kill_quest(cmd, 2521, "ultravoid", "Ultra Iadoa")
+        await kill_quest(cmd, 2388, "ultracarnax", "Ultra-Carnax")
+
+
 LIONFANG_LAST = 2814
 
 #: Quest 2615's own block: the map item, then the two drops it wants.
@@ -1444,7 +1712,7 @@ SEGMENTS = (
     ("Ledgermayne", ledgermayne),
     ("Tibicenas", tibicenas),
     ("KhasaandaHorc", khasaanda_horc),
-    ("Iadoa", None),
+    ("Iadoa", iadoa),
     ("Lionfang", lionfang),
     ("Xiang", None),
     ("Alteon", None),
