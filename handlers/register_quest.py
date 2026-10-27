@@ -9,11 +9,12 @@ async def register_quest_task(bot: 'Bot'):
     while bot.is_client_connected:
         for registered_quest_id in list(bot.registered_auto_quest_ids):
             if registered_quest_id in getattr(bot, "missing_badge_questid", []):
-                # Never turnable on this account: drop it instead of asking the
-                # server once every two seconds for the rest of the run.
+                # "Missing Badge" is the server saying this daily is not
+                # available right now; drop it instead of asking the server once
+                # every two seconds for the rest of the run.
                 bot.registered_auto_quest_ids.remove(registered_quest_id)
-                print(f"[quest] {registered_quest_id} needs a badge this account "
-                      f"does not have; unregistered.")
+                print(f"[quest] {registered_quest_id} is not available right "
+                      f"now (\"Missing Badge\"); unregistered.")
                 continue
             if bot.quest_not_in_progress(registered_quest_id):
                 bot.accept_quest(registered_quest_id)

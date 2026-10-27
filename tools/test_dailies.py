@@ -352,7 +352,7 @@ check("badge refusal: the daily is skipped, not farmed",
       run(dailies.check_dailyv2(badge, 802, items=("Elders' Blood",))), False)
 check("badge refusal: nothing is accepted or hunted", badge.calls, [])
 check("badge refusal: it says why",
-      any("does not have" in line for line in badge.bot.logs), True)
+      any("not available right now" in line for line in badge.bot.logs), True)
 
 elders = StubCommand()
 elders.bot.missing_badge_questid = [802]

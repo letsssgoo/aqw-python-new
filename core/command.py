@@ -272,20 +272,22 @@ class Command:
             server would only answer "Missing Turn In Item" again.
         """
         quest_id = normalize_quest_id(quest_id)
-        # Two refusals are permanent for this account, so asking again is pure
-        # noise: "Missing Badge" (a web/achievement reward a farm cannot produce)
-        # and "One Time Quest Only" (already completed).  The badge one is what
-        # produced a "ccqr ... Missing Badge" line every two seconds on the
-        # Elders' Blood daily (quest 802).
-        permanent = (
-            ("missing_badge_questid", "needs a badge this account does not have"),
-            ("one_time_questid", "was already completed once"),
-        )
-
+        # Two refusals are permanent, so asking again is pure noise: "Missing
+        # Badge" -- the answer a daily gives when it is not available right now
+        # ({"bSuccess":0,"QuestID":802,"msg":"Missing Badge"}), which is what
+        # produced a ccqr line every two seconds -- and "One Time Quest Only".
         def _permanent_refusal() -> str:
-            for attribute, reason in permanent:
-                if int(quest_id) in getattr(self.bot, attribute, []):
-                    return reason
+            check_day = getattr(self.bot, "daily_unavailable", None)
+            if check_day is not None:
+                refused_badge = check_day(quest_id)
+            else:                       # a stub bot without the day bookkeeping
+                refused_badge = int(quest_id) in getattr(
+                    self.bot, "missing_badge_questid", [])
+            if refused_badge:
+                return ("is not available right now (the server refused it for "
+                        "a missing badge)")
+            if int(quest_id) in getattr(self.bot, "one_time_questid", []):
+                return "was already completed once"
             return ""
 
         reason = _permanent_refusal()
