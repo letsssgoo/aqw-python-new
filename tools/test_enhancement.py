@@ -565,6 +565,45 @@ def main() -> None:
     check("dirtlickers: the unported chains are named",
           any("does not have" in line for line in _d_logs))
 
+    # --- Temple Siege / Temple Delve ---------------------------------------
+    from bot.nation.merges import temple_delve_merge as _tdm
+    from bot.story.nation import temple_delve as _td
+    from bot.story.nation import temple_siege as _ts
+
+    check("temple siege: map and gate quest",
+          (_ts.MAP, _ts.GATE_QUEST) == ("templesiege", 9067))
+    check("temple delve: both maps and the shop",
+          (_td.MAP, _td.SIEGE_MAP, _tdm.SHOP_ID)
+          == ("templedelve", "siegefortress", 2232))
+    check("temple delve merge: the extract quest is 9090",
+          (_tdm.DOOMED_EXTRACT_QUEST, _tdm.DOOMED_EXTRACT)
+          == (9090, "Doomed Extract"))
+
+    async def _extract_dispatch():
+        calls = []
+
+        async def _register(cmd, *ids):
+            calls.append(("register", ids))
+
+        async def _tainted(cmd, qty):
+            calls.append(("tainted", qty))
+
+        _tdm.register_quests = _register
+        _tdm.farm_tainted_gem = _tainted
+        cmd = _MergeCommand()
+        cmd.is_still_connected = lambda: True
+        cmd.has_item = lambda *a, **k: _no("has_item")
+        cmd.cancel_registered_quests = lambda: calls.append(("cancel", ()))
+        await _tdm.find_ingredients(cmd, 0, "Tainted Gem", 50)
+        return calls
+
+    async def _no(name):
+        return True
+
+    _e_calls = _asyncio.run(_extract_dispatch())
+    check("temple delve merge: Tainted Gem goes to the Nation farm",
+          _e_calls == [("tainted", 50)])
+
     # --- Ravenous forge unlock ---------------------------------------------
     # UnlockForgeEnhancements.Ravenous: quest 9560 once the Gluttonous Maw
     # (shop 2411) is held; the daily Roentgenium line otherwise.

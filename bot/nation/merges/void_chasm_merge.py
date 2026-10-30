@@ -45,7 +45,7 @@ async def _farm_void_remnant(cmd: Command, quantity: int) -> None:
         for item, cell, pad, monster, count in (CARCANO_HUNT, CARNAGE_HUNT,
                                                 HUSHED_HUNT):
             await hunt_item(cmd, item, count, MAP, cell=cell, pad=pad,
-                            monster_name=monster, is_temp=False)
+                            monster_name=monster, is_temp=True)
         await cmd.ensure_turn_in_quest(VOID_REMNANT_QUEST)
         await cmd.sleep(1000)
 

@@ -24,6 +24,7 @@ from bot.nation.core_nation import (essence_of_nulgath, farm_dark_crystal_shard,
                                     farm_diamond_of_nulgath, farm_tainted_gem,
                                     farm_uni13_quest, supplies, uni)
 from bot.nation.merges.dirtlickers_merge import buy_iron_dreadsaw
+from bot.nation.merges.temple_delve_merge import buy_void_nation_caster
 from bot.nation.merges.void_chasm_merge import buy_prime_fiend_shard
 from bot.nation.vhl.core_vhl import get_vhl, vhl_challenge
 from core.command import Command
@@ -37,9 +38,7 @@ PRIME_FIEND_SHARD = "Prime Fiend Shard"
 DUAL_DRAGONBONE_AXE = "Dual Dragonbone Axe of Nulgath"
 DRAGONBONE_AXE_QUEST = 629
 
-#: Quest 9555's merge-shop items.  Dirtlickers is ported; TempleDelve is not
-#: (it needs the Temple Siege storyline first).
-TEMPLE_DELVE_ITEM = "Void Nation Caster (TempleDelveMerge)"
+
 
 
 async def _unbank_requirements(cmd: Command, quest_id: int) -> None:
@@ -71,7 +70,7 @@ async def _dual_dragonbone_axe(cmd: Command) -> None:
     await farm_diamond_of_nulgath(cmd, 13)
     await supplies(cmd, uni(21))
     await hunt_item(cmd, "Tainted Rune of Evil", 1, "evilmarsh",
-                    monster_name="Tainted Elemental", is_temp=False)
+                    monster_name="Tainted Elemental", is_temp=True)
     await cmd.ensure_turn_in_quest(DRAGONBONE_AXE_QUEST)
 
 
@@ -97,15 +96,12 @@ async def storyline(cmd: Command) -> bool:
         await farm_uni13_quest(cmd, 13)
         await essence_of_nulgath(cmd, 20)
         await farm_diamond_of_nulgath(cmd, 20)
+        await buy_void_nation_caster(cmd)
         await buy_iron_dreadsaw(cmd)
         await buy_item(cmd, 1206, "Nation Soulstealer", 1,
                        map_name="shadowblast", shop_item_id=3615)
         await _unbank_requirements(cmd, 9555)
-
-        cmd.bot.log(f"[pfs] quest 9555 still needs {TEMPLE_DELVE_ITEM}; the "
-                    f"Temple Siege storyline is not ported yet, so the chain "
-                    f"stops here.")
-        return False
+        await cmd.ensure_turn_in_quest(9555)
 
     cmd.bot.log("[pfs] quest 9555 is done; quests 9556-9559 are not ported "
                 "yet.")

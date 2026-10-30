@@ -27,7 +27,7 @@ async def _step(cmd: Command, quest_id: int, map_items, hunts,
             await cmd.get_map_item(item_id, qty)
     for item, monster, qty in hunts:
         await hunt_item(cmd, item, qty, MAP, monster_name=monster,
-                        is_temp=False)
+                        is_temp=True)
     await cmd.ensure_turn_in_quest(quest_id)
 
 
