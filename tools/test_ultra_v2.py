@@ -10,12 +10,20 @@ from _ultra_v2_support import (check, finish, run, _StubBot,  # noqa: F401
 for ultra in ("warden", "ezrajal", "engineer", "tyndarius", "drakath", "drago",
               "nulgath", "dage", "darkon", "gramiel", "speaker"):
     table = options.compositions(ultra)
-    expected = (["Default", "Reliable"] if ultra in ("gramiel", "speaker")
-                else ["Default", "Reliable", "Stable"])
-    check(f"{ultra}: ported compositions", sorted(table), expected)
+    base = (["Default", "Reliable"] if ultra in ("gramiel", "speaker")
+            else ["Default", "Reliable", "Stable"])
+    extra = {"drakath": ["Optimized"],
+             "nulgath": ["Optimized", "Fast"],
+             "tyndarius": ["Fast"]}.get(ultra, [])
+    check(f"{ultra}: ported compositions", sorted(table), sorted(base + extra))
+    # Slot 2 and slot 4 are not always the same class in the extra columns.
+    exceptions = {("nulgath", "Optimized"): "Dragon of Time",
+                  ("nulgath", "Fast"): "Verus DoomKnight",
+                  ("tyndarius", "Fast"): "ArchPaladin"}
     for name, slots in table.items():
         check(f"{ultra}/{name}: four slots", len(slots), 4)
-        check(f"{ultra}/{name}: slot 2 is StoneCrusher", slots[1], "StoneCrusher")
+        check(f"{ultra}/{name}: slot 2 is StoneCrusher", slots[1],
+              exceptions.get((ultra, name), "StoneCrusher"))
         check(f"{ultra}/{name}: slot 4 is Lord of Order", slots[3], "Lord of Order")
 
 check("default: slot 1 is Legion Revenant",

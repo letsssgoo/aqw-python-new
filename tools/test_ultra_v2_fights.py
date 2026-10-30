@@ -123,8 +123,10 @@ check("tyndarius: slot 2 keeps the second add, then the first, then the boss",
       ty2.add_priority(), ("id.3", "id.1", "id.2"))
 check("tyndarius: with nothing alive the slot still names the boss",
       ty1.priority_target(), "id.2")
-check("tyndarius: taunter panes are slots 3 and 4",
-      (ty1.is_taunter, ty3.is_taunter), (False, True))
+# IsTaunterRole arms every pane on Default/Reliable (each carries the scroll);
+# this is what decides who drops the combat potion, not who casts taunt 5.
+check("tyndarius: Default arms every pane as a taunter",
+      (ty1.is_taunter, ty3.is_taunter), (True, True))
 check("tyndarius: the ArchPaladin slot is 3", ty3.is_arch_paladin, True)
 loo = tyndarius.UltraTyndarius(_StubCommand(), options.UltraOptions(
     players=("a", "b", "c", "d")), 4)
@@ -159,6 +161,13 @@ class _OrderCommand(_StubCommand):
         # Real time, not zero: a skill loop that never waits starves the loop
         # it shares with the test, so the cancel that ends it never runs.
         await asyncio.sleep(0.001)
+
+    async def has_item(self, name, qty=1, isTemp=False):
+        return True
+
+    async def equip_scroll(self, name):
+        self.events.append(("scroll", name))
+        return True
 
 
 _order = _OrderCommand()
@@ -214,6 +223,33 @@ check("engine: no target idles instead of ending the skill loop",
       run(_engine_survives()), (True, True))
 check("tyndarius: the buffs land before the jump to the boss",
       bool(_boss_jumps) and _boss_jumps[0] > 2, True)
+
+# Fast: the ArchPaladin moves to slot 2, slots 2-4 carry the scroll, and the
+# add taunter on slot 3 opens the first add while slot 1 opens the second.
+_fast_ap = tyndarius.UltraTyndarius(_StubCommand(), options.UltraOptions(
+    players=("a", "b", "c", "d"), composition="Fast"), 2)
+_fast_lr = tyndarius.UltraTyndarius(_StubCommand(), options.UltraOptions(
+    players=("a", "b", "c", "d"), composition="Fast"), 3)
+_fast_ai = tyndarius.UltraTyndarius(_StubCommand(), options.UltraOptions(
+    players=("a", "b", "c", "d"), composition="Fast"), 1)
+check("tyndarius/fast: slot 2 is the ArchPaladin",
+      (_fast_ap.preset.cls, _fast_ap.is_arch_paladin), ("ArchPaladin", True))
+check("tyndarius/fast: slot 1 is the Arcana Invoker",
+      _fast_ai.preset.cls, "Arcana Invoker")
+check("tyndarius/fast: slots 2-4 are taunters, slot 1 is not",
+      [tyndarius.UltraTyndarius(_StubCommand(), options.UltraOptions(
+          players=("a", "b", "c", "d"), composition="Fast"), slot).is_taunter
+       for slot in (1, 2, 3, 4)],
+      [False, True, True, True])
+check("tyndarius/fast: slot 3 opens the first add",
+      _fast_lr.add_priority(), ("id.1", "id.3", "id.2"))
+check("tyndarius/fast: slot 1 opens the second add",
+      _fast_ai.add_priority(), ("id.3", "id.1", "id.2"))
+check("tyndarius/default: every pane carries the scroll",
+      [tyndarius.UltraTyndarius(_StubCommand(), options.UltraOptions(
+          players=("a", "b", "c", "d")), slot).is_taunter
+       for slot in (1, 2, 3, 4)],
+      [True, True, True, True])
 
 check("tyndarius: the party heals below 60",
       (ty1.heal_below, ty1.heal_slots), (60, ()))

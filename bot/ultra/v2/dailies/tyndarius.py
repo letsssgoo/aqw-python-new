@@ -52,8 +52,9 @@ HEAL_BELOW = 60
 #: The Lord of Order lifts its heal earlier than the rest: 75% keeps a pane out
 #: of the burst range the boss punishes.
 LOO_HEAL_BELOW = 75
-ARCH_PALADIN_SLOT = 3
+ARCH_PALADIN_SLOT = 3             # Fast moves the ArchPaladin to slot 2
 TAUNT_PARTNER_SLOT = 4            # Pay2Win would use 3; not ported
+FAST_COMPOSITIONS = ("Fast",)
 FOCUS_REFRESH_MS = 1500
 
 
@@ -82,8 +83,22 @@ class UltraTyndarius(V2Core):
             self.heal_gap_ms = 0
             self.skill_rotation = tuple(
                 slot for slot in self.skill_rotation if slot != self.heal_skill)
-        self.is_taunter = self.slot >= 3          # IsTaunterRole
-        self.is_arch_paladin = self.slot == ARCH_PALADIN_SLOT
+        # IsTaunterRole: Fast arms slots 2-4; Default/Reliable arm every pane
+        # (the scroll is the taunt for whoever is called); the rest arm the
+        # ArchPaladin and its partner.
+        if self.options.composition in FAST_COMPOSITIONS:
+            self.is_taunter = self.slot in (2, 3, 4)
+        elif self.options.composition in ("Default", "Reliable"):
+            self.is_taunter = True
+        else:
+            self.is_taunter = self.slot in (ARCH_PALADIN_SLOT,
+                                            TAUNT_PARTNER_SLOT)
+        self.is_arch_paladin = self.slot == self.ap_slot
+
+    @property
+    def ap_slot(self) -> int:
+        """Which slot holds the ArchPaladin (2 on Fast, 3 otherwise)."""
+        return 2 if self.options.composition in FAST_COMPOSITIONS else ARCH_PALADIN_SLOT
 
     # ---------------------------------------------------------------- targets
     #: v1's per-slot ``monster_prio`` (``bot/ultra/config.py``): slot 1 opens
@@ -97,7 +112,16 @@ class UltraTyndarius(V2Core):
     }
 
     def add_priority(self) -> tuple:
-        """This slot's target list: own add, other add, boss."""
+        """This slot's target list: own add, other add, boss.
+
+        Fast follows the reference's split: its add taunter (slot 3) opens the
+        first add, the damage dealer on slot 1 opens the second one
+        (``GetPriorityTarget``).
+        """
+        if self.options.composition in FAST_COMPOSITIONS:
+            order = ((FIRST_ADD, SECOND_ADD, MAIN_BOSS) if self.slot == 3
+                     else (SECOND_ADD, FIRST_ADD, MAIN_BOSS))
+            return tuple(_id(map_id) for map_id in order)
         order = self.ADD_PRIORITY.get(self.slot,
                                       (SECOND_ADD, FIRST_ADD, MAIN_BOSS))
         return tuple(_id(map_id) for map_id in order)
@@ -219,7 +243,7 @@ class UltraTyndarius(V2Core):
                 await self.jump_boss()
             else:
                 if not await self.sync.wait_signal(seal_signal,
-                                                   key=ARCH_PALADIN_SLOT,
+                                                   key=self.ap_slot,
                                                    timeout=180):
                     if self.sync.aborted():
                         return False
@@ -258,8 +282,14 @@ class UltraTyndarius(V2Core):
             return await self.fight_boss_taunter(attempt, True,
                                                 TAUNT_PARTNER_SLOT)
         if self.slot == TAUNT_PARTNER_SLOT:
-            return await self.fight_boss_taunter(attempt, False,
-                                                ARCH_PALADIN_SLOT)
+            return await self.fight_boss_taunter(attempt, False, self.ap_slot)
+        fast = self.options.composition in FAST_COMPOSITIONS
+        if fast:
+            # Fast: slot 3 is the add taunter (first add); slot 1 is a damage
+            # dealer, which starts on the second add (GetPriorityTarget).
+            if self.slot == 3:
+                return await self.fight_add_taunter(attempt, FIRST_ADD)
+            return await self.fight_add_taunter(attempt, SECOND_ADD)
         # Default roles: slot 1 taunts the first add, the rest the second one.
         taunt_map = FIRST_ADD if self.slot == 1 else SECOND_ADD
         return await self.fight_add_taunter(attempt, taunt_map)

@@ -31,10 +31,16 @@ SHORT_NAMES = {
     "StoneCrusher": "SC",
     "ArchPaladin": "AP",
     "Lord of Order": "LOO",
+    "Dragon of Time": "DOT",
+    "Chaos Slayer Berserker": "CS",
+    "Arcana Invoker": "AI",
 }
 
 LR, SC, AP, LOO, KE, VDK = ("Legion Revenant", "StoneCrusher", "ArchPaladin",
                             "Lord of Order", "King's Echo", "Verus DoomKnight")
+DOT = "Dragon of Time"
+CS = "Chaos Slayer Berserker"
+AI = "Arcana Invoker"
 
 
 @dataclass(frozen=True)
@@ -111,6 +117,10 @@ COMPOSITIONS: Dict[str, Dict[str, Tuple[SlotPlan, ...]]] = {
                    SlotPlan(LOO, weapon="Valiance")),
         "Reliable": (SlotPlan(VDK), SlotPlan(SC), SlotPlan(AP),
                      SlotPlan(LOO, weapon="Valiance")),
+        # Fast: Arcana Invoker first, the ArchPaladin moves to slot 2 and the
+        # Legion Revenant joins it as the add taunter.
+        "Fast": (SlotPlan(AI), SlotPlan(AP), SlotPlan(LR),
+                 SlotPlan(LOO, weapon="Valiance")),
     },
     # --- weeklies -------------------------------------------------------
     # Drakath's capes are the script's own: the ArchPaladin always wears
@@ -123,9 +133,22 @@ COMPOSITIONS: Dict[str, Dict[str, Tuple[SlotPlan, ...]]] = {
                    SlotPlan(AP, cape="Penitence"), SlotPlan(LOO)),
         "Reliable": (SlotPlan(VDK, cape="Penitence"), SlotPlan(SC),
                      SlotPlan(AP, cape="Penitence"), SlotPlan(LOO)),
+        # Optimized swaps slot 1 for Chaos Slayer; the cape rule still applies.
+        "Optimized": (SlotPlan(CS, cape="Lament"), SlotPlan(SC),
+                      SlotPlan(AP, cape="Penitence"), SlotPlan(LOO)),
     },
     "drago": _standard(),
-    "nulgath": _standard(),
+    "nulgath": {
+        "Default": (SlotPlan(LR), SlotPlan(SC), SlotPlan(AP), SlotPlan(LOO)),
+        "Stable": (SlotPlan(KE), SlotPlan(SC), SlotPlan(AP), SlotPlan(LOO)),
+        "Reliable": (SlotPlan(VDK), SlotPlan(SC), SlotPlan(AP),
+                     SlotPlan(LOO)),
+        # Optimized runs two Dragons of Time and moves the Legion Revenant to
+        # slot 3; Fast puts the Arcana Invoker first.
+        "Optimized": (SlotPlan(DOT), SlotPlan(DOT), SlotPlan(LR),
+                      SlotPlan(LOO)),
+        "Fast": (SlotPlan(AI), SlotPlan(VDK), SlotPlan(LR), SlotPlan(LOO)),
+    },
     # Dage overrides the rotations of slots 2-4 (and slot 1 restates LR's own).
     "dage": {
         "Default": (SlotPlan(LR, skills=(3, 4, 2, 1)),

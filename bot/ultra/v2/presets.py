@@ -119,6 +119,43 @@ PRESETS: Dict[str, Preset] = {
         elixir="Potent Battle Elixir",
         combat_potion="Felicitous Philtre",
     ),
+    "chaos slayer berserker": Preset(
+        cls="Chaos Slayer Berserker",
+        skills=(3, 2, 4, 1),
+        base="Lucky",
+        cape="Vainglory",
+        helm="Forge",
+        weapon="Ravenous",
+        tonic="Fate Tonic",
+        elixir="Potent Battle Elixir",
+        combat_potion="Felicitous Philtre",
+    ),
+    "dragon of time": Preset(
+        cls="Dragon of Time",
+        # ``Strict``: the reference walks this list, advancing on a cast.
+        skills=(3, 2, 1, 2, 4, 2),
+        mode=STRICT,
+        base="Wizard",
+        cape="Vainglory",
+        helm="Pneuma",
+        weapon="Elysium",
+        tonic="Sage Tonic",
+        elixir="Potent Malevolence Elixir",
+        combat_potion="Potent Honor Potion",
+    ),
+    "arcana invoker": Preset(
+        cls="Arcana Invoker",
+        # The reference's ``ArcanaInvoker`` engine only widens the skill mask:
+        # skills 2, 3 and 4 plus skill 1, cast whenever the server says ready.
+        skills=(2, 3, 4, 1),
+        base="Lucky",
+        cape="Vainglory",
+        helm="Examen",
+        weapon="Ravenous",
+        tonic="Fate Tonic",
+        elixir="Potent Battle Elixir",
+        combat_potion="Felicitous Philtre",
+    ),
     "lord of order": Preset(
         cls="Lord of Order",
         skills=(2, 3, 1, 4),
@@ -130,6 +167,14 @@ PRESETS: Dict[str, Preset] = {
         combat_potion="Potent Honor Potion",
     ),
 }
+
+
+#: ``AlternateClassNames`` from the reference, all pointing at one preset.
+PRESETS["chaos slayer mystic"] = PRESETS["chaos slayer berserker"]
+PRESETS["chaos slayer cleric"] = PRESETS["chaos slayer berserker"]
+PRESETS["chaos slayer thief"] = PRESETS["chaos slayer berserker"]
+PRESETS["chaos champion prime"] = PRESETS["chaos slayer berserker"]
+PRESETS["dark chaos berserker"] = PRESETS["chaos slayer berserker"]
 
 
 def preset_for_class(class_name: str) -> Preset:
