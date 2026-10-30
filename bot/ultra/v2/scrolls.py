@@ -322,19 +322,30 @@ async def _ensure(cmd, name: str, quantity: int, *, shop_item_id: int = 0,
     return False
 
 
-def _shop_item(cmd, shop_id: int, name: str):
-    """The shop entry for ``name``, so its price and flags can be read."""
+def _shop_item(cmd, shop_id: int, name: str, shop_item_id: int = 0):
+    """The shop entry for ``name``, so its bundle, cost and flags can be read.
+
+    ``shop_item_id`` picks the exact entry when the shop lists the same name
+    more than once -- the captured Arcane Quill buy is entry **7686**, and the
+    first same-named entry is a different one (bundle 1, no merge cost), which
+    is why the purchase kept asking for one quill instead of ten.
+    """
     try:
         shops = cmd.bot.loaded_shop_datas
     except Exception:
         return None
+    fallback = None
     for shop in shops:
         if str(getattr(shop, "shop_id", "")) != str(shop_id):
             continue
         for item in getattr(shop, "items", []) or []:
-            if str(getattr(item, "item_name", "")).lower() == name.lower():
+            if str(getattr(item, "item_name", "")).lower() != name.lower():
+                continue
+            if shop_item_id and str(getattr(item, "shop_item_id", "")) == \
+                    str(shop_item_id):
                 return item
-    return None
+            fallback = fallback or item
+    return fallback
 
 
 #: Guards the recursive path: a merge material may itself need buying.
@@ -376,7 +387,7 @@ async def _buy_until(cmd, shop: int, name: str, quantity: int,
 
     if name in _BUYING:
         return False
-    item = _shop_item(cmd, shop, name)
+    item = _shop_item(cmd, shop, name, shop_item_id)
     if item is not None:
         if getattr(item, "is_acs", False):
             cmd.bot.log(f"[v2] {name!r} is sold for Adventure Coins in shop "
@@ -387,11 +398,18 @@ async def _buy_until(cmd, shop: int, name: str, quantity: int,
             cmd.bot.log(f"[v2] {name!r} is member-only in shop {shop}.")
             return False
 
-    bundle = max(1, int(getattr(item, "qty", 0) or 0)) if item is not None else 1
+    bundle = int(getattr(item, "qty", 0) or 0) if item is not None else 0
+    if bundle <= 0:
+        # Shop 693 sells in tens: the captured Arcane Quill buy is
+        # ``buyItem ... 693 7686 10``.  An entry that omits ``iQty`` is still
+        # sold by the ten.
+        bundle = 10 if shop == ARCANE_QUILL_SHOP else 1
+        cmd.bot.log(f"[v2] {name!r}: shop entry has no bundle size; using "
+                    f"{bundle} like the spellcraft shop does.")
     stack = int(getattr(item, "stackable", 0) or 0) if item is not None else 0
-    per_purchase = bundle
+    per_purchase = max(1, bundle)
     if stack > 0:
-        per_purchase = min(max(bundle, 1), stack)
+        per_purchase = min(per_purchase, stack)
 
     have = await _quantity(cmd, name)
     _BUYING.add(name)

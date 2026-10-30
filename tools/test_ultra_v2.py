@@ -427,6 +427,24 @@ class _MergeItem(_ShopItem):
 _merge = _MergeItem()
 check("scroll buy: the merge cost is read off the entry",
       scrolls._merge_cost(_merge), [("61043", "Gold Voucher 500k", 2)])
+class _OtherItem(_ShopItem):
+    def __init__(self, shop_item_id):
+        super().__init__("Arcane Quill", cost=0)
+        self.shop_item_id = shop_item_id
+        self.qty = 1
+        self.stackable = 0
+        self.merge_requirements = []
+
+
+_dup = _BuyCommand([_OtherItem(1), _OtherItem(7686)])
+_dup.shop_data.items[1].qty = 10
+_dup.shop_data.items[1].merge_requirements = [
+    ("61043", "Gold Voucher 500k", 2)]
+check("scroll buy: the shop item id picks the right entry",
+      (_dup and scrolls._shop_item(_dup, 693, "Arcane Quill", 7686).qty,
+       scrolls._shop_item(_dup, 693, "Arcane Quill", 7686).merge_requirements),
+      (10, [("61043", "Gold Voucher 500k", 2)]))
+
 check("scroll buy: the bundle is what the shop sells",
       _merge.qty, 10)
 
