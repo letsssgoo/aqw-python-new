@@ -55,18 +55,32 @@ async def prepare(cmd, preset: Preset) -> bool:
 
 
 async def _apply_one(cmd, slot: str, candidates: Sequence[str]) -> bool:
-    """Equip one of ``candidates``, buying it when the account owns none."""
+    """Equip, apply, or buy one of ``candidates`` -- in that order.
+
+    1. the account already owns gear carrying it -> equip that item;
+    2. it does not -> ``enhance_if_missing`` applies the enhancement to whatever
+       is equipped in the slot, which is the engine's own path: it joins the
+       **forge map**, checks the unlock quest and sends the enhance packet;
+    3. still nothing (nothing equipped, or no shop entry) -> buy the enhancement
+       from its shop and equip it.
+    """
     for candidate in candidates:
         if await cmd.equip_enhancement(candidate, slot=slot):
             cmd.bot.log(f"[v2] {slot} enhancement: {candidate}.")
             return True
 
     for candidate in candidates:
+        if await cmd.equip_enhancement(candidate, slot=slot,
+                                       enhance_if_missing=True):
+            cmd.bot.log(f"[v2] {slot} enhancement: {candidate} (applied).")
+            return True
+
+    for candidate in candidates:
         entry = best_entry(candidate, slot)
         if entry is None:
             continue
-        cmd.bot.log(f"[v2] {slot} enhancement {candidate!r} is not owned; "
-                    f"buying it from shop {entry.shop_id}.")
+        cmd.bot.log(f"[v2] {slot} enhancement {candidate!r} is neither owned nor "
+                    f"appliable; buying it from shop {entry.shop_id}.")
         if not await _buy(cmd, entry):
             continue
         if await cmd.equip_enhancement(candidate, slot=slot):
@@ -92,7 +106,12 @@ def best_entry(name: str, slot: str):
 
 
 async def _buy(cmd, entry) -> bool:
-    """Buy one enhancement entry and wait for it to arrive."""
+    """Buy one enhancement entry and wait for it to arrive.
+
+    Forge enhancements are sold from the **forge map**, exactly as
+    ``equip_enhancement(enhance_if_missing=True)`` does: the server serves the
+    shop only there, so the map is joined before the load.
+    """
     if not entry.shop_id:
         cmd.bot.log(f"[v2] {entry.name!r} has no shop recorded, so it cannot "
                     f"be bought automatically.")
@@ -102,18 +121,18 @@ async def _buy(cmd, entry) -> bool:
                     f"has {cmd.bot.player.GOLD}. Not farming gold for gear.")
         return False
 
+    if getattr(entry, "source", "") == "forge":
+        from bot import core_advanced as adv
+        if cmd.is_not_in_map(adv.FORGE_MAP):
+            await cmd.join_map(adv.FORGE_MAP)
+
     if not await cmd.ensure_load_shop(entry.shop_id):
         cmd.bot.log(f"[v2] shop {entry.shop_id} did not load; {entry.name!r} "
                     f"was not bought.")
         return False
 
-    await cmd.buy_item(entry.shop_id, entry.item_id, 1)
-    waited = 0
-    while (cmd.is_still_connected() and waited < PURCHASE_WAIT_MS
-           and not await cmd.has_item_id(entry.item_id)):
-        await cmd.sleep(500)
-        waited += 500
-    if await cmd.has_item_id(entry.item_id):
+    from bot.core_advanced import buy_item as adv_buy
+    if await adv_buy(cmd, entry.shop_id, entry.item_id, 1):
         return True
     cmd.bot.log(f"[v2] {entry.name!r} did not arrive after the buy (shop "
                 f"{entry.shop_id}); the server refused it.")

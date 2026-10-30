@@ -85,11 +85,17 @@ class V2Core:
                 f"{self.options.composition} composition ({short})")
 
     def abort(self, reason: str) -> bool:
-        """Say why the run is stopping, publish it, and answer False."""
+        """Say why the run is stopping, tell the whole party, answer False.
+
+        One pane stopping stops the party: the abort marker is written for every
+        slot (the reference's ``StopArmySync``), so the others unwind at their
+        next step or loop check instead of waiting on a party that is already
+        gone.
+        """
         self.aborted = reason
         self.log(f"stopping: {reason}")
         if self.sync.enabled:
-            party.mark_abort(self.sync.name, self.slot, reason)
+            self.sync.stop(reason)
         return False
 
     # --------------------------------------------------------------- access
@@ -178,6 +184,7 @@ class V2Core:
         index = 0
         while (self.cmd.is_still_connected()
                and not self.bot.player.ISDEAD
+               and not self.sync.aborted()
                and self.cmd.is_monster_alive(target)):
             if self.taunt_requested:
                 self.taunt_requested = False
@@ -286,12 +293,13 @@ class V2Core:
 
     async def wait_respawn(self, attempt: int) -> str:
         """Wait out a death; ``"alive"``, ``"reset"`` or ``"stopped"``."""
-        while self.cmd.is_still_connected() and self.bot.player.ISDEAD:
+        while (self.cmd.is_still_connected() and self.bot.player.ISDEAD
+               and not self.sync.aborted()):
             self.note_death()
             if self.should_reset(attempt):
                 return "reset"
             await self.cmd.sleep(500)
-        if not self.cmd.is_still_connected():
+        if not self.cmd.is_still_connected() or self.sync.aborted():
             return "stopped"
         if self.sync.enabled:
             party.clear_death(self.sync.name, self.slot)

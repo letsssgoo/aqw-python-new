@@ -131,7 +131,7 @@ class UltraWarden(V2Core):
         self.log("started fighting.")
         taunt_requested = False
 
-        while self.cmd.is_still_connected():
+        while self.cmd.is_still_connected() and not self.sync.aborted():
             if not self.cmd.is_monster_alive(target):
                 break
             if self.should_reset(attempt):

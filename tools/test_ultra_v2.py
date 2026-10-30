@@ -226,35 +226,36 @@ check("enhancement: Awe Blast resolves", awe is not None, True)
 
 
 class _EnhCommand:
-    """A command whose first equip misses, then succeeds after the buy."""
+    """A command whose equips miss until the enhancement was applied/bought."""
 
     def __init__(self):
         self.calls = []
         self.logs = []
-        self.equips = 0
         self.bot = type("B", (), {
             "GOLD": 10_000_000,
             "log": lambda _self, line: self.logs.append(line),
         })()
         self.player = self.bot.player = type("P", (), {"GOLD": 10_000_000})()
+        self.applied = False
+        self.bought = False
 
-    async def equip_enhancement(self, name, slot=None, **kwargs):
-        self.calls.append(("equip", name, slot))
-        self.equips += 1
-        return self.equips > 1          # owned only after the purchase
+    async def equip_enhancement(self, name, slot=None, enhance_if_missing=False):
+        self.calls.append(("equip", name, slot, enhance_if_missing))
+        if enhance_if_missing:
+            self.applied = True
+            return self.bought        # applying only works once it is bought
+        return self.bought
 
     async def ensure_load_shop(self, shop_id):
         self.calls.append(("shop", shop_id))
         return True
 
-    async def buy_item(self, shop_id, item, qty=1, **kwargs):
-        self.calls.append(("buy", shop_id, item, qty))
-
-    async def has_item_id(self, item_id):
+    def is_not_in_map(self, name):
+        self.calls.append(("join-check", name))
         return True
 
-    async def sleep(self, ms):
-        return None
+    async def join_map(self, name, room=None):
+        self.calls.append(("join", name))
 
     def is_still_connected(self):
         return True
@@ -265,19 +266,40 @@ class _Entry:
     item_id = 70752
     shop_id = 2126
     cost = 0
+    source = "forge"
 
 
 real_best = enhancements.best_entry
+real_adv_buy = None
 enhancements.best_entry = lambda name, slot: _Entry() if name == "Valiance" else None
+from bot import core_advanced as _adv
+
+
+async def _fake_adv_buy(cmd, shop_id, item, qty=1, **kwargs):
+    cmd.calls.append(("adv-buy", shop_id, item))
+    cmd.bought = True
+    return True
+
+
+real_adv_buy = _adv.buy_item
+_adv.buy_item = _fake_adv_buy
 try:
     buy_cmd = _EnhCommand()
     bought = run(enhancements._apply_one(buy_cmd, "weapon", ("Valiance",)))
 finally:
     enhancements.best_entry = real_best
+    _adv.buy_item = real_adv_buy
 check("enhancement: a missing one is bought then worn", bought, True)
+check("enhancement: apply-to-equipped is tried before buying",
+      [c for c in buy_cmd.calls if c[0] == "equip"][:2],
+      [("equip", "Valiance", "weapon", False),
+       ("equip", "Valiance", "weapon", True)])
+check("enhancement: the forge map is joined before its shop",
+      buy_cmd.calls.index(("join-check", "forge")) <
+      buy_cmd.calls.index(("shop", 2126)), True)
 check("enhancement: the buy went to its shop",
-      [c for c in buy_cmd.calls if c[0] == "buy"],
-      [("buy", 2126, 70752, 1)])
+      [c for c in buy_cmd.calls if c[0] == "adv-buy"],
+      [("adv-buy", 2126, 70752)])
 check("enhancement: it says it was bought",
       any("bought" in line for line in buy_cmd.logs), True)
 
@@ -336,6 +358,39 @@ class _NoRankCommand(_ScrollCommand):
 
 check("scroll: a low SpellCrafting rank refuses",
       run(scrolls.prepare(_NoRankCommand(), scrolls.ENRAGE)), False)
+
+# --- one pane stops -> the whole party stops -------------------------------
+# The reference's StopArmySync publishes the abort for every pane; a party that
+# keeps fighting after one member gave up is a wasted pull.
+import os      # noqa: E402
+import shutil  # noqa: E402
+
+from bot.ultra import party as ultra_party  # noqa: E402
+
+_run_id = "test_v2_abort"
+_previous_run = os.environ.get("AQW_RUN_ID")
+os.environ["AQW_RUN_ID"] = _run_id
+try:
+    ultra_party.clear_abort("v2_warden")
+    first = warden.build(_StubCommand(),
+                         options.UltraOptions(players=("a", "b", "c", "d")), 2)
+    check("party: sync is on with a run id", first.sync.enabled, True)
+    first.abort("test stop")
+    check("party: the abort is published for the party",
+          ultra_party.any_abort("v2_warden"), "test stop")
+    second = warden.build(_StubCommand(),
+                          options.UltraOptions(players=("a", "b", "c", "d")), 3)
+    check("party: another pane sees the abort",
+          second.sync.aborted(), "test stop")
+    check("party: so its next step refuses", second.sync.step("ANY"), False)
+finally:
+    ultra_party.clear_abort("v2_warden")
+    shutil.rmtree(REPO_ROOT / "capture_logs" / "ultra" / _run_id,
+                  ignore_errors=True)
+    if _previous_run is None:
+        os.environ.pop("AQW_RUN_ID", None)
+    else:
+        os.environ["AQW_RUN_ID"] = _previous_run
 
 print(f"passed {passed}   failed {len(failures)}")
 if failures:
