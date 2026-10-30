@@ -224,32 +224,26 @@ check("engine: no target idles instead of ending the skill loop",
 check("tyndarius: the buffs land before the jump to the boss",
       bool(_boss_jumps) and _boss_jumps[0] > 2, True)
 
-# Fast: the ArchPaladin moves to slot 2, slots 2-4 carry the scroll, and the
-# add taunter on slot 3 opens the first add while slot 1 opens the second.
-_fast_ap = tyndarius.UltraTyndarius(_StubCommand(), options.UltraOptions(
-    players=("a", "b", "c", "d"), composition="Fast"), 2)
-_fast_lr = tyndarius.UltraTyndarius(_StubCommand(), options.UltraOptions(
-    players=("a", "b", "c", "d"), composition="Fast"), 3)
-_fast_ai = tyndarius.UltraTyndarius(_StubCommand(), options.UltraOptions(
-    players=("a", "b", "c", "d"), composition="Fast"), 1)
-check("tyndarius/fast: slot 2 is the ArchPaladin",
-      (_fast_ap.preset.cls, _fast_ap.is_arch_paladin), ("ArchPaladin", True))
-check("tyndarius/fast: slot 1 is the Arcana Invoker",
-      _fast_ai.preset.cls, "Arcana Invoker")
-check("tyndarius/fast: slots 2-4 are taunters, slot 1 is not",
-      [tyndarius.UltraTyndarius(_StubCommand(), options.UltraOptions(
-          players=("a", "b", "c", "d"), composition="Fast"), slot).is_taunter
-       for slot in (1, 2, 3, 4)],
-      [False, True, True, True])
-check("tyndarius/fast: slot 3 opens the first add",
-      _fast_lr.add_priority(), ("id.1", "id.3", "id.2"))
-check("tyndarius/fast: slot 1 opens the second add",
-      _fast_ai.add_priority(), ("id.3", "id.1", "id.2"))
+# Skill 0 is mandatory in every preset, and a strict list still walks only the
+# real skills: the auto attack has its own tick.
+check("presets: the new Chaos Slayer list carries skill 0",
+      presets.preset_for_class("Chaos Slayer Berserker").skills[0], 0)
+check("presets: the new Dragon of Time list carries skill 0",
+      presets.preset_for_class("Dragon of Time").skills[0], 0)
+check("presets: strict mode never walks skill 0",
+      presets.preset_for_class("Dragon of Time").skills.count(0), 1)
+
+# IsTaunterRole arms every pane on Default/Reliable (each carries the scroll);
+# this decides who drops the combat potion, not who casts taunt 5.
 check("tyndarius/default: every pane carries the scroll",
       [tyndarius.UltraTyndarius(_StubCommand(), options.UltraOptions(
           players=("a", "b", "c", "d")), slot).is_taunter
        for slot in (1, 2, 3, 4)],
       [True, True, True, True])
+check("tyndarius: no Fast column without the Arcana Invoker engine",
+      "Fast" in options.compositions("tyndarius"), False)
+check("nulgath: no Fast column without the Arcana Invoker engine",
+      "Fast" in options.compositions("nulgath"), False)
 
 check("tyndarius: the party heals below 60",
       (ty1.heal_below, ty1.heal_slots), (60, ()))

@@ -33,14 +33,12 @@ SHORT_NAMES = {
     "Lord of Order": "LOO",
     "Dragon of Time": "DOT",
     "Chaos Slayer Berserker": "CS",
-    "Arcana Invoker": "AI",
 }
 
 LR, SC, AP, LOO, KE, VDK = ("Legion Revenant", "StoneCrusher", "ArchPaladin",
                             "Lord of Order", "King's Echo", "Verus DoomKnight")
 DOT = "Dragon of Time"
 CS = "Chaos Slayer Berserker"
-AI = "Arcana Invoker"
 
 
 @dataclass(frozen=True)
@@ -117,10 +115,6 @@ COMPOSITIONS: Dict[str, Dict[str, Tuple[SlotPlan, ...]]] = {
                    SlotPlan(LOO, weapon="Valiance")),
         "Reliable": (SlotPlan(VDK), SlotPlan(SC), SlotPlan(AP),
                      SlotPlan(LOO, weapon="Valiance")),
-        # Fast: Arcana Invoker first, the ArchPaladin moves to slot 2 and the
-        # Legion Revenant joins it as the add taunter.
-        "Fast": (SlotPlan(AI), SlotPlan(AP), SlotPlan(LR),
-                 SlotPlan(LOO, weapon="Valiance")),
     },
     # --- weeklies -------------------------------------------------------
     # Drakath's capes are the script's own: the ArchPaladin always wears
@@ -144,10 +138,10 @@ COMPOSITIONS: Dict[str, Dict[str, Tuple[SlotPlan, ...]]] = {
         "Reliable": (SlotPlan(VDK), SlotPlan(SC), SlotPlan(AP),
                      SlotPlan(LOO)),
         # Optimized runs two Dragons of Time and moves the Legion Revenant to
-        # slot 3; Fast puts the Arcana Invoker first.
+        # slot 3.  Fast is not ported: its Arcana Invoker needs the reference's
+        # own skill engine, which this port does not have.
         "Optimized": (SlotPlan(DOT), SlotPlan(DOT), SlotPlan(LR),
                       SlotPlan(LOO)),
-        "Fast": (SlotPlan(AI), SlotPlan(VDK), SlotPlan(LR), SlotPlan(LOO)),
     },
     # Dage overrides the rotations of slots 2-4 (and slot 1 restates LR's own).
     "dage": {

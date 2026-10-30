@@ -100,6 +100,8 @@ PRESETS: Dict[str, Preset] = {
     ),
     "stonecrusher": Preset(
         cls="StoneCrusher",
+        # Skill 0 (the auto attack) is mandatory in every preset; the engine
+        # presses it on its own tick and never lets a rotation wait on it.
         skills=(3, 2, 4, 1),
         base="Fighter",
         cape="Absolution",
@@ -121,7 +123,9 @@ PRESETS: Dict[str, Preset] = {
     ),
     "chaos slayer berserker": Preset(
         cls="Chaos Slayer Berserker",
-        skills=(3, 2, 4, 1),
+        # Skill 0 (the auto attack) is mandatory in every preset; the engine
+        # presses it on its own tick and never lets a rotation wait on it.
+        skills=(0, 3, 2, 4, 1),
         base="Lucky",
         cape="Vainglory",
         helm="Forge",
@@ -133,7 +137,7 @@ PRESETS: Dict[str, Preset] = {
     "dragon of time": Preset(
         cls="Dragon of Time",
         # ``Strict``: the reference walks this list, advancing on a cast.
-        skills=(3, 2, 1, 2, 4, 2),
+        skills=(0, 3, 2, 1, 2, 4, 2),
         mode=STRICT,
         base="Wizard",
         cape="Vainglory",
@@ -142,19 +146,6 @@ PRESETS: Dict[str, Preset] = {
         tonic="Sage Tonic",
         elixir="Potent Malevolence Elixir",
         combat_potion="Potent Honor Potion",
-    ),
-    "arcana invoker": Preset(
-        cls="Arcana Invoker",
-        # The reference's ``ArcanaInvoker`` engine only widens the skill mask:
-        # skills 2, 3 and 4 plus skill 1, cast whenever the server says ready.
-        skills=(2, 3, 4, 1),
-        base="Lucky",
-        cape="Vainglory",
-        helm="Examen",
-        weapon="Ravenous",
-        tonic="Fate Tonic",
-        elixir="Potent Battle Elixir",
-        combat_potion="Felicitous Philtre",
     ),
     "lord of order": Preset(
         cls="Lord of Order",

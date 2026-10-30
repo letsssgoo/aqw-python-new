@@ -465,7 +465,9 @@ class V2Core:
 
     async def _strict_step(self, target: str, index: int) -> int:
         """Walk the fixed rotation, advancing only on a cast (``Strict``)."""
-        rotation = self.preset.skills
+        # Skill 0 is pressed by :meth:`_auto_attack`; a preset that lists it
+        # still walks the rest, so the auto attack is never cast twice.
+        rotation = tuple(slot for slot in self.preset.skills if slot != 0)
         if not rotation:
             return 0
         slot = rotation[index % len(rotation)]
@@ -492,6 +494,8 @@ class V2Core:
                 return
 
         for slot in self.preset.skills:
+            if slot == 0:
+                continue      # the auto attack has its own tick
             if player.canUseSkill(slot):
                 if await self.cmd.use_skill(slot, target_monsters=target):
                     return
