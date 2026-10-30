@@ -363,4 +363,131 @@ finally:
     else:
         os.environ["AQW_RUN_ID"] = _previous_drago
 
+# --- Ultra Dage (weekly) ---------------------------------------------------
+# One boss (id.1) and three scroll duties: Enrage on the taunt pair, Decay
+# answered from the ``ct`` packet, Mystify on slot 4 (not on Stable).  Slots 3
+# and 4 also use the safe-window heal (skill 2 while no Noxious Decay aura).
+from bot.ultra.v2.weeklies import dage  # noqa: E402
+
+check("dage: quest 8547 in ultradage",
+      (dage.SPEC.quest, dage.SPEC.map), (8547, "ultradage"))
+check("dage: pulled from Boss/Right, boss id.1",
+      (dage.SPEC.boss_cell, dage.SPEC.boss_pad, dage.SPEC.monster_id),
+      ("Boss", "Right", 1))
+check("dage: level 80 gate", dage.SPEC.min_level, 80)
+check("dage: registered for the menu", "dage" in V2_ORDER, True)
+check("dage: the Decay announcement is verbatim",
+      dage.DECAY_MESSAGE,
+      "I possess the full power of the Legion at my disposal.")
+
+
+def _dage(slot, composition="Default"):
+    return dage.UltraDage(_StubCommand(), options.UltraOptions(
+        players=("a", "b", "c", "d"), composition=composition), slot)
+
+
+check("dage/default: Enrage taunters are slots 1 and 3",
+      [_dage(slot).is_taunter() for slot in (1, 2, 3, 4)],
+      [True, False, True, False])
+check("dage/stable: Enrage taunters are slots 3 and 4",
+      [_dage(slot, "Stable").is_taunter() for slot in (1, 2, 3, 4)],
+      [False, False, True, True])
+check("dage: the opening owner is slot 1 (slot 3 on Stable)",
+      ([_dage(slot).opening_owner() for slot in (1, 3)],
+       [_dage(slot, "Stable").opening_owner() for slot in (1, 3)]),
+      ([True, False], [False, True]))
+check("dage: the taunt partners are 1<->3 and 3<->4",
+      ([_dage(1).partner_slot(), _dage(3).partner_slot()],
+       [_dage(3, "Stable").partner_slot(), _dage(4, "Stable").partner_slot()]),
+      ([3, 1], [4, 3]))
+check("dage: slot 2 holds Decay, slot 4 holds Mystify",
+      ([_dage(2).is_decay_holder(), _dage(4).is_mystify_holder()],
+       _dage(4, "Stable").is_mystify_holder()),
+      ([True, True], False))
+check("dage: only Stable's slot 1 is a damage dealer",
+      ([_dage(1).is_damage_dealer()],
+       _dage(1, "Stable").is_damage_dealer()), ([False], True))
+check("dage: slots 3 and 4 are the safe healers",
+      [_dage(slot).is_safe_healer() for slot in (1, 2, 3, 4)],
+      [False, False, True, True])
+check("dage: only Stable's slot 1 brings the full potion set",
+      ([_dage(1).uses_full_potions()],
+       _dage(1, "Stable").uses_full_potions()), ([False], True))
+
+
+def _scroll_of(slot, composition="Default"):
+    runner = _dage(slot, composition)
+    runner.prepare_scrolls()
+    return getattr(runner, "scroll", None)
+
+
+check("dage: the scroll each pane stocks",
+      [_scroll_of(slot) for slot in (1, 2, 3, 4)],
+      [dage.ENRAGE, dage.DECAY_SCROLL, dage.ENRAGE, dage.MYSTIFY_SCROLL])
+check("dage/stable: no Mystify holder, slot 4 taunts",
+      _scroll_of(4, "Stable"), dage.ENRAGE)
+
+# Decay cycles: slot 2 owns the odd ones, Default's slot 4 the even ones.
+_decay_run = "test_v2_dage_decay"
+_previous_decay = os.environ.get("AQW_RUN_ID")
+os.environ["AQW_RUN_ID"] = _decay_run
+try:
+    holder = _dage(2)
+    holder.detector.count = 3
+    holder.detector.running = True
+    holder.handle_decay_detections()
+    check("dage: the Decay holder answers its cycles",
+          (holder.next_decay_cycle, holder.taunt_requested), (4, True))
+    even = _dage(4)
+    even.detector.count = 2
+    even.detector.running = True
+    even.handle_decay_detections()
+    check("dage: Default's slot 4 only answers even cycles",
+          (even.next_decay_cycle, even.taunt_requested), (3, True))
+finally:
+    shutil.rmtree(REPO_ROOT / "capture_logs" / "ultra" / _decay_run,
+                  ignore_errors=True)
+    if _previous_decay is None:
+        os.environ.pop("AQW_RUN_ID", None)
+    else:
+        os.environ["AQW_RUN_ID"] = _previous_decay
+
+# The safe-window heal: once per window, and never while Noxious Decay is up.
+class _HealCommand(_StubCommand):
+    def __init__(self, aura=None):
+        super().__init__()
+        self.heals = []
+        self.bot.player.canUseSkill = lambda slot: True
+        self.bot.player.getAura = lambda name: aura
+
+    def is_monster_alive(self, target="*"):
+        return True
+
+    async def use_skill(self, slot, **kwargs):
+        self.heals.append(slot)
+        return True
+
+
+_clean = dage.UltraDage(_HealCommand(), options.UltraOptions(
+    players=("a", "b", "c", "d")), 3)
+check("dage: the safe heal fires once", run(_clean.handle_safe_heal()), True)
+check("dage: and not twice in the same window",
+      run(_clean.handle_safe_heal()), False)
+_debuffed = dage.UltraDage(_HealCommand(aura=object()), options.UltraOptions(
+    players=("a", "b", "c", "d")), 3)
+check("dage: no heal while Noxious Decay is up",
+      run(_debuffed.handle_safe_heal()), False)
+
+# Reliable's Verus DoomKnight keeps skill 2 out of its rotation under
+# Unleashed Doom (the reference's blockedStrictSkill).
+_vdk = _dage(1, "Reliable")
+check("dage: the VDK blocks skill 2 under Unleashed Doom",
+      (_vdk.blocked_skill, _vdk.blocked_aura), (2, "Unleashed Doom"))
+check("dage: every pane wears Health Vamp and Vainglory",
+      {(presets.preset_for("dage", composition, slot).weapon,
+        presets.preset_for("dage", composition, slot).cape)
+       for composition in ("Default", "Stable", "Reliable")
+       for slot in (1, 2, 3, 4)},
+      {("Health Vamp", "Vainglory")})
+
 finish('ultra v2 weekly tests')

@@ -111,6 +111,10 @@
         ultra_v2_drago: {
             title: "Ultra V2 - Ultra Drago",
             subtitle: "Weekly army port of UltraDrago_LW: guards Dene id.1 / Algie id.3, guard-pair Focus taunts, counted pull"
+        },
+        ultra_v2_dage: {
+            title: "Ultra V2 - Ultra Dage",
+            subtitle: "Weekly army port of UltraDage_LW: Enrage taunt pair, Decay/Mystify scroll duties and the safe-window heal"
         }
     };
 

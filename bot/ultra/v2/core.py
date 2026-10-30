@@ -108,6 +108,11 @@ class V2Core:
         self.skill_rotation: tuple = ()
         #: Panes-down threshold for the reset; 0 uses :data:`WIPE_DEATHS`.
         self.wipe_deaths: int = 0
+        #: A strict-mode slot to skip while the pane carries ``blocked_aura``
+        #: (Ultra Dage's Verus DoomKnight must not touch skill 2 under
+        #: ``Unleashed Doom``).
+        self.blocked_skill: int = 0
+        self.blocked_aura: str = ""
 
     # ------------------------------------------------------------------ log
     @property
@@ -472,6 +477,11 @@ class V2Core:
         if not rotation:
             return 0
         slot = rotation[index % len(rotation)]
+        if (slot == self.blocked_skill and self.blocked_aura
+                and self.self_aura(self.blocked_aura) is not None):
+            # Skip it for this pass instead of stalling the rotation on a slot
+            # the aura forbids.
+            return (index + 1) % len(rotation)
         if await self.cmd.use_skill(slot, target_monsters=target):
             return (index + 1) % len(rotation)
         return index
