@@ -313,13 +313,14 @@ class V2Core:
                 # add came back.
                 await self.cmd.sleep(self.poll_ms)
                 continue
-            # The heal goes first: a rotation cast or an auto attack in front
-            # of it is exactly the delay that made it look late.
+            # Skill 0 first, on its own: it never waits for the heal, the
+            # potion or the rotation.  The heal comes right after, so it is
+            # never more than one auto attack behind either.
+            if await self._auto_attack(target):
+                pass
             if await self._heal_step():
                 await self.cmd.sleep(self.poll_ms)
                 continue
-            if await self._auto_attack(target):
-                pass
             if self.combat_equipped and self.bot.player.canUseSkill(5):
                 # A combat potion lives in slot 5; the rotation never lists it,
                 # so it is pressed here on the server's own cooldown.

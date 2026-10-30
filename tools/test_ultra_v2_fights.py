@@ -230,6 +230,45 @@ check("presets: the new Chaos Slayer list carries skill 0",
       presets.preset_for_class("Chaos Slayer Berserker").skills[0], 0)
 check("presets: the new Dragon of Time list carries skill 0",
       presets.preset_for_class("Dragon of Time").skills[0], 0)
+# Skill 0 is pressed even while a heal is due: the auto attack has its own tick
+# and never queues behind another skill.
+class _HealOrderCommand(_StubCommand):
+    def __init__(self):
+        super().__init__()
+        self.casts = []
+        self.bot.player.canUseSkill = lambda slot: True
+        self.bot.player.SKILLS = [dict(cd=0, tgt="h", tgtMax=1, anim="")
+                                  for _ in range(6)]
+        self.bot.player.getAura = lambda name: None
+        low = type("A", (), {"str_username": "ally", "int_hp": 300,
+                             "int_hp_max": 1000,
+                             "is_hp_below": lambda self, pct: True})()
+        self.bot.player_in_area = [low]
+
+    def is_monster_alive(self, target="*"):
+        return True
+
+    async def use_skill(self, slot, **kwargs):
+        self.casts.append(slot)
+        return True
+
+    async def sleep(self, ms):
+        await asyncio.sleep(0.001)
+
+
+async def _auto_before_heal():
+    cmd = _HealOrderCommand()
+    runner = tyndarius.UltraTyndarius(cmd, options.UltraOptions(
+        players=("a", "b", "c", "d")), 3)      # ArchPaladin: heal on 2
+    await runner.start_skills("id.2")
+    await asyncio.sleep(0.05)
+    await runner.stop_skills()
+    return cmd.casts[:2]
+
+
+check("bill: the auto attack fires before the heal",
+      run(_auto_before_heal()), [0, 2])
+
 check("presets: strict mode never walks skill 0",
       presets.preset_for_class("Dragon of Time").skills.count(0), 1)
 
