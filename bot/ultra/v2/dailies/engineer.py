@@ -147,7 +147,7 @@ class UltraEngineer(V2Core):
                        f"{self.spec.boss_cell}/{self.spec.boss_pad}")
             return "stopped"
 
-        await self.start_skills(BOSS_NAME)
+        await self.start_skills(BOSS_NAME, taunter=False)
         self.log("started fighting.")
 
         while self.cmd.is_still_connected() and not self.sync.aborted():

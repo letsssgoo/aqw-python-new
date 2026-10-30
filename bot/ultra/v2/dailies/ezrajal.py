@@ -141,7 +141,8 @@ class UltraEzrajal(V2Core):
                        f"{self.spec.boss_cell}/{self.spec.boss_pad}")
             return "stopped"
 
-        await self.start_skills(target, use_survival=True)
+        await self.start_skills(target, use_survival=True,
+                               taunter=False)
         self.log("started fighting.")
         holding = False
 

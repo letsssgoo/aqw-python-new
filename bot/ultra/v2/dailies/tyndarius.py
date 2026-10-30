@@ -183,7 +183,7 @@ class UltraTyndarius(V2Core):
             await self.cmd.sleep(200)
             waited += 200
 
-        await self.start_skills(_id(MAIN_BOSS))
+        await self.start_skills(_id(MAIN_BOSS), taunter=self.is_taunter)
         self.log("started fighting.")
 
         while self.cmd.is_still_connected() and not self.sync.aborted():

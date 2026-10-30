@@ -81,6 +81,9 @@ class V2Core:
         #: Party healing, exactly as v1's ``attack_loop`` gates it: only the
         #: **slots** listed in ``heal_slots`` run the heal check, and slot
         #: numbers are 1-based loadout slots -- v1's default is ``(3, 4)``.
+        #: True once a combat potion was equipped into slot 5, so the skill
+        #: loop knows to press it when the server says it is ready.
+        self.combat_equipped = False
         self.heal_below: Optional[float] = None
         self.heal_skill: Optional[int] = HEAL_SKILL_BY_CLASS.get(self.preset.cls)
         self.heal_slots: tuple = (3, 4)
@@ -205,6 +208,7 @@ class V2Core:
         combat = None if drop_combat_potion else self.preset.combat_potion
         await potions.use_loadout(self.cmd, self.preset.tonic,
                                   self.preset.elixir, combat)
+        self.combat_equipped = bool(combat)
 
     # ----------------------------------------------------------------- fight
     async def precast_buffs(self, skills: Sequence[int] = (1, 2, 3),
@@ -258,6 +262,12 @@ class V2Core:
             if await self._heal_step():
                 await self.cmd.sleep(self.poll_ms)
                 continue
+            if self.combat_equipped and self.bot.player.canUseSkill(5):
+                # A combat potion lives in slot 5; the rotation never lists it,
+                # so it is pressed here on the server's own cooldown.
+                if await self.cmd.use_skill(5):
+                    await self.cmd.sleep(self.poll_ms)
+                    continue
             if self.taunt_requested:
                 self.taunt_requested = False
                 if taunter and await self.cmd.use_skill(5, target_monsters=target):
