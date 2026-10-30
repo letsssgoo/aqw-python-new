@@ -114,6 +114,12 @@ class UltraWarden(V2Core):
             if result == "reset":
                 if not await self.handle_reset(attempt):
                     return False
+                # A wipe starts the attempt over: the buffs and potions died
+                # with the pane, so re-run the setup before going back in.
+                if not await self.prepare(scroll=scrolls.ENRAGE
+                                          if self.is_taunter else None,
+                                          drop_combat_potion=self.is_taunter):
+                    return False
 
             if attempt >= retries:
                 self.log(f"failed after {retries} fight attempt(s).")

@@ -443,6 +443,8 @@ class V2Core:
         await self.stop_skills()
         self.log(f"attempt {attempt} reset; regrouping at "
                  f"{self.spec.safe_cell}/{self.spec.safe_pad}.")
+        # Always regroup in the safe cell (Enter/Spawn): the wipe restarts
+        # from there, never from wherever the boss left the pane.
         await self.cmd.jump_cell(self.spec.safe_cell, self.spec.safe_pad)
         alive = await self.wait_respawn(attempt)
         if alive == "stopped":
