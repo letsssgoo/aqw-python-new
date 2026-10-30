@@ -473,7 +473,7 @@ try:
                           options.UltraOptions(players=("a", "b", "c", "d")), 3)
     check("party: another pane sees the abort",
           second.sync.aborted(), "test stop")
-    check("party: so its next step refuses", second.sync.step("ANY"), False)
+    check("party: so its next step refuses", run(second.sync.step("ANY")), False)
 finally:
     ultra_party.clear_abort("v2_warden")
     shutil.rmtree(REPO_ROOT / "capture_logs" / "ultra" / _run_id,

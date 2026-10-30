@@ -1,4 +1,4 @@
-"""Army sync for Ultra V2: named steps and signals over ``bot.ultra.party``.
+﻿"""Army sync for Ultra V2: named steps and signals over ``bot.ultra.party``.
 
 The reference keeps a line-based ``.sync`` file per script (``START``, ``READY``,
 ``STEP``, ``ARRIVE``, ``SIGNAL``, ``STOP``) and walks it with a leader/follower
@@ -19,6 +19,8 @@ three forever.
 """
 from __future__ import annotations
 
+import asyncio
+import time
 from typing import Any, Dict, Optional, Sequence
 
 from bot.ultra import party
@@ -47,19 +49,42 @@ class Sync:
         return party.enabled()
 
     # --- barriers ------------------------------------------------------
-    def step(self, step: str, timeout: int = STEP_TIMEOUT_S) -> bool:
-        """Wait for the whole party to reach ``step``; False when stopped."""
+    async def step(self, step: str, timeout: int = STEP_TIMEOUT_S) -> bool:
+        """Wait for the whole party to reach ``step``; False when stopped.
+
+        Async on purpose: ``party.barrier`` blocks on ``time.sleep``, which
+        would freeze the packet reader for the length of the wait.  The marker
+        file is the same one v1 writes, so the two share a directory unchanged.
+        """
         if self.aborted():
             return False
         if not self.enabled:
             return True
-        filled = party.barrier(f"{self.name}.{step}", self.slot, self.size,
-                               timeout)
-        if not filled:
-            # Keep going, loudly: the other pane may have died, and hanging here
-            # would leave the survivor unable to finish its own quest.
-            print(f"[v2] step {step}: the party did not fill in {timeout}s; "
-                  f"carrying on.")
+
+        name = f"{self.name}.{step}"
+        directory = party._dir()
+        key = party._safe_key(self.slot)
+        try:
+            (directory / f"{name}.{key}.ready").write_text(
+                str(time.time()), encoding="utf-8")
+        except Exception:
+            return self.aborted() is None
+
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self.aborted():
+                return False
+            try:
+                if len(list(directory.glob(f"{name}.*.ready"))) >= self.size:
+                    return True
+            except Exception:
+                pass
+            await asyncio.sleep(0.2)
+
+        # Keep going, loudly: the other pane may have died, and hanging here
+        # would leave the survivor unable to finish its own quest.
+        print(f"[v2] step {step}: the party did not fill in {timeout}s; "
+              f"carrying on.")
         return self.aborted() is None
 
     # --- signals -------------------------------------------------------
