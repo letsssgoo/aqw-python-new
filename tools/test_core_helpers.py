@@ -2720,6 +2720,73 @@ today = DayStub(time.strftime("%Y-%m-%d"), [802])
 check("badge refusal: today's refusal does block",
       Bot.daily_unavailable(today, 802), True)
 
+# --- stopping a run -------------------------------------------------------
+# Stop used to only flip the connection flag: every helper returned quietly, so
+# the script walked to its own end printing each step.  ``cmd.sleep`` now raises
+# so the run unwinds; the message is printed once by the session, not per step.
+import tempfile  # noqa: E402
+
+from core.command import StopRequested  # noqa: E402
+
+
+class StopStub(Command):
+    def __init__(self, stopped=False):
+        self.bot = type("B", (), {"stop_requested": stopped,
+                                  "is_client_connected": not stopped})()
+
+    def is_player_alive(self):
+        return True
+
+    def is_still_connected(self):
+        return not self.bot.stop_requested
+
+
+steps = []
+
+
+async def _long_script(cmd):
+    steps.append("first")
+    await cmd.sleep(10)
+    steps.append("second")
+
+
+how = "no error"
+try:
+    run(_long_script(StopStub(stopped=True)))
+except StopRequested:
+    how = "StopRequested"
+check("stop: the run unwinds at the next sleep", how, "StopRequested")
+check("stop: the rest of the script never runs", steps, ["first"])
+steps.clear()
+check("stop: a running bot keeps going", run(_long_script(StopStub())), None)
+check("stop: and it reaches the end", steps, ["first", "second"])
+
+# --- the daily ledger -----------------------------------------------------
+# ``Bot.Quests.IsDailyComplete`` in the reference: checked before a daily does
+# anything, so a second run costs one lookup instead of a full farm.
+ledger_dir = pathlib.Path(tempfile.mkdtemp())
+ledger_file = ledger_dir / "daily_state.json"
+
+
+def _ledger_bot():
+    ledger_bot = object.__new__(Bot)
+    ledger_bot._daily_ledger = None
+    ledger_bot.username = "tester"
+    ledger_bot.player = type("P", (), {"USER": "tester"})()
+    ledger_bot._daily_ledger_path = lambda: ledger_file
+    return ledger_bot
+
+
+first = _ledger_bot()
+check("daily ledger: nothing is done at first",
+      Bot.daily_done_today(first, 802), False)
+Bot.mark_daily_done_today(first, 802)
+check("daily ledger: a turned-in daily is done", Bot.daily_done_today(first, 802), True)
+check("daily ledger: and only that one", Bot.daily_done_today(first, 803), False)
+second_run = _ledger_bot()
+check("daily ledger: a relaunch still knows",
+      Bot.daily_done_today(second_run, 802), True)
+
 print(f"passed {passed}   failed {len(failures)}")
 if failures:
     for line in failures:

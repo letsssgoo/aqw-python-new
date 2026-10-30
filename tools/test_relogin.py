@@ -142,6 +142,33 @@ def main() -> None:
     check("and it is not 'finished'", bot2c.finished_cleanly(), False)
     print("  -> dropped -> a launcher is right to start it again")
 
+    # --- 2d. pressing stop ends the run where it is ---------------------
+    # A stop used to only flip the connection flag: every helper returned
+    # quietly and the script walked to its own end, printing each step -- the
+    # whole Farmer Joe log scrolling past after the stop button.  The script
+    # must end at the step it was on.
+    print("\n-- the user stops the bot mid-script --")
+    bot2d = _stub_bot(auto_relogin=True)
+    stop_steps = []
+
+    async def stopping_script(cmd):
+        stop_steps.append("step 1")
+        await cmd.sleep(60_000)          # it is parked in a real step
+        stop_steps.append("step 2")      # ... which must never run
+
+    async def stop_scenario():
+        task = asyncio.create_task(bot2d.start_bot(stopping_script))
+        await asyncio.sleep(0.3)
+        bot2d.stop_bot(user_triggered=True)
+        await asyncio.wait_for(task, timeout=10)
+
+    asyncio.run(stop_scenario())
+    check("stop: the script ends where it was", stop_steps, ["step 1"])
+    check("stop: it is not reported as a dropped connection",
+          bot2d.stop_reason, "completed")
+    check("stop: so a launcher leaves it stopped", bot2d.finished_cleanly(), True)
+    print("  -> stopped -> the remaining steps never run")
+
     # --- 3. a crashing script still surfaces ---------------------------
     print("\n-- the script raises --")
     bot3 = _stub_bot(auto_relogin=False)
