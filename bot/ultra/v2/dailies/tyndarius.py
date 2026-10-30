@@ -85,11 +85,31 @@ class UltraTyndarius(V2Core):
         self.is_arch_paladin = self.slot == ARCH_PALADIN_SLOT
 
     # ---------------------------------------------------------------- targets
+    #: v1's per-slot ``monster_prio`` (``bot/ultra/config.py``): slot 1 opens
+    #: the first add and slot 2 the second, each falling through to the other
+    #: add and then the boss.  LW's shared ``GetPriorityTarget`` always prefers
+    #: the second add, which is why both taunters used to end up on ``id.3``
+    #: even with ``id.1`` alive.
+    ADD_PRIORITY = {
+        1: (FIRST_ADD, SECOND_ADD, MAIN_BOSS),
+        2: (SECOND_ADD, FIRST_ADD, MAIN_BOSS),
+    }
+
+    def add_priority(self) -> tuple:
+        """This slot's target list: own add, other add, boss."""
+        order = self.ADD_PRIORITY.get(self.slot,
+                                      (SECOND_ADD, FIRST_ADD, MAIN_BOSS))
+        return tuple(_id(map_id) for map_id in order)
+
+    def aim_at_add(self) -> None:
+        """Point the rotation at this slot's own add (called at the pull)."""
+        self.target_priority = self.add_priority()
+
     def priority_target(self) -> str:
-        """``GetPriorityTarget``: second add, then first add, then the boss."""
-        for map_id in (SECOND_ADD, FIRST_ADD, MAIN_BOSS):
-            if self.cmd.is_monster_alive(_id(map_id)):
-                return _id(map_id)
+        """The first target of this slot's list that is still alive."""
+        for target in self.add_priority():
+            if self.cmd.is_monster_alive(target):
+                return target
         return _id(MAIN_BOSS)
 
     def boss_alive(self) -> bool:
@@ -247,6 +267,10 @@ class UltraTyndarius(V2Core):
     async def fight_add_taunter(self, attempt: int, taunt_map: int) -> str:
         """``FightAddTaunter``: taunt the add, otherwise stay on priority."""
         await self.start_skills(_id(MAIN_BOSS), taunter=True)
+        # This pane's own add is the target from the pull on: the rotation
+        # follows the slot's list, so the menu shows ``id.1`` for slot 1 and
+        # ``id.3`` for slot 2, and each one moves on only when its add is dead.
+        self.aim_at_add()
         self.log("started fighting.")
 
         while self.cmd.is_still_connected() and not self.sync.aborted():
@@ -260,11 +284,8 @@ class UltraTyndarius(V2Core):
                 await self.stop_skills()
                 return "stopped"
 
-            taunted = False
             if self.cmd.is_monster_alive(_id(taunt_map)):
-                taunted = await self.immediate_taunt(_id(taunt_map))
-            if not taunted:
-                await self.maintain_target(self.priority_target())
+                await self.immediate_taunt(_id(taunt_map))
             await self.cmd.sleep(self.poll_ms)
 
         await self.stop_skills()
@@ -416,17 +437,16 @@ class UltraTyndarius(V2Core):
     async def immediate_taunt(self, target: str) -> bool:
         """``RequestImmediateTaunt``: taunt now, and say whether it went out.
 
-        LW returns false when the taunt cannot be cast (skill 5 not ready), and
-        only then does the caller fall back to ``MaintainTarget``.  A successful
-        taunt also leaves the pane's target on that monster, which is why the
-        rotation follows it here.
+        LW returns false when the taunt cannot be cast (skill 5 not ready).
+        The rotation is **not** repointed here: it already follows the slot's
+        own add, and pinning it to the taunt target is what stranded both
+        taunters on ``id.3`` the moment the scroll went on cooldown.
         """
         if not self.cmd.is_monster_alive(target):
             return False
         if not self.bot.player.canUseSkill(5):
             return False
         self.request_taunt(target)
-        self.target_priority = (target,)
         return True
 
     async def maintain_target(self, target: str) -> None:

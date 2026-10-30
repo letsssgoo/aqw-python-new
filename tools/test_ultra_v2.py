@@ -506,8 +506,12 @@ ty3 = tyndarius.UltraTyndarius(_StubCommand(), options.UltraOptions(
     players=("a", "b", "c", "d")), 3)
 check("tyndarius: v1's rotation minus the auto attack", ty1.rotation,
       (1, 2, 3, 4))
-check("tyndarius: priority is second add, first add, boss",
-      [ty1.priority_target()], ["id.2"])
+check("tyndarius: slot 1 keeps the first add, then the second, then the boss",
+      ty1.add_priority(), ("id.1", "id.3", "id.2"))
+check("tyndarius: slot 2 keeps the second add, then the first, then the boss",
+      ty2.add_priority(), ("id.3", "id.1", "id.2"))
+check("tyndarius: with nothing alive the slot still names the boss",
+      ty1.priority_target(), "id.2")
 check("tyndarius: taunter panes are slots 3 and 4",
       (ty1.is_taunter, ty3.is_taunter), (False, True))
 check("tyndarius: the ArchPaladin slot is 3", ty3.is_arch_paladin, True)
@@ -587,9 +591,45 @@ check("tyndarius: a taunt without skill 5 is refused",
       run(blocked.immediate_taunt("id.1")), False)
 allowed = tyndarius.UltraTyndarius(_TauntCommand(True), options.UltraOptions(
     players=("a", "b", "c", "d")), 1)
-check("tyndarius: a ready taunt is requested and takes the target",
+check("tyndarius: a ready taunt is requested without repointing the rotation",
       (run(allowed.immediate_taunt("id.1")), allowed.target_priority),
-      (True, ("id.1",)))
+      (True, ()))
+
+# Each taunter holds its own add and moves on only when that add is down.
+class _AddCommand(_StubCommand):
+    def __init__(self, alive):
+        super().__init__()
+        self.alive = set(alive)
+
+    def is_monster_alive(self, target="*"):
+        return str(target) in self.alive
+
+
+def _taunter(slot, alive):
+    cmd = _AddCommand(alive)
+    runner = tyndarius.UltraTyndarius(cmd, options.UltraOptions(
+        players=("a", "b", "c", "d")), slot)
+    runner.aim_at_add()
+    return runner
+
+
+_first = _taunter(1, {"id.1", "id.3", "id.2"})
+check("tyndarius: slot 1 opens on id.1", _first.priority_target(), "id.1")
+_first.cmd.alive = {"id.3", "id.2"}
+check("tyndarius: id.1 down, slot 1 takes id.3", _first.priority_target(),
+      "id.3")
+_first.cmd.alive = {"id.2"}
+check("tyndarius: both adds down, slot 1 attacks the boss",
+      _first.priority_target(), "id.2")
+_second = _taunter(2, {"id.1", "id.3", "id.2"})
+check("tyndarius: slot 2 opens on id.3", _second.priority_target(), "id.3")
+_second.cmd.alive = {"id.1", "id.2"}
+check("tyndarius: id.3 down, slot 2 takes id.1", _second.priority_target(),
+      "id.1")
+check("tyndarius: the pull aims each taunter at its own add",
+      [runner.target_priority for runner in
+       (_taunter(1, {"id.1", "id.3"}), _taunter(2, {"id.1", "id.3"}))],
+      [("id.1", "id.3", "id.2"), ("id.3", "id.1", "id.2")])
 
 # A boss that never appears must never be reported as defeated: the timeout
 # before the pull is the only place that can tell "not here" from "already dead".
