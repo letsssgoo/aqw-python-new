@@ -194,7 +194,7 @@ class V2Core:
             if not await scrolls.prepare(self.cmd, scroll):
                 return self.abort(f"{scroll} stock is short")
         self._tele("loadout", composition=self.options.composition,
-                   retries=self.options.retries)
+                   retries=self.options.retries, rotation=list(self.rotation))
         self.log("setup finished.")
         return True
 
