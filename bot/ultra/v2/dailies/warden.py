@@ -100,7 +100,7 @@ class UltraWarden(V2Core):
             if not await self.sync.step("START_FIGHT"):
                 return False
 
-            self.begin_attempt()
+            self.begin_attempt(attempt)
             result = await self.fight(attempt)
             if result == "defeated":
                 return True

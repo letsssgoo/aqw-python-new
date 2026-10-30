@@ -138,7 +138,7 @@ async def _apply_base(cmd, name: str) -> bool:
                     f"cannot be applied.")
         return False
 
-    record = best_base(name, int(getattr(worn, "level", 0) or 0))
+    record = best_base(name, int(getattr(cmd.bot.player, "LEVEL", 0) or 0))
     if record is None:
         cmd.bot.log(f"[v2] no class enhancement is registered for {name!r}.")
         return False
@@ -162,7 +162,12 @@ async def _apply_base(cmd, name: str) -> bool:
 
 
 def best_base(name: str, level: int = 0):
-    """The class-slot record for a type name ("Wizard"), at or under ``level``."""
+    """The class-slot record for a type name ("Wizard"), at or under ``level``.
+
+    ``level`` is the **character** level: enhancement tiers are gated by it, not
+    by the class item's own level (a class item reports level 1, and using that
+    picked the worst tier -- or the best one, which the server then refused).
+    """
     from model import enhancement as registry
     for candidate in (f"{name} Armor Enhancement", name):
         try:
@@ -172,14 +177,23 @@ def best_base(name: str, level: int = 0):
         if not rows:
             continue
         fit = [row for row in rows if not level or row.level <= level]
-        return (fit or rows)[-1]
+        # No tier at or under the level means "the lowest one", never the
+        # highest -- a tier above the character is refused by the server.
+        return (fit or rows[:1])[-1]
     return None
 
 
 def _carries(item, record) -> bool:
-    """True when ``item`` already has ``record`` socketed."""
-    if int(getattr(item, "enh_id", 0) or 0) == int(record.item_id):
-        return True
+    """True when ``item`` already has ``record`` socketed.
+
+    The item's ``EnhID`` is authoritative; the pattern+rarity pair is only a
+    fallback for a client that omits ``EnhID``.  Comparing patterns alone is
+    wrong: Wizard and Fighter are both class enhancements, and a stale item can
+    report one while wearing the other.
+    """
+    item_enh = int(getattr(item, "enh_id", 0) or 0)
+    if item_enh:
+        return item_enh == int(record.item_id)
     return (int(getattr(item, "enh_pattern_id", 0) or 0) == int(record.pattern_id)
             and int(getattr(item, "enh_rarity", 0) or 0) == int(record.rarity))
 

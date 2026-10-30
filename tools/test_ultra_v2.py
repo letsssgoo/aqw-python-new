@@ -244,11 +244,54 @@ check("base: the class item and tier are named in the packet",
                         ("enhance", 5555, wizard.item_id, 765)])
 
 tiered = _ClassCommand(enh_id=0)
-tiered.player.INVENTORY[0].level = 80
-check("base: the tier follows the class level",
+tiered.player.LEVEL = 80      # tiers follow the character level, not the item's
+check("base: the tier follows the character level",
       run(enhancements._apply_base(tiered, "Wizard")), True)
 check("base: level 80 gets the level-80 tier",
       tiered.calls[-1][2], enhancements.best_base("Wizard", 80).item_id)
+
+# --- telemetry and cooldown pacing -----------------------------------------
+class _TelemetryStub:
+    def __init__(self):
+        self.events = []
+
+    def write(self, kind, **fields):
+        self.events.append((kind, fields))
+
+
+tele = _TelemetryStub()
+tele_bot = _StubCommand()
+tele_bot.bot.telemetry = tele
+tele_runner = warden.build(tele_bot, options.UltraOptions(
+    players=("a", "b", "c", "d")), 2)
+tele_runner.abort("test stop")
+check("telemetry: an abort is reported",
+      [kind for kind, _ in tele.events], ["abort"])
+check("telemetry: carrying the ultra, slot and class",
+      tele.events[0][1].get("slot"), 2)
+
+
+class _CooldownSkill:
+    def __init__(self, seconds):
+        from datetime import datetime, timedelta
+        self.next_use = datetime.now() + timedelta(seconds=seconds)
+
+
+class _CooldownCommand(_StubCommand):
+    def __init__(self, seconds):
+        super().__init__()
+        self.bot.player.SKILLS = [_CooldownSkill(0), _CooldownSkill(seconds)]
+
+
+cool = warden.build(_CooldownCommand(5), options.UltraOptions(
+    players=("a", "b", "c", "d")), 1)
+wait_ms = cool._next_ready_ms((1,))
+check("cooldown: the wait is capped", 80 <= wait_ms <= 400, True)
+
+ready = warden.build(_CooldownCommand(0), options.UltraOptions(
+    players=("a", "b", "c", "d")), 1)
+check("cooldown: a ready slot waits the minimum tick",
+      ready._next_ready_ms((1,)), 100)
 
 # --- potion packets --------------------------------------------------------
 # Captured: an elixir is consumed with `serverUseItem`; a combat potion is

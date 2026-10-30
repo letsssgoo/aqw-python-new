@@ -3,6 +3,7 @@ from core.command import Command, StopRequested
 from core.player import Player
 from core.utils import normalize
 import json
+import os
 import pathlib
 import sys
 import zlib
@@ -1966,7 +1967,13 @@ class Bot:
         return rows.get(str(normalize_quest_id(quest_id))) == today
 
     def mark_daily_done_today(self, quest_id) -> None:
-        """Record ``quest_id`` as handled today, so later runs skip it."""
+        """Record ``quest_id`` as handled today, so later runs skip it.
+
+        Four ultra panes are four processes writing this file, so the write goes
+        through a temp name unique to the process and retries the rename: on
+        Windows ``os.replace`` fails with WinError 32 while another pane holds
+        the destination open ("being used by another process").
+        """
         wanted = str(normalize_quest_id(quest_id))
         if wanted == "0":
             return
@@ -1981,14 +1988,31 @@ class Bot:
         for key in list(rows):
             if rows[key] != today:
                 del rows[key]
+        self._save_daily_ledger()
+
+    def _save_daily_ledger(self) -> None:
+        """Write the ledger, tolerating the other panes writing it at the same time."""
         path = self._daily_ledger_path()
+        temporary = path.with_name(f"{path.stem}.{os.getpid()}.tmp")
         try:
-            temporary = path.with_suffix(".tmp")
-            temporary.write_text(json.dumps(ledger, indent=1, sort_keys=True),
-                                 encoding="utf-8")
-            temporary.replace(path)
+            temporary.write_text(json.dumps(self._daily_ledger, indent=1,
+                                            sort_keys=True), encoding="utf-8")
         except OSError as error:
-            print(f"[daily] could not save {path.name}: {error}")
+            print(f"[daily] could not stage {path.name}: {error}")
+            return
+        for attempt in range(10):
+            try:
+                os.replace(temporary, path)
+                return
+            except OSError:
+                # Another pane is mid-write; a short wait settles it.
+                time.sleep(0.05 * (attempt + 1))
+        try:
+            temporary.unlink()
+        except OSError:
+            pass
+        print(f"[daily] could not save {path.name}: another pane kept the file "
+              f"open; the ledger is left as it was this run.")
 
     def daily_unavailable(self, quest_id) -> bool:
         """True when the server refused this quest's turn-in on the same day.

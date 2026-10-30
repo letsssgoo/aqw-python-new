@@ -99,9 +99,26 @@ class V2Core:
         """
         self.aborted = reason
         self.log(f"stopping: {reason}")
+        self._tele("abort", reason=reason)
         if self.sync.enabled:
             self.sync.stop(reason)
         return False
+
+    def _tele(self, kind: str, **fields) -> None:
+        """Forward one event to the run telemetry, when one is attached.
+
+        The hub installs it per pane (``bot.ultra.telemetry.install_from_env``),
+        exactly as the v1 ultra menus do, so the dashboard reads Ultra V2 runs
+        the same way.  Never raises: telemetry must not end a fight.
+        """
+        telemetry = getattr(self.bot, "telemetry", None)
+        if telemetry is None:
+            return
+        try:
+            telemetry.write(kind, ultra=self.spec.id, slot=self.slot,
+                            cls=self.preset.cls, **fields)
+        except Exception:
+            pass
 
     # --------------------------------------------------------------- access
     async def validate_access(self) -> bool:
@@ -153,6 +170,8 @@ class V2Core:
         if scroll:
             if not await scrolls.prepare(self.cmd, scroll):
                 return self.abort(f"{scroll} stock is short")
+        self._tele("loadout", composition=self.options.composition,
+                   retries=self.options.retries)
         self.log("setup finished.")
         return True
 
@@ -236,7 +255,30 @@ class V2Core:
                 continue
             if await self.cmd.use_skill(slot, target_monsters=target):
                 return
-        await self.cmd.sleep(100)
+        # Nothing is ready: sleep until the soonest cooldown instead of a fixed
+        # tick, so the next cast lands the moment the server allows it.
+        await self.cmd.sleep(self._next_ready_ms(self.preset.skills))
+
+    def _next_ready_ms(self, slots) -> int:
+        """Milliseconds until the earliest slot in ``slots`` comes off cooldown.
+
+        ``Player.SKILLS`` carries the server's own cooldown deadline per slot
+        (``next_use``), which is the cooldown data the reference reads from the
+        Flash client.  Capped so a long cooldown cannot park the loop.
+        """
+        from datetime import datetime
+        now = datetime.now()
+        soonest = None
+        for slot in slots:
+            skills = getattr(self.bot.player, "SKILLS", []) or []
+            if not 0 <= slot < len(skills):
+                continue
+            deadline = getattr(skills[slot], "next_use", None)
+            if deadline is None or deadline <= now:
+                continue
+            remaining = (deadline - now).total_seconds() * 1000
+            soonest = remaining if soonest is None else min(soonest, remaining)
+        return int(max(80, min(soonest if soonest is not None else 100, 400)))
 
     async def _strict_step(self, target: str, index: int) -> int:
         """Walk the fixed rotation, advancing only on a cast (``Strict``)."""
@@ -244,6 +286,10 @@ class V2Core:
         if not rotation:
             return 0
         slot = rotation[index % len(rotation)]
+        if not self.bot.player.canUseSkill(slot):
+            # Keep the order: wait for *this* slot rather than skipping it.
+            await self.cmd.sleep(self._next_ready_ms((slot,)))
+            return index
         if await self.cmd.use_skill(slot, target_monsters=target):
             return (index + 1) % len(rotation)
         return index
@@ -307,16 +353,18 @@ class V2Core:
         return f"id.{self.spec.monster_id}"
 
     # -------------------------------------------------------------- wipeout
-    def begin_attempt(self) -> None:
+    def begin_attempt(self, attempt: int = 0) -> None:
         """Mark the moment this attempt started, for the wipe detector."""
         self._attempt_started = __import__("time").time()
         self._death_reported = False
+        self._tele("attempt", attempt=attempt)
 
     def note_death(self) -> None:
         """Publish this pane's death once per attempt."""
         if self._death_reported or not self.bot.player.ISDEAD:
             return
         self._death_reported = True
+        self._tele("death")
         if self.sync.enabled:
             party.report_death(self.sync.name, self.slot)
         self.log("died.")
@@ -329,6 +377,7 @@ class V2Core:
         down = [slot for slot, when in deaths.items()
                 if when >= self._attempt_started]
         if len(down) >= WIPE_DEATHS:
+            self._tele("wipe", slots=sorted(down))
             self.log(f"wipe detected: slots {', '.join(map(str, sorted(down)))} "
                      f"went down this attempt.")
             return True
@@ -429,6 +478,7 @@ class V2Core:
                      f"probably still short its drop.")
             return False
         self.sync.mark_done()
+        self._tele("quest_done", quest=self.spec.quest)
         return True
 
     # ------------------------------------------------------------- reporting
