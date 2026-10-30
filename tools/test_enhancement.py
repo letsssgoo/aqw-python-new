@@ -502,3 +502,71 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+# --- Ravenous forge unlock -------------------------------------------------
+# ``UnlockForgeEnhancements.Ravenous``: complete quest 9560 once the
+# Gluttonous Maw (shop 2411) is in the bag, and say the daily line otherwise.
+from bot.enhancements import ravenous as _ravenous  # noqa: E402
+
+
+class _RavenousCommand:
+    def __init__(self, has_maw=False, roents=0):
+        self.has_maw = has_maw
+        self.roents = roents
+        self.logs = []
+        self.accepted = []
+        self.turned_in = []
+        self.buys = []
+        self.bot = type("B", (), {
+            "player": type("P", (), {
+                "get_item_inventory": lambda _self, name: (
+                    type("I", (), {"qty": 1})()
+                    if name == _ravenous.GLUTTONOUS_MAW and self.has_maw
+                    else (type("I", (), {"qty": self.roents})()
+                          if name == _ravenous.ROENTGENIUM else None)),
+            })(),
+            "log": lambda _s, line: self.logs.append(line),
+        })()
+
+    async def has_item(self, name, qty=1, isTemp=False):
+        return self.has_maw and name == _ravenous.GLUTTONOUS_MAW
+
+    async def ensure_accept_quest(self, quest_id, *a, **k):
+        self.accepted.append(quest_id)
+        return True
+
+    async def ensure_turn_in_quest(self, quest_id, *a, **k):
+        self.turned_in.append(quest_id)
+        return True
+
+    def is_still_connected(self):
+        return True
+
+    def is_not_in_map(self, name):
+        return False
+
+    async def ensure_load_shop(self, shop_id):
+        # No shop data in the stub: the reference path stops here and reports
+        # the missing Maw, which is exactly what the test checks.
+        return False
+
+    async def sleep(self, ms):
+        return None
+
+
+def _run_ravenous(cmd):
+    import asyncio as _asyncio
+    return _asyncio.run(_ravenous.unlock(cmd))
+
+
+check("ravenous: quest id and shop are the reference's",
+      (_ravenous.RAVENOUS_QUEST, _ravenous.GLUTTONOUS_MAW_SHOP), (9560, 2411))
+check("ravenous: with the Maw it completes the quest",
+      (lambda c: (_run_ravenous(c), c.turned_in))(_RavenousCommand(has_maw=True)),
+      (True, [9560]))
+_short = _RavenousCommand(has_maw=False, roents=3)
+check("ravenous: without the Maw it says the daily line",
+      (_run_ravenous(_short),
+       any("Roentgenium" in line for line in _short.logs)),
+      (False, True))
