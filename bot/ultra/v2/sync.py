@@ -94,6 +94,27 @@ class Sync:
     def read(self, name: str) -> Dict[int, Any]:
         return party.published(f"{self.name}.{name}", SLOTS)
 
+    async def wait_signal(self, name: str, key: int = 0,
+                          timeout: int = 120) -> bool:
+        """Wait until ``key`` (or any pane when 0) publishes ``name``.
+
+        Used by the Righteous Seal gate: the ArchPaladin seals the boss and the
+        other panes must not step in before that signal exists.
+        """
+        if not self.enabled:
+            return True
+        deadline = __import__("time").time() + timeout
+        while __import__("time").time() < deadline:
+            if self.aborted():
+                return False
+            found = self.read(name)
+            if key and found.get(key):
+                return True
+            if not key and any(found.values()):
+                return True
+            await asyncio.sleep(0.2)
+        return False
+
     def clear_signal(self, name: str) -> None:
         party.clear_signal(f"{self.name}.{name}", SLOTS)
 

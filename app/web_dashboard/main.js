@@ -92,6 +92,10 @@
             title: "Ultra V2 - Ultra Ezrajal",
             subtitle: "Four-pane army port of UltraEzrajal_LW: buffs first, hold the rotation on Counter Attack"
         },
+        ultra_v2_tyndarius: {
+            title: "Ultra V2 - Ultra Tyndarius",
+            subtitle: "Port of UltraTyndarius_LW: Righteous Seal gate, adds id.3/id.1, boss id.2"
+        },
         ultra_v2_engineer: {
             title: "Ultra V2 - Ultra Engineer",
             subtitle: "Four-pane army port of UltraEngineer_LW: two adds (id.2, id.1) before the boss (id.3)"
