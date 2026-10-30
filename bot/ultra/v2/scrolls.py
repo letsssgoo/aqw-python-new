@@ -416,7 +416,11 @@ async def _buy_until(cmd, shop: int, name: str, quantity: int,
     try:
         while have < quantity:
             need = quantity - have
-            chunk = min(need, per_purchase, chunk_size)
+            # Whole bundles only: the shop sells 10 quills or 5 inks and drops
+            # any other quantity, which is why "Arcane Quill x1" never arrived.
+            bundles_needed = max(1, math.ceil(need / per_purchase))
+            max_bundles = max(1, chunk_size // per_purchase)
+            chunk = min(bundles_needed, max_bundles) * per_purchase
             if chunk <= 0:
                 break
             price = (int(getattr(item, "cost", 0) or 0)

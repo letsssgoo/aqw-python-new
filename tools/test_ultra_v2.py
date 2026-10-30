@@ -425,6 +425,15 @@ class _MergeItem(_ShopItem):
 
 
 _merge = _MergeItem()
+import math as _math  # noqa: E402
+
+# A need smaller than one bundle still pays for a full bundle (10 quills), and
+# a big need is chunked in whole bundles (5 inks per purchase).
+check("scroll buy: a short need still buys a whole bundle",
+      _math.ceil(1 / 10) * 10, 10)
+check("scroll buy: chunk stays a whole number of bundles",
+      min(max(1, 20 // 5), max(1, _math.ceil(99 / 5))) * 5, 20)
+
 check("scroll buy: the merge cost is read off the entry",
       scrolls._merge_cost(_merge), [("61043", "Gold Voucher 500k", 2)])
 class _OtherItem(_ShopItem):
