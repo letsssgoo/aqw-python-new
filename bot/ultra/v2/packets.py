@@ -199,10 +199,12 @@ class MarkerWatcher:
     def inspect(self, msg: str) -> None:
         if not self.running or not msg:
             return
-        if self.command and f'"cmd":"{self.command}"' not in msg.replace(
-                " ", ""):
+        # Match on a space-free copy: the server is free to pretty-print the
+        # JSON, and the reference compares the packet text itself.
+        flat = msg.replace(" ", "")
+        if self.command and f'"cmd":"{self.command}"' not in flat:
             return
-        if any(marker in msg for marker in self.markers):
+        if any(marker.replace(" ", "") in flat for marker in self.markers):
             self.count += 1
 
     def seen(self, detection: int) -> bool:
