@@ -17,6 +17,7 @@ from typing import Optional
 
 from bot.core_advanced import start_buy_all_merge
 from bot.nation.core_nation import essence_of_nulgath, farm_tainted_gem
+from bot.story.nation.void_chasm import void_chasm_storyline
 from core.command import Command
 from templates.hunt import hunt_item
 
@@ -67,7 +68,8 @@ async def find_ingredients(cmd: Command, item_id: int, name: str,
 
 async def void_chasm_merge(cmd: Command,
                            buy_only_this: Optional[str] = None) -> None:
-    """``VoidChasmMerge.BuyAllMerge``."""
+    """``VoidChasmMerge.BuyAllMerge``: the storyline, then the shop."""
+    await void_chasm_storyline(cmd)
     await start_buy_all_merge(cmd, MAP, SHOP_ID, find_ingredients,
                               buy_only_this)
 

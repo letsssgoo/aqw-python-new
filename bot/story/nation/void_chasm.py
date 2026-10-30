@@ -1,50 +1,70 @@
-"""The Void Chasm storyline -- quests 9543-9552 in /voidchasm.
+"""Void Chasm storyline -- port of ``Story/Nation/VoidChasm.cs``.
 
-Port of ``Story/Nation/VoidChasm.cs``, which runs the Void Refuge storyline
-first and then its own ten quests.
-
-Five of the ten also want map items -- one of them six times, three of them
-several items -- and three name more than one monster, which
-``bot.core_story.kill_quest`` resolves by position.
+Quests **9543-9552** in ``/voidchasm``, after the Void Refuge chain it opens
+with (``VR.Storyline()``).  Early steps are plain kills, the middle ones pair a
+map item with the drops the quest names, and 9551 is fought on the solo class
+with ``Carnage`` as the last elite before 9552.
 """
-from core.command import Command
 from bot.core_bots import equip_class
-from bot.core_story import kill_quest, map_item_quest
-from bot.story.nation.void_refuge import main as void_refuge
+from bot.core_story import kill_quest, map_item_quest, quest_progression
+from bot.story.nation.void_refuge import void_refuge_storyline
+from core.command import Command
+from templates.hunt import hunt_item
 
-#: The map, and the quest that gates the chain.
-MAP_NAME = "voidchasm"
-LAST_QUEST = 9552
-
-#: ``(quest, map item id or ids, how many, monster or monsters)``, in the
-#: reference's own order; ``None`` means that quest has no such step.
-STEPS = (
-    (9543, None, 0, "Paladin Ascendant"),
-    (9544, None, 0, "Nation Outrider"),
-    (9545, 12619, 6, "Paladin Ascendant"),
-    (9546, (12620, 12621), 1, None),
-    (9547, 12622, 1, "Nation Outrider"),
-    (9548, None, 0, "Void Fang"),
-    (9549, (12623, 12627, 12628), 1, "The Hushed"),
-    (9550, 12624, 4, ("The Hushed", "Void Fang")),
-    (9551, (12625, 12626), 1, "Carnage"),
-    (LAST_QUEST, None, 0, "Carcano"),
-)
-
-#: The one step the reference fights solo.
-SOLO_QUEST = 9551
+MAP = "voidchasm"
+GATE_QUEST = 9552
 
 
-async def main(cmd: Command):
-    if await cmd.is_completed_before(LAST_QUEST):
+async def _step(cmd: Command, quest_id: int, map_items, hunts,
+                solo: bool = False) -> None:
+    if await quest_progression(cmd, quest_id):
+        return
+    if solo:
+        await equip_class(cmd, solo=True)
+    await cmd.ensure_accept_quest(quest_id)
+    if map_items:
+        for item_id, qty in map_items:
+            await cmd.get_map_item(item_id, qty)
+    for item, monster, qty in hunts:
+        await hunt_item(cmd, item, qty, MAP, cell="Enter", pad="Spawn",
+                        monster_name=monster, is_temp=False)
+    await cmd.ensure_turn_in_quest(quest_id)
+
+
+async def void_chasm_storyline(cmd: Command) -> None:
+    """``VoidChasm.Storyline``."""
+    if await cmd.is_completed_before(GATE_QUEST):
         return
 
-    await void_refuge(cmd)
+    await void_refuge_storyline(cmd)
+    cmd.bot.log("[voidchasm] walking the Void Chasm storyline")
 
-    for quest_id, item_ids, qty, monsters in STEPS:
-        if quest_id == SOLO_QUEST:
-            await equip_class(cmd, solo=True)
-        if item_ids is not None:
-            await map_item_quest(cmd, quest_id, MAP_NAME, item_ids, qty)
-        if monsters is not None:
-            await kill_quest(cmd, quest_id, MAP_NAME, monsters)
+    await kill_quest(cmd, 9543, MAP, "Paladin Ascendant")
+    await kill_quest(cmd, 9544, MAP, "Nation Outrider")
+
+    await _step(cmd, 9545, ((12619, 6),),
+                (("Alberic Seal", "Paladin Ascendant", 3),))
+
+    await map_item_quest(cmd, 9546, MAP, (12620, 12621))
+
+    await _step(cmd, 9547, ((12622, 1),),
+                (("Outrider's Keepsake", "Nation Outrider", 4),))
+
+    await kill_quest(cmd, 9548, MAP, "Void Fang")
+
+    await _step(cmd, 9549, ((12623, 1), (12627, 1), (12628, 1)),
+                (("Phantom's Sigh", "The Hushed", 5),))
+
+    await _step(cmd, 9550, ((12624, 4),),
+                (("Blank Contract", "The Hushed", 3),
+                 ("Fiendish Sinew", "Void Fang", 6)))
+
+    await _step(cmd, 9551, ((12625, 1), (12626, 1)),
+                (("Voided Blood Sample", "Carnage", 1)), solo=True)
+
+    await kill_quest(cmd, 9552, MAP, "Carcano")
+
+
+async def main(cmd: Command) -> None:
+    """Standalone entry (``python -m bot.story.nation.void_chasm``)."""
+    await void_chasm_storyline(cmd)

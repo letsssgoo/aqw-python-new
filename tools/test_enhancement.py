@@ -582,6 +582,15 @@ def main() -> None:
         async def sleep(self, ms):
             return None
 
+    async def _noop_experience(cmd, level=100, *a, **k):
+        return None
+
+    async def _pfs_done(cmd):
+        return True
+
+    _ravenous.farm_experience = _noop_experience
+    _ravenous.pfs_storyline = _pfs_done
+
     check("ravenous: quest id and shop are the reference's",
           (_ravenous.RAVENOUS_QUEST, _ravenous.GLUTTONOUS_MAW_SHOP)
           == (9560, 2411))

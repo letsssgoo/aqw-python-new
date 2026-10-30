@@ -43,6 +43,9 @@ from __future__ import annotations
 
 from typing import Optional
 
+from bot.core_farms import farm_experience
+from bot.nation.various.prime_fiend_shard import storyline as pfs_storyline
+
 #: ``Ravenous``'s forge quest (``sQuest`` in the forge shop entry, iQSindex 544).
 RAVENOUS_QUEST = 9560
 #: The shop the reference buys the Maw from (``Adv.BuyItem(Bot.Map.Name, 2411…)``).
@@ -58,7 +61,15 @@ async def unlock(cmd) -> bool:
         return await _complete(cmd)
 
     from bot.core_bots import buy_item as core_buy
+
     cmd.bot.log("[forge] unlocking enhancement: Ravenous")
+
+    # ``Farm.Experience()`` then ``PFS.Storyline()`` -- the Shard chain runs in
+    # its own module and stops by name when a step is not ported.
+    await farm_experience(cmd)
+    if not await pfs_storyline(cmd):
+        return False
+
     # The reference buys from the map it is standing in (the storyline leaves it
     # there); no map is joined here for that reason.
     await core_buy(cmd, GLUTTONOUS_MAW_SHOP, GLUTTONOUS_MAW, 1)
