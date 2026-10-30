@@ -135,7 +135,15 @@
             var s = slots[sId];
             if (!s || !s.running) {
                 badge.textContent = 'Offline'; badge.style.color = '';
-                el.innerHTML = '<span class="pill">idle</span>'; return;
+                el.innerHTML = '<span class="pill">idle</span>';
+                // A stopped pane has no live cooldowns: clear the rows, or the
+                // last run's badges would sit there as if the skills were still
+                // on cooldown.
+                var mon = card.querySelector('[data-monsters]');
+                if (mon) { mon.innerHTML = ''; mon.style.display = 'none'; }
+                var cd = card.querySelector('[data-skills]');
+                if (cd) { cd.innerHTML = ''; cd.style.display = 'none'; }
+                return;
             }
             badge.textContent = 'Online'; badge.style.color = '#34d399';
             var hp = s.max_hp ? Math.round(s.hp / s.max_hp * 100) : 0;
