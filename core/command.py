@@ -73,6 +73,21 @@ def world_signature(cmd: 'Command') -> tuple:
             int(getattr(player, "LEVEL", 0) or 0), rep)
 
 
+class StopRequested(BaseException):
+    """Raised inside a running script when there is no point going on.
+
+    A script is a straight line of steps, and every step used to just return
+    quietly once the connection flag dropped -- so pressing stop made the run
+    walk all the way to its end, printing each "Daily: ..." and "[farm] ..."
+    line on the way.  One raise unwinds the chain, so a stopped run says only
+    that it was stopped.
+
+    It derives from :class:`BaseException`, like ``CancelledError``, so the
+    ``except Exception`` wrappers that steps use for "this shop was missing"
+    cannot swallow the stop and carry on.
+    """
+
+
 class PassGuard:
     """Stops a farm loop that is no longer changing anything.
 
@@ -196,6 +211,25 @@ class Command:
         self.bot.accept_quest
         return self.bot.is_client_connected
 
+    def check_stop(self) -> None:
+        """Raise :class:`StopRequested` when the run is being stopped.
+
+        Every helper used to return quietly once the connection flag dropped,
+        which let the script walk to its own end printing step by step -- the
+        reason a stopped run still scrolled a whole Farmer Joe log past the
+        stop button.  One raise unwinds the whole chain instead.
+
+        Raises:
+            StopRequested: when the bot is stopping (someone pressed stop) or
+            the session has already ended.
+        """
+        if getattr(self.bot, "stop_requested", False):
+            raise StopRequested("the bot was stopped")
+        # ``getattr`` default True: a test stub without the flag is "running",
+        # not "disconnected".
+        if not getattr(self.bot, "is_client_connected", True):
+            raise StopRequested("the connection ended")
+
     def is_valid_json(self, s: str) -> bool:
         """Return True when the provided string parses as JSON."""
         try:
@@ -220,6 +254,7 @@ class Command:
             farm is under way.
         """
         quest_id = normalize_quest_id(quest_id)
+        self.check_stop()
         attempts = 0
         self.accept_was_resumed = False
         while self.quest_not_in_progress(quest_id) and self.is_still_connected():
@@ -272,6 +307,7 @@ class Command:
             server would only answer "Missing Turn In Item" again.
         """
         quest_id = normalize_quest_id(quest_id)
+        self.check_stop()
         # Two refusals are permanent, so asking again is pure noise: "Missing
         # Badge" -- the answer a daily gives when it is not available right now
         # ({"bSuccess":0,"QuestID":802,"msg":"Missing Badge"}), which is what
@@ -815,6 +851,7 @@ class Command:
             wrong gear (see ``bot.ultra.core_ultra.CoreUltra.apply_loadout``)
             stop the bot on False instead of fighting in whatever was on.
         """
+        self.check_stop()
         await self.bot.ensure_leave_from_combat()
 
         if await self._equip_held_item(item_name):
@@ -1524,6 +1561,7 @@ class Command:
         Returns:
             None: Records join state and sends the transfer packet.
         """
+        self.check_stop()
         self.stop_aggro()
         if self.bot.strMapName.lower() == mapName.lower():
             return
@@ -2350,9 +2388,18 @@ class Command:
         """Request the rest action."""
         await self.send_packet(f"%xt%zm%restRequest%1%%")
 
-    @check_alive
     async def sleep(self,  milliseconds: int) -> None:
-        """Asynchronously sleep for the requested number of milliseconds."""
+        """Asynchronously sleep for the requested number of milliseconds.
+
+        Deliberately **not** wrapped in ``@check_alive``: that decorator returns
+        quietly once the connection flag drops, which would skip the stop check
+        below and let a stopped script walk on to its end.
+
+        Raises:
+            StopRequested: when the bot is stopping, so the script unwinds
+            instead of walking on through every remaining step.
+        """
+        self.check_stop()
         await asyncio.sleep(milliseconds/1000)
 
     def pass_guard(self, label: str,

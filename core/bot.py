@@ -1,8 +1,9 @@
 import socket
-from core.command import Command
+from core.command import Command, StopRequested
 from core.player import Player
 from core.utils import normalize
 import json
+import pathlib
 import sys
 import zlib
 import base64
@@ -309,6 +310,11 @@ class Bot:
         self.missing_badge_questid: list[int] = []
         #: The day (:meth:`daily_unavailable`) that list was last written on.
         self.missing_badge_day: str = ""
+        #: Today's "already handled" quest ledger, read from ``daily_state.json``
+        #: on first use and written when a daily is turned in (or refused for a
+        #: missing badge).  This is the port's ``Bot.Quests.IsDailyComplete``:
+        #: without it a relaunch farms the whole daily again only to be refused.
+        self._daily_ledger: Optional[dict] = None
 
         self.player_in_area: list[PlayerArea] = []
 
@@ -330,6 +336,10 @@ class Bot:
         #: again" -- the difference between a finished class script and a session
         #: that dropped.
         self.stop_reason = ""
+        #: Set the moment :meth:`stop_bot` runs, for the script to see.  A
+        #: stopped run must unwind (``Command.check_stop``) instead of walking
+        #: its remaining steps and printing every one of them.
+        self.stop_requested = False
 
     def subscribe(self, callback):
         """Subscribe to messages."""
@@ -473,6 +483,17 @@ class Bot:
                     while self.is_client_connected and not script.done():
                         await asyncio.sleep(0.2)
                     if not script.done():
+                        if self.stop_requested:
+                            # Someone pressed stop: say that once, rather than
+                            # reporting a connection loss that never happened.
+                            print("[stop] the script was stopped here.")
+                            script.cancel()
+                            try:
+                                await script
+                            except asyncio.CancelledError:
+                                pass
+                            outcome = SESSION_COMPLETED
+                            continue
                         print("Connection lost while the script was running; "
                               "stopping it and relogging.")
                         script.cancel()
@@ -482,7 +503,17 @@ class Bot:
                             pass
                         outcome = SESSION_RAN
                     else:
-                        if script.cancelled() or script.exception() is None:
+                        failure = (script.exception()
+                                   if not script.cancelled() else None)
+                        if isinstance(failure, StopRequested):
+                            # The script unwound itself: stop, or the session
+                            # ended.  Nothing to relogin for.
+                            if not self.stop_requested:
+                                print("[stop] the connection ended; the script "
+                                      "stopped here.")
+                            outcome = (SESSION_COMPLETED if self.stop_requested
+                                       else SESSION_RAN)
+                        elif failure is None:
                             outcome = SESSION_COMPLETED
                         else:
                             # Let the traceback out through the task machinery
@@ -539,6 +570,8 @@ class Bot:
         self.registered_auto_quest_ids = []
         self.check_spam_time = None
         self.spam_backoff_ms = 0
+        # a new session may run the script again, so the stop flag starts clear
+        self.stop_requested = False
 
         _BOTS.add(self)
         _start_freeze_watch()
@@ -706,6 +739,9 @@ class Bot:
     
     def stop_bot(self, user_triggered=False):
         print(f"[{datetime.now().strftime('%H:%M:%S')}] Stopping bot...")
+        # Tell the running script first: everything it does from here on is
+        # noise the user did not ask for.
+        self.stop_requested = True
         if user_triggered:
             self.auto_relogin = False
             self.stop_reason = "stopped"
@@ -1363,6 +1399,11 @@ class Bot:
                     if quest is not None and quest_id not in self.registered_auto_quest_ids:
                         self.loaded_quest_datas.remove(quest)
                     print(Fore.YELLOW + f"ccqr: [{datetime.now().strftime('%H:%M:%S')}] {quest_id} - {s_name} - {i_rep} rep" + Fore.WHITE)
+                    # A daily that was just turned in is done for today; the
+                    # ledger lets the next run (or the next launch) skip it
+                    # instead of farming the whole drop list again.
+                    if quest_id:
+                        self.mark_daily_done_today(quest_id)
                 else:
                     print(Fore.RED + f"ccqr: [{datetime.now().strftime('%H:%M:%S')}] {quest_id} - {s_name} | {ccqr_msg}" + Fore.WHITE)
                     if quest_id and "Missing Turn In Item" in ccqr_msg:
@@ -1380,6 +1421,9 @@ class Bot:
                         if quest_id_int not in self.missing_badge_questid:
                             self.missing_badge_questid.append(quest_id_int)
                         self.missing_badge_day = datetime.now().strftime("%Y-%m-%d")
+                        # Persisted too: after a relaunch the daily must be
+                        # skipped instead of farmed and refused once more.
+                        self.mark_daily_done_today(quest_id_int)
                         print(Fore.YELLOW + f"[quest] {quest_id} is not available "
                               f"right now (\"Missing Badge\"); turn-in will not "
                               f"be retried today." + Fore.RESET)
@@ -1864,6 +1908,69 @@ class Bot:
     def quest_not_in_progress(self, quest_id: int) -> bool:
         """Return True when the quest is not currently tracked in progress."""
         return self.get_loaded_quest(quest_id) is None
+
+    def _daily_ledger_path(self):
+        """``daily_state.json`` beside the engine, next to the other configs."""
+        return pathlib.Path(__file__).resolve().parent.parent / "daily_state.json"
+
+    def _load_daily_ledger(self) -> dict:
+        """Read the per-account daily ledger once: ``{account: {quest: date}}``."""
+        if self._daily_ledger is not None:
+            return self._daily_ledger
+        path = self._daily_ledger_path()
+        try:
+            self._daily_ledger = (json.loads(path.read_text(encoding="utf-8"))
+                                  if path.exists() else {})
+            if not isinstance(self._daily_ledger, dict):
+                self._daily_ledger = {}
+        except (OSError, ValueError) as error:
+            print(f"[daily] could not read {path.name}: {error}")
+            self._daily_ledger = {}
+        return self._daily_ledger
+
+    def _daily_account(self) -> str:
+        """The ledger key: the login name, so relogging keeps the same rows."""
+        name = getattr(self.player, "USER", "") or self.username or "default"
+        return str(name).lower()
+
+    def daily_done_today(self, quest_id) -> bool:
+        """True when this account already finished ``quest_id`` today.
+
+        The engine has no client-side "daily complete" flag, so it keeps one:
+        a daily that was turned in (or refused with "Missing Badge") is not
+        worth accepting again, and without this a relaunch re-farms the whole
+        drop list just to be refused at the end.
+        """
+        rows = self._load_daily_ledger().get(self._daily_account(), {})
+        if not isinstance(rows, dict):
+            return False
+        today = datetime.now().strftime("%Y-%m-%d")
+        return rows.get(str(normalize_quest_id(quest_id))) == today
+
+    def mark_daily_done_today(self, quest_id) -> None:
+        """Record ``quest_id`` as handled today, so later runs skip it."""
+        wanted = str(normalize_quest_id(quest_id))
+        if wanted == "0":
+            return
+        ledger = self._load_daily_ledger()
+        rows = ledger.setdefault(self._daily_account(), {})
+        today = datetime.now().strftime("%Y-%m-%d")
+        if rows.get(wanted) == today:
+            return
+        rows[wanted] = today
+        # Only today's answers mean anything; yesterday's rows are dropped so
+        # the file cannot grow for the lifetime of the account.
+        for key in list(rows):
+            if rows[key] != today:
+                del rows[key]
+        path = self._daily_ledger_path()
+        try:
+            temporary = path.with_suffix(".tmp")
+            temporary.write_text(json.dumps(ledger, indent=1, sort_keys=True),
+                                 encoding="utf-8")
+            temporary.replace(path)
+        except OSError as error:
+            print(f"[daily] could not save {path.name}: {error}")
 
     def daily_unavailable(self, quest_id) -> bool:
         """True when the server refused this quest's turn-in on the same day.

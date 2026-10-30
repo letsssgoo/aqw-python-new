@@ -26,10 +26,13 @@ here -- there is nothing to switch off, the cap is only used when it is known.
 
 Note:
     The reference gates a daily on its own client-side flag
-    (``Bot.Quests.IsDailyComplete``).  This engine keeps no such flag, so the
-    gate here is the server's answer to the accept -- a daily that is already
-    done is refused -- which :meth:`Command.ensure_accept_quest` reports.
-    Nothing is farmed in that case, and the call says why.
+    (``Bot.Quests.IsDailyComplete``).  The engine has no such flag, so one is
+    kept: :meth:`Bot.daily_done_today` / :meth:`Bot.mark_daily_done_today`
+    record in ``daily_state.json`` that a quest was handled today, and
+    :func:`check_dailyv2` asks before anything is accepted, joined or worn.
+    That is the "check first" this port needs -- without it a relaunch farms a
+    full daily only to be refused at the turn-in.  On top of that the accept
+    refusal still stops a daily the server will not hand out.
 """
 from datetime import datetime, timedelta
 from typing import Optional, Sequence
@@ -136,6 +139,14 @@ async def check_dailyv2(cmd: Command, quest: int, any_item: bool = True,
         # drop list again would only be refused once more.
         cmd.bot.log(f"[dailies] quest {quest} is not available right now "
                     f"(the server answered \"Missing Badge\"); skipping it.")
+        return False
+    done_today = getattr(cmd.bot, "daily_done_today", None)
+    if done_today is not None and done_today(quest):
+        # ``Bot.Quests.IsDailyComplete``: checked first, before anything is
+        # accepted, joined or worn, so a second run costs one lookup instead of
+        # a full farm that would be refused at the end.
+        cmd.bot.log(f"[dailies] quest {quest} was already completed today; "
+                    f"skipping it.")
         return False
     loaded = cmd.get_loaded_quest(quest)
     if loaded is None:

@@ -176,6 +176,7 @@ hub_config.json
 ultra_daily_config.json
 ultra_speaker_config.json
 weekly_doom_config.json
+daily_state.json
 CharSelect.cfg
 capture_logs/
 *.bak

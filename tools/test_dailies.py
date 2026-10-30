@@ -360,6 +360,16 @@ run(dailies.elders_blood(elders))
 check("badge refusal: Elders' Blood accepts nothing",
       [call for call in elders.calls if call[0] == "accept"], [])
 
+# A daily already turned in today is skipped before anything is accepted,
+# joined or worn -- the ledger stands in for Bot.Quests.IsDailyComplete.
+done = StubCommand()
+done.bot.daily_done_today = lambda quest: quest == 802
+check("daily ledger: a completed daily is skipped",
+      run(dailies.check_dailyv2(done, 802, items=("Elders' Blood",))), False)
+check("daily ledger: nothing is accepted", done.calls, [])
+check("daily ledger: it says why",
+      any("already completed today" in line for line in done.bot.logs), True)
+
 print(f"passed {passed}   failed {len(failures)}")
 if failures:
     for line in failures:
