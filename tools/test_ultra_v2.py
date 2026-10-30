@@ -354,7 +354,7 @@ check("ezrajal: Skip Mana Lock is on by default",
       ezrajal.SPEC.extra_options[0]["default"], True)
 check("ezrajal: it is registered", "ezrajal" in V2_ORDER, True)
 check("ezrajal: the registry has a runner", sorted(V2_REGISTRY),
-      ["engineer", "ezrajal", "warden"])
+      ["engineer", "ezrajal", "tyndarius", "warden"])
 ezr = ezrajal.UltraEzrajal(_StubCommand(), options.UltraOptions(
     players=("a", "b", "c", "d")), 1)
 check("ezrajal: the rotation respects the counter attack",
@@ -380,7 +380,7 @@ check("engineer: adds come first, in the reference's order",
       (engineer.FIRST_TARGET, engineer.SECOND_TARGET),
       ("Attack Drone", "Defense Drone"))
 check("engineer: it is registered", V2_ORDER,
-      ("warden", "ezrajal", "engineer"))
+      ("warden", "ezrajal", "engineer", "tyndarius"))
 eng = engineer.UltraEngineer(_StubCommand(), options.UltraOptions(
     players=("a", "b", "c", "d")), 1)
 check("engineer: the engine tries the adds before the boss",
@@ -417,6 +417,28 @@ sc_heal = warden.build(_StubCommand(), options.UltraOptions(
     players=("a", "b", "c", "d")), 2)
 check("heal: StoneCrusher has no listed heal, so none is cast",
       sc_heal.heal_skill, None)
+
+# --- Tyndarius (v1: rotation 0 1 2 0 3 4 5, crystals before the boss) ------
+from bot.ultra.v2.dailies import tyndarius  # noqa: E402
+
+check("tyndarius: quest 8245 in ultratyndarius",
+      (tyndarius.SPEC.quest, tyndarius.SPEC.map), (8245, "ultratyndarius"))
+check("tyndarius: the boss is id.2", tyndarius.BOSS, "id.2")
+check("tyndarius: it is registered", "tyndarius" in V2_ORDER, True)
+ty1 = tyndarius.UltraTyndarius(_StubCommand(), options.UltraOptions(
+    players=("a", "b", "c", "d")), 1)
+ty2 = tyndarius.UltraTyndarius(_StubCommand(), options.UltraOptions(
+    players=("a", "b", "c", "d")), 2)
+ty3 = tyndarius.UltraTyndarius(_StubCommand(), options.UltraOptions(
+    players=("a", "b", "c", "d")), 3)
+check("tyndarius: v1's literal rotation", ty1.rotation, (0, 1, 2, 0, 3, 4, 5))
+check("tyndarius: slot 1 opens on crystal id.1",
+      ty1.target_priority, (tyndarius.FIRST_CRYSTAL,))
+check("tyndarius: slot 2 opens on crystal id.3",
+      ty2.target_priority, (tyndarius.SECOND_CRYSTAL,))
+check("tyndarius: slots 3-4 stay on the boss", ty3.target_priority, ())
+check("tyndarius: heal below 60 on slots 3-4",
+      (ty1.heal_below, ty1.heal_slots), (60, (3, 4)))
 
 # A boss that never appears must never be reported as defeated: the timeout
 # before the pull is the only place that can tell "not here" from "already dead".

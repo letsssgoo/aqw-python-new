@@ -165,8 +165,11 @@
             var monsters = (s.monsters || []).filter(function (m) { return m.alive; })
                 .slice(0, 3).map(function (m) {
                     var pct = m.max_hp ? Math.round(m.hp / m.max_hp * 100) : 0;
-                    return '<span class="pill">' + esc(m.name) + ' ' +
-                        esc(String(pct)) + '%</span>';
+                    return '<span class="pill" style="display:inline-flex;' +
+                        'align-items:center;gap:4px;padding:2px 8px;border-radius:6px;' +
+                        'font-size:.72rem;border:1px solid rgba(148,163,184,.35);' +
+                        'background:rgba(148,163,184,.12);color:#cbd5e1">' +
+                        esc(m.name) + ' ' + esc(String(pct)) + '%</span>';
                 }).join(' ');
             el.innerHTML =
                 '<span class="pill">' + esc(s.username || '-') + '</span>' +
