@@ -194,6 +194,7 @@ async def _prepare_optional(cmd, name: str, held: int) -> bool:
         return False
     requirement, per_turn, target = recipe
     turns = turns_for(held, per_turn, target)
+    turns = _clamp_turns(cmd, requirement, turns, per_turn)
     cmd.bot.log(f"[v2] {name}: {choice} route, {turns} turn-in(s) of quest "
                 f"{quest_id}.")
 
@@ -221,6 +222,30 @@ async def _prepare_optional(cmd, name: str, held: int) -> bool:
     held = await _quantity(cmd, name)
     cmd.bot.log(f"[v2] {name} prepared ({held}).")
     return held >= min(OPTIONAL_SCROLL_THRESHOLD, target)
+
+
+def _clamp_turns(cmd, requirement, turns: int, per_turn: int) -> int:
+    """Lower the turn-in count to what the requirement's stack can hold.
+
+    The gold route asks for ``reward.MaxStack`` scrolls, but the ink it needs
+    per turn has its own stack limit (ArchMage Ink is 50).  Ordering 99 of a
+    50-max stack is a purchase the server refuses, so the plan is clamped and
+    the reduction is said out loud.
+    """
+    if turns <= 0 or per_turn <= 0:
+        return turns
+    item = _shop_item(cmd, ARCANE_QUILL_SHOP, requirement.name)
+    stack = int(getattr(item, "stackable", 0) or 0) if item is not None else 0
+    if stack <= 0:
+        return turns
+    have = int(getattr(getattr(cmd.bot.player, "get_item_inventory", None)(
+        requirement.name), "qty", 0) or 0)
+    allowed = max(0, stack - have) // per_turn
+    if allowed and allowed < turns:
+        cmd.bot.log(f"[v2] {requirement.name}: stack holds {stack}; planning "
+                    f"{allowed} turn-in(s) instead of {turns}.")
+        return allowed
+    return turns
 
 
 def _recipe(cmd, quest_id: int) -> Optional[Tuple[object, int, int]]:
@@ -421,7 +446,15 @@ async def _buy_until(cmd, shop: int, name: str, quantity: int,
     buy = math.ceil(need / bundle) * bundle
     stack = int(getattr(item, "stackable", 0) or 0)
     if stack > 0:
-        buy = min(buy, stack)
+        # ``_CalcBuyQuantity``: never ask past the stack, and keep the amount a
+        # whole number of bundles.  Asking for 50 with 40 already held (stack
+        # 50) is what the server answered by dropping the session.
+        room = stack - have
+        buy = min(buy, room - (room % bundle)) if room > 0 else 0
+        if buy <= 0:
+            cmd.bot.log(f"[v2] {name!r}: the stack is full ({have}/{stack}); "
+                        f"cannot buy more.")
+            return have >= quantity
 
     cost = ", ".join(f"{qty} {material}"
                      for _id, material, qty in _merge_cost(item)) or "gold"
