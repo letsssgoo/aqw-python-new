@@ -347,6 +347,7 @@ class V2Core:
                 if await self.cmd.use_skill(5):
                     await self.cmd.sleep(self.poll_ms)
                     continue
+            taunt_cast = False
             if self.taunt_requested:
                 taunt_on = self.taunt_target or target
                 if taunter and await self.cmd.use_skill(5, target_monsters=taunt_on):
@@ -355,10 +356,18 @@ class V2Core:
                     # a threshold taunt is not lost to one busy poll.
                     self.taunt_requested = False
                     self.taunt_target = None
+                    taunt_cast = True
                     self.log(f"taunt cast (skill 5) on {taunt_on}.")
                 elif not self.cmd.is_monster_alive(taunt_on):
                     self.taunt_requested = False
                     self.taunt_target = None
+
+            if taunt_cast:
+                # A taunt that is still waiting for the scroll must **not** hold
+                # the rotation: the request stays pending, but the pane keeps
+                # casting.  Blocking here is what left Verus DoomKnight and the
+                # Lord of Order on auto attacks alone while a taunt was queued.
+                pass
             elif (self.respect_counter_attack
                   and self.counter_attack_active(target)):
                 # Attacking into the counter attack kills the party, but the

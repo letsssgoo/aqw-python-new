@@ -268,6 +268,43 @@ async def _auto_before_heal():
     return cmd.casts[:2]
 
 
+# A taunt that is still waiting for its scroll must not hold the rotation: the
+# request stays pending, but the pane keeps casting.  This is what left Dage's
+# Verus DoomKnight and Lord of Order on auto attacks alone.
+class _PendingTauntCommand(_StubCommand):
+    def __init__(self):
+        super().__init__()
+        self.casts = []
+        self.bot.player.canUseSkill = lambda slot: True
+        self.bot.player.SKILLS = [dict(cd=0, tgt="h", tgtMax=1, anim="")
+                                  for _ in range(6)]
+        self.bot.player.getAura = lambda name: None
+
+    def is_monster_alive(self, target="*"):
+        return True
+
+    async def use_skill(self, slot, **kwargs):
+        self.casts.append(slot)
+        return slot != 5          # the scroll is never ready here
+
+    async def sleep(self, ms):
+        await asyncio.sleep(0.001)
+
+
+async def _pending_taunt_keeps_casting():
+    cmd = _PendingTauntCommand()
+    runner = warden.build(cmd, options.UltraOptions(
+        players=("a", "b", "c", "d")), 1)
+    runner.request_taunt("id.3")
+    await runner.start_skills("id.3", taunter=True)
+    await asyncio.sleep(0.2)
+    await runner.stop_skills()
+    return runner.taunt_requested, any(slot in (1, 2, 3, 4) for slot in cmd.casts)
+
+
+check("taunt: a pending taunt keeps the rotation going",
+      run(_pending_taunt_keeps_casting()), (True, True))
+
 check("bill: the auto attack fires before the heal",
       run(_auto_before_heal()), [0, 2])
 
