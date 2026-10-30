@@ -72,12 +72,9 @@ class UltraEzrajal(V2Core):
         if not await self.sync.step("SETUP_DONE"):
             return False
 
-        if not await self.fight_attempts():
+        if not await self.defeat_and_turn_in():
             return False
         if not await self.sync.step("BOSS_DEFEATED"):
-            return False
-
-        if not await self.finish_quest():
             return False
         if not await self.sync.step("FINISH"):
             return False

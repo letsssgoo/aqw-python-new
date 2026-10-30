@@ -63,6 +63,9 @@ class _StubCommand:
     async def sleep(self, ms):
         return None
 
+    def is_in_inventory_or_bank(self, name, qty=1, operator=">=", isTemp=False):
+        return True
+
 
 # --- options ---------------------------------------------------------------
 for ultra in ("warden", "ezrajal", "engineer", "tyndarius", "drakath", "drago",
@@ -236,6 +239,62 @@ never_eng = engineer.UltraEngineer(_StubCommand(), options.UltraOptions(
 check("pull: the same for Engineer", run(never_eng.fight(1)), "stopped")
 check("pull: Engineer names its own boss cell",
       "r2/Left" in never_eng.aborted, True)
+
+# --- the prerequisite probe is gone; the turn-in decides -------------------
+gate = warden.build(_StubCommand(), options.UltraOptions(
+    players=("a", "b", "c", "d")), 1)
+calls = {"probe": 0}
+
+async def _probe(quest_id, timeout_sec=3.0):
+    calls["probe"] += 1
+    return False        # the answer the engine cannot trust
+
+gate.cmd.is_completed_before = _probe
+check("gate: no prerequisite probe", run(gate.validate_access()), True)
+check("gate: and it never asked", calls["probe"], 0)
+
+# A won fight with a still-short quest pulls the party again, per retry.
+attempts = {"fight": 0, "finish": 0, "results": []}
+retry = warden.build(_StubCommand(), options.UltraOptions(
+    players=("a", "b", "c", "d"), retries=2), 1)
+
+
+async def _fight():
+    attempts["fight"] += 1
+    return True
+
+
+async def _finish():
+    attempts["finish"] += 1
+    return attempts["finish"] > 1      # turnable on the second round
+
+
+retry.fight_attempts = _fight
+retry.finish_quest = _finish
+check("turn-in: a short drop pulls again", run(retry.defeat_and_turn_in()), True)
+check("turn-in: two pulls, two turn-in tries",
+      (attempts["fight"], attempts["finish"]), (2, 2))
+
+stuck = warden.build(_StubCommand(), options.UltraOptions(
+    players=("a", "b", "c", "d"), retries=2), 1)
+tries = {"fight": 0}
+
+
+async def _fight2():
+    tries["fight"] += 1
+    return True
+
+
+async def _never():
+    return False
+
+
+stuck.fight_attempts = _fight2
+stuck.finish_quest = _never
+check("turn-in: it gives up after the retries",
+      run(stuck.defeat_and_turn_in()), False)
+check("turn-in: one pull per retry", tries["fight"], 2)
+check("turn-in: and it says why", "never became turnable" in stuck.aborted, True)
 
 # --- potions ---------------------------------------------------------------
 check("potion: Sage Tonic is a 2-voucher, rank-8 alchemy recipe",

@@ -105,12 +105,16 @@ class V2Core:
 
     # --------------------------------------------------------------- access
     async def validate_access(self) -> bool:
-        """Quest chain and level, the reference's ``ValidateUltraAccess``."""
-        if not await self.cmd.is_completed_before(self.spec.prereq_quest):
-            self.log(f'Quest Locked Run: finish "{self.spec.prereq_name}" '
-                     f'[{self.spec.prereq_quest}] first.')
-            return self.abort(f"prerequisite quest {self.spec.prereq_quest} is "
-                              f"not done")
+        """Level and class, the reference's ``ValidateUltraAccess`` minus the quest probe.
+
+        The reference also gates on the prerequisite quest with
+        ``Quests.IsCompletedBefore``, which this engine answers by sending a
+        turn-in probe -- and a story quest still in progress replies "Missing
+        Turn In Item", which is indistinguishable from "not done".  Gating on
+        that refused every ultra on accounts that had done the quest.  The
+        prerequisite is not checked here: the ultra's own accept and turn-in
+        decide, and a missing item is retried by the module's run loop.
+        """
         level = int(getattr(self.bot.player, "LEVEL", 0) or 0)
         if level < self.spec.min_level:
             self.log(f"level {level} is below the {self.spec.min_level} this "
@@ -120,6 +124,9 @@ class V2Core:
             self.log(f"{self.preset.cls} is in neither the inventory nor the "
                      f"bank.")
             return self.abort(f"{self.preset.cls} is not owned")
+        self.log(f"prerequisite {self.spec.prereq_quest} "
+                 f"({self.spec.prereq_name}) is not probed; the quest's own "
+                 f"turn-in decides.")
         return True
 
     # ---------------------------------------------------------------- setup
@@ -383,6 +390,25 @@ class V2Core:
         await self.cmd.jump_cell(self.spec.boss_cell, self.spec.boss_pad)
 
     # ---------------------------------------------------------------- quests
+    async def defeat_and_turn_in(self) -> bool:
+        """Win, then turn in -- pulling again when the drop is still short.
+
+        The reference finishes with ``EnsureComplete`` once; a party that won
+        before every pane had its drop is left with a quest it cannot turn in.
+        That is the case this retries: one more pull per remaining attempt,
+        then it stops and says so.  A wipe is still handled inside
+        :meth:`fight_attempts`.
+        """
+        rounds = max(1, int(self.options.retries))
+        for round_number in range(1, rounds + 1):
+            if not await self.fight_attempts():
+                return False
+            if await self.finish_quest():
+                return True
+            self.log(f"the turn-in is still short after round "
+                     f"{round_number}/{rounds}; pulling again.")
+        return self.abort("the quest never became turnable")
+
     async def accept_quest(self) -> bool:
         """Accept the ultra's quest, the reference's ``AcceptUltraQuest``."""
         if not await self.cmd.ensure_accept_quest(self.spec.quest):
@@ -391,10 +417,17 @@ class V2Core:
         return True
 
     async def finish_quest(self) -> bool:
-        """Turn the ultra's quest in, the reference's ``CompleteUltraQuest``."""
+        """Turn the ultra's quest in; False (no abort) when it is not ready.
+
+        A refused turn-in usually means the party is still short a drop, not
+        that the run is over -- the caller takes the party back in and tries
+        again, bounded by the retry option.
+        """
         await self.cmd.jump_cell(self.spec.safe_cell, self.spec.safe_pad)
         if not await self.cmd.ensure_turn_in_quest(self.spec.quest):
-            return self.abort(f"quest {self.spec.quest} could not be turned in")
+            self.log(f"quest {self.spec.quest} did not turn in; the party is "
+                     f"probably still short its drop.")
+            return False
         self.sync.mark_done()
         return True
 
