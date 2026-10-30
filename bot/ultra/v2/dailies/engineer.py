@@ -109,6 +109,12 @@ class UltraEngineer(V2Core):
                and not self.cmd.is_monster_alive(boss) and waited < 10_000):
             await self.cmd.sleep(200)
             waited += 200
+        if not self.cmd.is_monster_alive(boss):
+            # Never appeared: the fight cannot be called a win.  Reporting
+            # "defeated" here is how a run turns in a quest it never did.
+            self.abort(f"{boss} never appeared in "
+                       f"{self.spec.boss_cell}/{self.spec.boss_pad}")
+            return "stopped"
 
         await self.precast_buffs()
         await self.start_skills(boss)

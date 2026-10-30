@@ -123,6 +123,12 @@ class UltraEzrajal(V2Core):
                and not self.cmd.is_monster_alive(target) and waited < 10_000):
             await self.cmd.sleep(200)
             waited += 200
+        if not self.cmd.is_monster_alive(target):
+            # Ezrajal has a spawn delay of its own; a timeout means "not here
+            # yet", never "already dead".
+            self.abort(f"{target} never appeared in "
+                       f"{self.spec.boss_cell}/{self.spec.boss_pad}")
+            return "stopped"
 
         await self.precast_buffs()
         await self.start_skills(target, use_survival=True)

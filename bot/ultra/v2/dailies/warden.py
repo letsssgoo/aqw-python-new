@@ -125,6 +125,12 @@ class UltraWarden(V2Core):
                and waited < 10_000):
             await self.cmd.sleep(200)
             waited += 200
+        if not self.cmd.is_monster_alive(target):
+            # A timeout is not a kill: without this the loop below reads "no
+            # monster" as "already defeated" and turns the quest in for nothing.
+            self.abort(f"{target} never appeared in "
+                       f"{self.spec.boss_cell}/{self.spec.boss_pad}")
+            return "stopped"
 
         await self.precast_buffs()
         await self.start_skills(target, use_survival=use_survival,

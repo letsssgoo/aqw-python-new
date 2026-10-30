@@ -54,6 +54,15 @@ class _StubCommand:
     def __init__(self):
         self.bot = _StubBot()
 
+    def is_still_connected(self):
+        return True
+
+    def is_monster_alive(self, target="*"):
+        return False          # nothing is in the cell: the boss never appeared
+
+    async def sleep(self, ms):
+        return None
+
 
 # --- options ---------------------------------------------------------------
 for ultra in ("warden", "ezrajal", "engineer", "tyndarius", "drakath", "drago",
@@ -213,6 +222,20 @@ check("engineer: the engine tries the adds before the boss",
       eng.target_priority, ("id.2", "id.1"))
 check("engineer: it uses the standard composition",
       eng.preset.cls, "Legion Revenant")
+
+# A boss that never appears must never be reported as defeated: the timeout
+# before the pull is the only place that can tell "not here" from "already dead".
+never = warden.build(_StubCommand(), options.UltraOptions(
+    players=("a", "b", "c", "d")), 1)
+check("pull: a boss that never spawns is not a win",
+      run(never.fight(1)), "stopped")
+check("pull: and it says why",
+      "never appeared" in never.aborted, True)
+never_eng = engineer.UltraEngineer(_StubCommand(), options.UltraOptions(
+    players=("a", "b", "c", "d")), 1)
+check("pull: the same for Engineer", run(never_eng.fight(1)), "stopped")
+check("pull: Engineer names its own boss cell",
+      "r2/Left" in never_eng.aborted, True)
 
 # --- potions ---------------------------------------------------------------
 check("potion: Sage Tonic is a 2-voucher, rank-8 alchemy recipe",
