@@ -361,7 +361,7 @@ async def _ensure_materials(cmd, item, name: str) -> bool:
     """Stock what the shop entry charges per purchase (e.g. 2 Gold Vouchers)."""
     for _item_id, material, qty in _merge_cost(item):
         material = str(material or "").strip()
-        if not material or qty <= 0:
+        if not material or qty <= 0 or material.lower() == name.lower():
             continue
         if await _ensure(cmd, material, qty):
             continue
@@ -372,94 +372,68 @@ async def _ensure_materials(cmd, item, name: str) -> bool:
 
 
 async def _buy_until(cmd, shop: int, name: str, quantity: int,
-                     shop_item_id: int = 0, chunk_size: int = 20,
-                     wait_ms: int = 5000) -> bool:
-    """Buy and **verify**, the way the shop really charges.
+                     shop_item_id: int = 0, wait_s: float = 20.0) -> bool:
+    """``CoreBots.BuyItem``: one request in whole bundles, then wait.
 
-    Shop 693 is a merge shop: its entries cost *materials* per purchase -- the
-    captured Arcane Quill buy is ``buyItem ... 693 7686 10`` answered by
-    ``turnIn sItems:61043:2``, i.e. **2 Gold Voucher 500k for 10 quills**.  So
-    the purchase quantity is the entry's own bundle, and the materials are
-    stocked first; asking for an arbitrary stack is what the server dropped.
+    The reference does exactly this: ``_CalcBuyQuantity`` rounds the need up to
+    whole shop bundles, one buy request goes out, and the caller waits up to 20
+    seconds for the inventory to carry it.  No chunking, no retry ladder -- the
+    extra machinery here is what kept sending quantities the shop drops.
     """
-    from bot.core_bots import buy_item as core_buy
+    import math
     import time as _time
+    from bot.core_bots import buy_item as core_buy
 
-    if name in _BUYING:
-        return False
     item = _shop_item(cmd, shop, name, shop_item_id)
-    if item is not None:
-        if getattr(item, "is_acs", False):
-            cmd.bot.log(f"[v2] {name!r} is sold for Adventure Coins in shop "
-                        f"{shop}; the gold route cannot buy it.")
-            return False
-        if getattr(item, "is_upgrade", False) and not getattr(
-                getattr(cmd.bot, "player", None), "is_member", False):
-            cmd.bot.log(f"[v2] {name!r} is member-only in shop {shop}.")
-            return False
-
-    bundle = int(getattr(item, "qty", 0) or 0) if item is not None else 0
-    if bundle <= 0:
-        # Shop 693 sells in tens: the captured Arcane Quill buy is
-        # ``buyItem ... 693 7686 10``.  An entry that omits ``iQty`` is still
-        # sold by the ten.
-        bundle = 10 if shop == ARCANE_QUILL_SHOP else 1
-        cmd.bot.log(f"[v2] {name!r}: shop entry has no bundle size; using "
-                    f"{bundle} like the spellcraft shop does.")
-    stack = int(getattr(item, "stackable", 0) or 0) if item is not None else 0
-    per_purchase = max(1, bundle)
-    if stack > 0:
-        per_purchase = min(per_purchase, stack)
+    if item is None:
+        cmd.bot.log(f"[v2] {name!r} is not in shop {shop}.")
+        return False
+    if getattr(item, "is_acs", False):
+        cmd.bot.log(f"[v2] {name!r} is sold for Adventure Coins in shop "
+                    f"{shop}; the gold route cannot buy it.")
+        return False
+    if getattr(item, "is_upgrade", False) and not getattr(
+            getattr(cmd.bot, "player", None), "is_member", False):
+        cmd.bot.log(f"[v2] {name!r} is member-only in shop {shop}.")
+        return False
 
     have = await _quantity(cmd, name)
-    _BUYING.add(name)
-    try:
-        while have < quantity:
-            need = quantity - have
-            # Whole bundles only: the shop sells 10 quills or 5 inks and drops
-            # any other quantity, which is why "Arcane Quill x1" never arrived.
-            bundles_needed = max(1, math.ceil(need / per_purchase))
-            max_bundles = max(1, chunk_size // per_purchase)
-            chunk = min(bundles_needed, max_bundles) * per_purchase
-            if chunk <= 0:
-                break
-            price = (int(getattr(item, "cost", 0) or 0)
-                     if item is not None else 0)
-            gold = int(getattr(getattr(cmd.bot, "player", None), "GOLD", 0) or 0)
-            if price > 0 and gold < price * chunk:
-                cmd.bot.log(f"[v2] {name!r}: not enough gold ({price} each, "
-                            f"{gold} in hand, {have}/{quantity}).")
-                break
-            if not await _ensure_materials(cmd, item, name):
-                break
+    need = quantity - have
+    if need <= 0:
+        return True
 
-            moved = False
-            for _try in range(3):
-                await core_buy(cmd, shop, name, chunk, map_name=SPELLCRAFT_MAP,
-                               shop_item_id=shop_item_id)
-                deadline = _time.time() + wait_ms / 1000.0
-                while _time.time() < deadline:
-                    await cmd.sleep(500)
-                    now = await _quantity(cmd, name)
-                    if now >= quantity:
-                        return True
-                    if now != have:
-                        have = now
-                        moved = True
-                        break
-                if moved:
-                    break
-                await cmd.sleep(3000)
-            if not moved:
-                cost = ", ".join(f"{qty} {material}"
-                                 for _id, material, qty in _merge_cost(item))
-                cmd.bot.log(f"[v2] {name!r}: the shop accepted nothing for "
-                            f"{chunk} after 3 tries (bundle {bundle}, stack "
-                            f"{stack or '?'}, cost {cost or 'none'}, "
-                            f"{have}/{quantity}).")
-                break
-    finally:
-        _BUYING.discard(name)
+    bundle = max(1, int(getattr(item, "qty", 0) or 0))
+    buy = math.ceil(need / bundle) * bundle
+    stack = int(getattr(item, "stackable", 0) or 0)
+    if stack > 0:
+        buy = min(buy, stack)
+
+    cost = ", ".join(f"{qty} {material}"
+                     for _id, material, qty in _merge_cost(item)) or "gold"
+    cmd.bot.log(f"[v2] {name}: entry {getattr(item, 'shop_item_id', '?')}, "
+                f"bundle {bundle}, buy {buy}, cost {cost} "
+                f"({have}/{quantity} in hand).")
+
+    price = int(getattr(item, "cost", 0) or 0)
+    gold = int(getattr(getattr(cmd.bot, "player", None), "GOLD", 0) or 0)
+    if price > 0 and gold < price * buy:
+        cmd.bot.log(f"[v2] {name!r}: not enough gold ({price} each, "
+                    f"{gold} in hand, {have}/{quantity}).")
+        return False
+
+    if not await _ensure_materials(cmd, item, name):
+        return False
+
+    await core_buy(cmd, shop, name, buy, map_name=SPELLCRAFT_MAP,
+                   shop_item_id=shop_item_id)
+    deadline = _time.time() + wait_s
+    while _time.time() < deadline:
+        await cmd.sleep(500)
+        if await _quantity(cmd, name) >= quantity:
+            return True
+    have = await _quantity(cmd, name)
+    cmd.bot.log(f"[v2] {name!r}: still {have}/{quantity} after the purchase "
+                f"(bundle {bundle}, cost {cost}).")
     return have >= quantity
 
 
