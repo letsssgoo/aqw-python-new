@@ -229,6 +229,15 @@ class _ClassCommand:
         self.player = type("P", (), {"INVENTORY": [item], "LEVEL": 100})()
         self.bot = type("B", (), {"player": self.player,
                                   "log": lambda _s, line: self.logs.append(line)})()
+        self.maps = []
+
+    def is_not_in_map(self, name):
+        self.calls.append(("join-check", name))
+        return True
+
+    async def join_map(self, name, room=None):
+        self.maps.append(name)
+        self.calls.append(("join", name))
 
     async def ensure_load_shop(self, shop_id):
         self.calls.append(("shop", shop_id))
@@ -247,7 +256,9 @@ different = _ClassCommand(enh_id=0)
 check("base: gear with a different enhancement is enhanced",
       run(enhancements._apply_base(different, "Wizard")), True)
 check("base: the class item and tier are named in the packet",
-      different.calls, [("shop", 765),
+      different.calls, [("join-check", "battleontown"),
+                        ("join", "battleontown"),
+                        ("shop", 765),
                         ("enhance", 5555, wizard.item_id, 765)])
 
 tiered = _ClassCommand(enh_id=0)

@@ -76,15 +76,23 @@ async def prepare(cmd, preset: Preset) -> bool:
 
 
 async def _apply_one(cmd, slot: str, candidates: Sequence[str]) -> bool:
-    """Equip, apply, or buy one of ``candidates`` -- in that order.
+    """Wear one of ``candidates`` in ``slot``.
 
-    1. the account already owns gear carrying it -> equip that item;
-    2. it does not -> ``enhance_if_missing`` applies the enhancement to whatever
-       is equipped in the slot, which is the engine's own path: it joins the
-       **forge map**, checks the unlock quest and sends the enhance packet;
-    3. still nothing (nothing equipped, or no shop entry) -> buy the enhancement
-       from its shop and equip it.
+    The **class** slot is its own path (the user's rule, and Skua's): equip the
+    class, look at the enhancement it carries, and enhance only when it differs.
+    Nothing here asks the generic ``equip_enhancement`` by the base *type* name
+    (``"Lucky"``) -- that name is not a registry item, so it only ever produced
+    "no enhancement named 'Lucky'".
+
+    Weapon, cape and helm keep the existing route: equip an item that already
+    carries the enhancement, else apply it to the equipped piece, else buy it.
     """
+    if slot == "class":
+        for candidate in candidates:
+            if await _apply_base(cmd, candidate):
+                return True
+        return False
+
     for candidate in candidates:
         if await cmd.equip_enhancement(candidate, slot=slot):
             cmd.bot.log(f"[v2] {slot} enhancement: {candidate}.")
@@ -95,14 +103,6 @@ async def _apply_one(cmd, slot: str, candidates: Sequence[str]) -> bool:
                                        enhance_if_missing=True):
             cmd.bot.log(f"[v2] {slot} enhancement: {candidate} (applied).")
             return True
-
-    if slot == "class":
-        # The reference's own path for a base enhancement: resolve the shop from
-        # the type name and apply it to the equipped class.
-        for candidate in candidates:
-            if await _apply_base(cmd, candidate):
-                cmd.bot.log(f"[v2] class enhancement: {candidate} (shop).")
-                return True
 
     for candidate in candidates:
         entry = best_entry(candidate, slot)
