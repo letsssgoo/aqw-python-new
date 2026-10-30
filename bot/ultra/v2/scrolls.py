@@ -322,25 +322,62 @@ async def _ensure(cmd, name: str, quantity: int, *, shop_item_id: int = 0,
     return False
 
 
-async def _buy_until(cmd, shop: int, name: str, quantity: int,
-                     shop_item_id: int = 0, attempts: int = 2,
-                     wait_ms: int = 6000) -> bool:
-    """Buy and **verify**, the way ``CoreBots.BuyItem`` does.
+def _shop_item(cmd, shop_id: int, name: str):
+    """The shop entry for ``name``, so its price and flags can be read."""
+    try:
+        shops = cmd.bot.loaded_shop_datas
+    except Exception:
+        return None
+    for shop in shops:
+        if str(getattr(shop, "shop_id", "")) != str(shop_id):
+            continue
+        for item in getattr(shop, "items", []) or []:
+            if str(getattr(item, "item_name", "")).lower() == name.lower():
+                return item
+    return None
 
-    The reference sends the request and then waits up to 20 seconds for the
-    inventory to carry the quantity; a single immediate read is what made the
-    Dage ink look unobtainable.  Two attempts, each waiting ``wait_ms`` and
-    stopping as soon as the quantity stops moving.
+
+async def _buy_until(cmd, shop: int, name: str, quantity: int,
+                     shop_item_id: int = 0, chunk_size: int = 20,
+                     wait_ms: int = 5000) -> bool:
+    """Buy and **verify**, telling the truth when it cannot.
+
+    The reference sends the request and waits for the inventory to carry the
+    quantity, so a single read is not enough -- but a refused purchase never
+    arrives at all, and the honest reason is in the shop entry: an AC price, a
+    member-only entry, or simply more gold than the pane has.  Those are
+    reported by name instead of a bare "could not be obtained".
     """
-    import time as _time
     from bot.core_bots import buy_item as core_buy
+    import time as _time
+
+    item = _shop_item(cmd, shop, name)
+    if item is not None:
+        if getattr(item, "is_acs", False):
+            cmd.bot.log(f"[v2] {name!r} is sold for Adventure Coins in shop "
+                        f"{shop}; the gold route cannot buy it.")
+            return False
+        if getattr(item, "is_upgrade", False) and not getattr(
+                getattr(cmd.bot, "player", None), "is_member", False):
+            cmd.bot.log(f"[v2] {name!r} is member-only in shop {shop}.")
+            return False
+
     have = await _quantity(cmd, name)
-    for _attempt in range(attempts):
-        if have >= quantity:
-            return True
-        await core_buy(cmd, shop, name, quantity - have,
-                       map_name=SPELLCRAFT_MAP, shop_item_id=shop_item_id)
+    while have < quantity:
+        need = quantity - have
+        price = int(getattr(item, "cost", 0) or 0) if item is not None else 0
+        gold = int(getattr(getattr(cmd.bot, "player", None), "GOLD", 0) or 0)
+        affordable = (gold // price) if price > 0 else need
+        chunk = min(need, affordable, chunk_size)
+        if chunk <= 0:
+            cmd.bot.log(f"[v2] {name!r}: not enough gold ({price} each, "
+                        f"{gold} in hand, {need} short of {quantity}).")
+            break
+
+        await core_buy(cmd, shop, name, chunk, map_name=SPELLCRAFT_MAP,
+                       shop_item_id=shop_item_id)
         deadline = _time.time() + wait_ms / 1000.0
+        moved = False
         while _time.time() < deadline:
             await cmd.sleep(500)
             now = await _quantity(cmd, name)
@@ -348,9 +385,12 @@ async def _buy_until(cmd, shop: int, name: str, quantity: int,
                 return True
             if now != have:
                 have = now
+                moved = True
                 break
-        else:
-            break        # nothing arrived in this attempt
+        if not moved:
+            cmd.bot.log(f"[v2] {name!r}: the shop accepted nothing for "
+                        f"{chunk} (price {price}, {gold} gold).")
+            break
     return have >= quantity
 
 

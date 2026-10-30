@@ -123,6 +123,10 @@ class V2Core:
         #: One skill to cast as soon as the server allows it (the reference's
         #: ``RequestPrioritySkill``); cleared once it goes out.
         self.priority_skill: int = 0
+        #: Diagnostics: when the rotation last cast something, and when it was
+        #: last reported idle (a pane that only auto-attacks must say why).
+        self._last_cast_at = 0.0
+        self._idle_reported_at = 0.0
 
     # ------------------------------------------------------------------ log
     @property
@@ -332,6 +336,7 @@ class V2Core:
             # potion or the rotation.  The heal comes right after, so it is
             # never more than one auto attack behind either.
             if await self._auto_attack(target):
+                self._last_cast_at = __import__("time").time()
                 pass
             if await self._heal_step():
                 await self.cmd.sleep(self.poll_ms)
@@ -363,6 +368,8 @@ class V2Core:
                 await self.cmd.sleep(self.poll_ms)
             elif self.suppress_rotation:
                 await self.cmd.sleep(self.poll_ms)
+            elif self.suppress_rotation:
+                await self.cmd.sleep(self.poll_ms)
             elif preset.mode == KINGS_ECHO:
                 # King's Echo and Verus DoomKnight follow the reference's own
                 # skill engines; the auto attack above is still theirs.
@@ -371,7 +378,28 @@ class V2Core:
                 index = await self._strict_step(target, index)
             else:
                 await self._simple_step(target)
+            self._report_idle_rotation(target)
             await self.cmd.sleep(self.poll_ms)
+
+    def _report_idle_rotation(self, target: str) -> None:
+        """Say why the rotation casts nothing, at most every 10 seconds.
+
+        ``canUseSkill`` is false while a slot is on cooldown **or** short of
+        mana, so a pane can sit on auto attacks alone without any error.  This
+        line is what tells the two apart after the fact.
+        """
+        import time as _time
+        now = _time.time()
+        if now - self._last_cast_at < 5.0 or now - self._idle_reported_at < 10.0:
+            return
+        self._idle_reported_at = now
+        player = self.bot.player
+        ready = [slot for slot in self.rotation
+                 if player.canUseSkill(slot)]
+        self.log(f"rotation idle: mana {int(getattr(player, 'MANA', 0))}"
+                 f"/{int(getattr(player, 'MAX_MP', 0))}, target {target}, "
+                 f"ready slots {ready or 'none'}"
+                 f"{' (rotation suppressed)' if self.suppress_rotation else ''}")
 
     async def _buff_step(self, target: str) -> None:
         """Cast whichever rotation slot is a buff -- no damage while holding."""

@@ -362,6 +362,62 @@ check("scroll: Decay stock is 10", scrolls.threshold(scrolls.DECAY), 10)
 check("scroll: only three are supported", scrolls.SUPPORTED,
       (scrolls.ENRAGE, scrolls.DECAY, scrolls.MYSTIFY))
 
+# Buying a scroll material now reads the shop entry: an AC price or a
+# member-only entry is reported by name, and gold is checked before the packet
+# goes out -- the live Dage run bought "0/99" and said nothing about why.
+class _ShopItem:
+    def __init__(self, name, cost=0, is_acs=False, is_upgrade=False):
+        self.item_name = name.lower()
+        self.s_name = name
+        self.cost = cost
+        self.is_acs = is_acs
+        self.is_upgrade = is_upgrade
+
+
+class _Shop:
+    def __init__(self, items):
+        self.shop_id = "693"
+        self.items = items
+
+
+class _BuyCommand:
+    def __init__(self, items, gold=0):
+        self.shop_data = _Shop(items)
+        self.logs = []
+        self.bot = type("B", (), {
+            "loaded_shop_datas": [self.shop_data],
+            "player": type("P", (), {
+                "GOLD": gold, "is_member": False, "MANA": 100, "MAX_MP": 100,
+                "get_item_inventory": lambda _self, name: None,
+            })(),
+            "log": lambda _s, line: self.logs.append(line),
+        })()
+
+    async def sleep(self, ms):
+        await asyncio.sleep(0)
+
+    def is_in_bank(self, name):
+        return False
+
+
+check("scroll buy: the shop entry is found by name",
+      scrolls._shop_item(_BuyCommand([_ShopItem("Zealous Ink")]), 693,
+                         "Zealous Ink") is not None, True)
+_ac = _BuyCommand([_ShopItem("Zealous Ink", cost=10, is_acs=True)])
+check("scroll buy: an AC entry is refused with a reason",
+      run(scrolls._buy_until(_ac, 693, "Zealous Ink", 99)), False)
+check("scroll buy: and says so", "Adventure Coins" in _ac.logs[-1], True)
+_broke = _BuyCommand([_ShopItem("Zealous Ink", cost=25_000)], gold=0)
+check("scroll buy: insufficient gold fails before any packet",
+      run(scrolls._buy_until(_broke, 693, "Zealous Ink", 99)), False)
+check("scroll buy: and names the price and the gold",
+      ("25000" in _broke.logs[-1] and "0 in hand" in _broke.logs[-1]), True)
+_member = _BuyCommand([_ShopItem("Zealous Ink", is_upgrade=True)])
+check("scroll buy: a member-only entry is refused",
+      run(scrolls._buy_until(_member, 693, "Zealous Ink", 99)), False)
+check("scroll buy: and says member-only", "member-only" in _member.logs[-1],
+      True)
+
 # --- warden rules ----------------------------------------------------------
 check("warden: Default taunts from slot 1", warden.taunter_slot("Default"), 1)
 check("warden: Stable taunts from slot 2", warden.taunter_slot("Stable"), 2)
