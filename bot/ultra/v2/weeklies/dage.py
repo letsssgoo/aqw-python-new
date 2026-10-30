@@ -222,6 +222,10 @@ class UltraDage(V2Core):
                 return False
 
             await self.jump_boss()
+            # ``StartSkillEngine`` in the reference's ``StartFightSystems``:
+            # without this the pane walked in and stood there.
+            await self.start_skills(BOSS, taunter=self.is_taunter())
+            self.target_priority = (BOSS,)
             self.begin_attempt(attempt)
             try:
                 result = await self.fight(attempt)

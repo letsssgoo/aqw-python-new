@@ -452,6 +452,71 @@ finally:
     else:
         os.environ["AQW_RUN_ID"] = _previous_decay
 
+# The pane must actually swing: the reference starts the skill engine in
+# StartFightSystems, and Dage was ported without it (walked in and stood there).
+class _DageCastCommand(_StubCommand):
+    def __init__(self):
+        super().__init__()
+        self.casts = []
+        self.bot.player.canUseSkill = lambda slot: True
+        self.bot.player.SKILLS = [dict(cd=0, tgt="h", tgtMax=1, anim="")
+                                  for _ in range(6)]
+        self.bot.player.getAura = lambda name: None
+        self.bot.player_in_area = []
+
+        async def _handler(msg):
+            return None
+
+        self.bot.handle_server_response = _handler
+
+    def is_monster_alive(self, target="*"):
+        return True
+
+    async def use_skill(self, slot, **kwargs):
+        self.casts.append(slot)
+        return True
+
+    async def sleep(self, ms):
+        await asyncio.sleep(0.001)
+
+    async def join_map(self, name, room=None):
+        return None
+
+    async def jump_cell(self, cell, pad):
+        return None
+
+    async def has_item(self, name, qty=1, isTemp=False):
+        return True
+
+    async def equip_scroll(self, name):
+        return True
+
+
+async def _dage_swings():
+    cmd = _DageCastCommand()
+    runner = dage.UltraDage(cmd, options.UltraOptions(
+        players=("a", "b", "c", "d"), use_potions=False), 1)
+    started = []
+    original = runner.start_skills
+
+    async def spy(*args, **kwargs):
+        started.append(args)
+        await original(*args, **kwargs)
+
+    runner.start_skills = spy
+    task = asyncio.ensure_future(runner.fight_attempts())
+    await asyncio.sleep(0.4)
+    task.cancel()
+    try:
+        await task
+    except BaseException:
+        pass
+    return bool(started), bool(cmd.casts)
+
+
+check("dage: the fight starts the skill engine and casts",
+      run(_dage_swings()), (True, True))
+
 # The zone listener: the reference's RunToArea feed.  A ``ct`` packet carries
 # ``args.zoneSet`` ("A"/"B"), and DrainZoneEvents **walks** to the spot that
 # letter names -- it never jumps.
