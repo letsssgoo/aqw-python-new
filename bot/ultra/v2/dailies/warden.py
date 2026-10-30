@@ -51,8 +51,12 @@ class UltraWarden(V2Core):
         # -- the rotation starts on the auto attack and repeats it, which is
         # what keeps the attack chain (and its mana) alive.
         self.skill_rotation = (0, 1, 2, 0, 3, 4)
-        self.heal_below = (5 if self.preset.cls != "ArchPaladin"
-                            else 65)
+        self.heal_below = 5
+        # The three v1 dailies keep their own heal policy: their support check
+        # is not the 65% / spam pair the weekly ports use.
+        self.spam_heal = False
+        self.heal_gap_ms = 1000
+
         self.is_taunter = self.slot == taunter_slot(options.composition)
 
     async def run(self) -> bool:

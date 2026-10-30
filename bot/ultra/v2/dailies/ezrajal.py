@@ -53,8 +53,12 @@ class UltraEzrajal(V2Core):
         # v1: ``attack_loop([0, 1, 2, 0, 3, 4], heal_below=50,
         # heal_skill=2, respect_counter_attack=True)``.
         self.skill_rotation = (0, 1, 2, 0, 3, 4)
-        self.heal_below = (50 if self.preset.cls != "ArchPaladin"
-                            else 65)
+        self.heal_below = 50
+        # The three v1 dailies keep their own heal policy: their support check
+        # is not the 65% / spam pair the weekly ports use.
+        self.spam_heal = False
+        self.heal_gap_ms = 1000
+
         self.respect_counter_attack = True
         self.skip_mana_lock = bool(options.extras.get("skip_mana_lock", True))
 

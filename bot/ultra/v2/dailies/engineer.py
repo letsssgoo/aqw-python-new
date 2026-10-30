@@ -55,8 +55,12 @@ class UltraEngineer(V2Core):
         # -- the literal rotation; the heal check runs on slots 3 and 4 only
         # (v1's ``support_slots``), each with its own heal skill.
         self.skill_rotation = (0, 1, 2, 0, 3, 4)
-        self.heal_below = (HEAL_BELOW if self.preset.cls != "ArchPaladin"
-                            else 65)
+        self.heal_below = HEAL_BELOW
+        # The three v1 dailies keep their own heal policy: their support check
+        # is not the 65% / spam pair the weekly ports use.
+        self.spam_heal = False
+        self.heal_gap_ms = 1000
+
 
     async def run(self) -> bool:
         if not await self.require_step("PREFLIGHT"):

@@ -268,6 +268,25 @@ async def _auto_before_heal():
     return cmd.casts[:2]
 
 
+# The three v1 dailies keep their own heal policy, not the weekly 65%/spam pair.
+check("heal: warden keeps its 5% support check",
+      warden.build(_StubCommand(), options.UltraOptions(
+          players=("a", "b", "c", "d")), 3).heal_below, 5)
+check("heal: ezrajal keeps its 50% support check",
+      ezrajal.UltraEzrajal(_StubCommand(), options.UltraOptions(
+          players=("a", "b", "c", "d")), 3).heal_below, 50)
+check("heal: engineer keeps its 60% support check",
+      engineer.UltraEngineer(_StubCommand(), options.UltraOptions(
+          players=("a", "b", "c", "d")), 3).heal_below, 60)
+check("heal: their Lord of Order does not spam",
+      [warden.build(_StubCommand(), options.UltraOptions(
+          players=("a", "b", "c", "d")), 4).spam_heal,
+       ezrajal.UltraEzrajal(_StubCommand(), options.UltraOptions(
+           players=("a", "b", "c", "d")), 4).spam_heal,
+       engineer.UltraEngineer(_StubCommand(), options.UltraOptions(
+           players=("a", "b", "c", "d")), 4).spam_heal],
+      [False, False, False])
+
 # A taunt that is still waiting for its scroll must not hold the rotation: the
 # request stays pending, but the pane keeps casting.  This is what left Dage's
 # Verus DoomKnight and Lord of Order on auto attacks alone.
