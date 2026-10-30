@@ -525,6 +525,16 @@ check("tyndarius: and skill 2 is not in the ArchPaladin rotation",
       2 in ty3.rotation, False)
 check("tyndarius: every pane heals below 60",
       (ty1.heal_below, ty1.heal_slots), (60, ()))
+# The script puts Valiance on its Lord of Order instead of the preset's Awe
+# Blast, and that stays inside Tyndarius -- the base preset is untouched.
+check("tyndarius: Lord of Order wears Valiance in every composition",
+      [presets.preset_for("tyndarius", composition, 4).weapon
+       for composition in ("Default", "Stable", "Reliable")],
+      ["Valiance"] * 3)
+check("tyndarius: the base Lord of Order preset still uses Awe Blast",
+      presets.preset_for_class("Lord of Order").weapon, "Awe Blast")
+check("tyndarius: another ultra keeps the base weapon",
+      presets.preset_for("warden", "Stable", 4).weapon, "Awe Blast")
 
 # --- the heal guard reads live HP, and only the living ---------------------
 # ``player_in_area``'s self entry is written once when the map loads, so a

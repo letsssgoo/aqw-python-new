@@ -102,8 +102,16 @@ COMPOSITIONS: Dict[str, Dict[str, Tuple[SlotPlan, ...]]] = {
         stable=SlotPlan(KE, clear_cape=True),
     ),
     "engineer": _standard(),
-    # Tyndarius' Fast column is not ported; Default/Stable/Reliable are standard.
-    "tyndarius": _standard(),
+    # Tyndarius' Fast column is not ported.  Its Lord of Order wears Valiance
+    # instead of the preset's Awe Blast; the other three slots are standard.
+    "tyndarius": {
+        "Default": (SlotPlan(LR), SlotPlan(SC), SlotPlan(AP),
+                    SlotPlan(LOO, weapon="Valiance")),
+        "Stable": (SlotPlan(KE), SlotPlan(SC), SlotPlan(AP),
+                   SlotPlan(LOO, weapon="Valiance")),
+        "Reliable": (SlotPlan(VDK), SlotPlan(SC), SlotPlan(AP),
+                     SlotPlan(LOO, weapon="Valiance")),
+    },
     # --- weeklies -------------------------------------------------------
     "drakath": _standard(),
     "drago": _standard(),
