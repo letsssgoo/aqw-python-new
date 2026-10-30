@@ -1,0 +1,266 @@
+"""Ultra V2 weeklies: Drakath and Nulgath.
+
+    python tools/test_ultra_v2_weeklies.py
+"""
+from _ultra_v2_support import *  # noqa: F401,F403
+import os      # noqa: E402
+import shutil  # noqa: E402
+
+from _ultra_v2_support import (check, finish, run, _StubBot,  # noqa: F401
+                               _StubCommand)
+
+# --- Ultra Drakath (weekly) ------------------------------------------------
+# The fight is boss-only; what matters is the taunt ladder: StoneCrusher (slot
+# 2) and ArchPaladin (slot 3) each take aggro once as the boss crosses fixed HP
+# thresholds, in order, and Stable moves those numbers (``Adjusted*``).
+from bot.ultra.v2.weeklies import drakath  # noqa: E402
+
+check("drakath: quest 8300 in championdrakath",
+      (drakath.SPEC.quest, drakath.SPEC.map), (8300, "championdrakath"))
+check("drakath: pulled from r2/Left, boss id.1",
+      (drakath.SPEC.boss_cell, drakath.SPEC.boss_pad, drakath.BOSS),
+      ("r2", "Left", "id.1"))
+check("drakath: level 80 gate", drakath.SPEC.min_level, 80)
+check("drakath: registered for the menu", "drakath" in V2_ORDER, True)
+
+
+def _drakath(slot, composition="Default"):
+    return drakath.UltraDrakath(_StubCommand(), options.UltraOptions(
+        players=("a", "b", "c", "d"), composition=composition), slot)
+
+
+check("drakath: slots 2 and 3 taunt",
+      [(_drakath(slot).is_taunter) for slot in (1, 2, 3, 4)],
+      [False, True, True, False])
+check("drakath: slot 1 and 4 never taunt",
+      (_drakath(1).taunt_thresholds(), _drakath(4).taunt_thresholds()),
+      ((), ()))
+check("drakath: StoneCrusher ladder",
+      _drakath(2).taunt_thresholds(),
+      (16_500_000, 12_500_000, 6_200_000))
+check("drakath: Stable's StoneCrusher ladder",
+      _drakath(2, "Stable").taunt_thresholds(),
+      (16_500_000, 12_500_000, 6_500_000))
+check("drakath: ArchPaladin ladder",
+      _drakath(3).taunt_thresholds(),
+      (18_500_000, 14_500_000, 8_200_000, 4_200_000))
+check("drakath: Stable's ArchPaladin ladder",
+      _drakath(3, "Stable").taunt_thresholds(),
+      (18_500_000, 14_500_000, 8_500_000, 4_500_000))
+check("drakath: GenericPrebuff is 3, 2, 1 at 750 ms",
+      (drakath.PREBUFF_SKILLS, drakath.PREBUFF_GAP_MS),
+      ((3, 2, 1), 750))
+
+# The ladder is walked once per attempt, in order, only when the HP is crossed.
+class _Boss:
+    def __init__(self, hp):
+        self.current_hp = hp
+
+
+class _BossCommand(_StubCommand):
+    def __init__(self, hp):
+        super().__init__()
+        self.boss = _Boss(hp)
+
+    def get_monster(self, target="*"):
+        return self.boss
+
+    def is_monster_alive(self, target="*"):
+        return True
+
+
+_ap = drakath.UltraDrakath(_BossCommand(19_000_000), options.UltraOptions(
+    players=("a", "b", "c", "d")), 3)
+check("drakath: nothing to taunt above the first threshold",
+      _ap.due_taunt(), None)
+_ap.cmd.boss.current_hp = 18_400_000
+check("drakath: the first threshold fires", _ap.due_taunt(), 18_500_000)
+check("drakath: and is not asked again", _ap.due_taunt(), None)
+_ap.cmd.boss.current_hp = 14_000_000
+check("drakath: the second threshold fires next", _ap.due_taunt(), 14_500_000)
+
+# ``Fight`` starts its own ``tauntIndex`` at zero, so a wipeout and retry walks
+# the ladder from the top again -- the boss comes back at full HP.
+_retry = drakath.UltraDrakath(_BossCommand(18_000_000), options.UltraOptions(
+    players=("a", "b", "c", "d")), 3)
+_retry._taunt_index = 2
+_retry.cmd.is_monster_alive = lambda target="*": False
+run(_retry.fight(2))
+check("drakath: a retry starts the taunt ladder over", _retry._taunt_index, 0)
+# A pane that already died and respawned this attempt must publish its next
+# death too, or the wipe detector never counts four panes down.
+_wr_run = "test_v2_deaths"
+_previous_wr = os.environ.get("AQW_RUN_ID")
+os.environ["AQW_RUN_ID"] = _wr_run
+try:
+    from bot.ultra import party as _party  # noqa: E402
+    _dead_cmd = _BossCommand(0)
+    _dead_cmd.bot.player.ISDEAD = True
+    _dead = drakath.UltraDrakath(_dead_cmd, options.UltraOptions(
+        players=("a", "b", "c", "d")), 3)
+    _dead.note_death()
+    _party.clear_death(_dead.sync.name, 3)          # it respawned
+    _dead.note_death()                              # and died again
+    check("deaths: a second death is published again",
+          _party.death_times(_dead.sync.name, (3,)).get(3) is not None, True)
+    check("deaths: but the log line stays once per attempt",
+          _dead._death_reported, True)
+finally:
+    shutil.rmtree(REPO_ROOT / "capture_logs" / "ultra" / _wr_run,
+                  ignore_errors=True)
+    if _previous_wr is None:
+        os.environ.pop("AQW_RUN_ID", None)
+    else:
+        os.environ["AQW_RUN_ID"] = _previous_wr
+
+# Capes: AP always Penitence, slot 1 by composition, Stable's KE on Lament.
+check("drakath: ArchPaladin wears Penitence in every composition",
+      [presets.preset_for("drakath", composition, 3).cape
+       for composition in ("Default", "Stable", "Reliable")],
+      ["Penitence"] * 3)
+check("drakath: slot 1 capes per composition",
+      [presets.preset_for("drakath", composition, 1).cape
+       for composition in ("Default", "Stable", "Reliable")],
+      ["Penitence", "Lament", "Penitence"])
+
+# --- Ultra Nulgath (weekly) ------------------------------------------------
+# Blade id.1 / Nulgath id.2; the taunt relay hangs off an ``Abyss!`` packet
+# detector on slot 4, and the target table is per slot *and* composition.
+from bot.ultra.v2.weeklies import nulgath  # noqa: E402
+from bot.ultra.v2.packets import PacketDetector  # noqa: E402
+
+check("nulgath: quest 8692 in ultranulgath",
+      (nulgath.SPEC.quest, nulgath.SPEC.map), (8692, "ultranulgath"))
+check("nulgath: pulled from Boss/Right, boss id.2",
+      (nulgath.SPEC.boss_cell, nulgath.SPEC.boss_pad, nulgath.SPEC.monster_id),
+      ("Boss", "Right", 2))
+check("nulgath: level 80 gate", nulgath.SPEC.min_level, 80)
+check("nulgath: registered for the menu", "nulgath" in V2_ORDER, True)
+
+
+class _TwoBossCommand(_StubCommand):
+    """Blade id.1 and Nulgath id.2, with the Blade's HP under our control."""
+
+    def __init__(self, blade_hp=1_000_000, blade_alive=True):
+        super().__init__()
+        self.blade = _Boss(blade_hp)
+        self.blade_alive = blade_alive
+
+    def get_monster(self, target="*"):
+        return self.blade
+
+    def is_monster_alive(self, target="*"):
+        return str(target) != "id.1" or self.blade_alive
+
+
+def _nulgath(slot, composition="Default"):
+    return nulgath.UltraNulgath(_TwoBossCommand(), options.UltraOptions(
+        players=("a", "b", "c", "d"), composition=composition), slot)
+
+
+check("nulgath: Default taunters are slots 1 and 4",
+      [_nulgath(slot).is_taunter for slot in (1, 2, 3, 4)],
+      [True, False, False, True])
+check("nulgath: Stable/Reliable taunters are slots 3 and 4",
+      [(_nulgath(slot, composition).is_taunter)
+       for composition in ("Stable", "Reliable") for slot in (3, 4)],
+      [True, True, True, True])
+check("nulgath: slot 4 is the packet watcher",
+      [_nulgath(slot).is_watcher for slot in (1, 2, 3, 4)],
+      [False, False, False, True])
+
+# GetTargetMapId, the part that differs per slot and composition.
+check("nulgath: Default slot 2 chips the Blade while it is healthy",
+      _nulgath(2).target_map_id(), "id.1")
+_weak = nulgath.UltraNulgath(_TwoBossCommand(blade_hp=700_000),
+                             options.UltraOptions(
+                                 players=("a", "b", "c", "d")), 2)
+check("nulgath: Default slot 2 leaves the Blade under 750k",
+      _weak.target_map_id(), "id.2")
+check("nulgath: Default's other slots hit Nulgath",
+      [_nulgath(slot).target_map_id() for slot in (1, 3, 4)],
+      ["id.2", "id.2", "id.2"])
+check("nulgath: Stable slot 1 chips the Blade above 500k",
+      _nulgath(1, "Stable").target_map_id(), "id.1")
+_stable_weak = nulgath.UltraNulgath(_TwoBossCommand(blade_hp=400_000),
+                                    options.UltraOptions(
+                                        players=("a", "b", "c", "d"),
+                                        composition="Stable"), 1)
+check("nulgath: Stable slot 1 leaves it under 500k",
+      _stable_weak.target_map_id(), "id.2")
+check("nulgath: Stable slot 2 stays on the Blade while it lives",
+      _nulgath(2, "Stable").target_map_id(), "id.1")
+check("nulgath: Reliable slot 1 stays on the Blade while it lives",
+      _nulgath(1, "Reliable").target_map_id(), "id.1")
+_gone = nulgath.UltraNulgath(_TwoBossCommand(blade_alive=False),
+                             options.UltraOptions(
+                                 players=("a", "b", "c", "d"),
+                                 composition="Reliable"), 1)
+check("nulgath: a dead Blade sends the slot to Nulgath",
+      _gone.target_map_id(), "id.2")
+
+# The Abyss relay: slot 4 sees the packet, waits 2 s, taunts and signals; the
+# taunter one answers each signal 5 s later.
+from datetime import datetime, timedelta  # noqa: E402
+
+try:
+    from bot.ultra import party as _party  # noqa: E402
+
+    _abyss_run = "test_v2_nulgath"
+    _previous_abyss = os.environ.get("AQW_RUN_ID")
+    os.environ["AQW_RUN_ID"] = _abyss_run
+
+    watcher = _nulgath(4)
+
+    async def _handler(msg):
+        return None
+
+    watcher.bot.handle_server_response = _handler
+    opened = watcher.detector.start()
+    watcher.detector.inspect(
+        '{"b":{"o":{"cmd":"ct","sarsa":{"ty":"h","t":2,"c":"Abyss!"}}}}')
+    check("nulgath: the detector counts an Abyss packet",
+          (opened, watcher.detector.count), (True, 1))
+    watcher.detector.stop()
+    check("nulgath: and stops counting when disarmed",
+          watcher.detector.seen(1), False)
+
+    watcher.detector.start()
+    watcher.start_taunt_cycle()
+    now = datetime.now()
+    watcher.detector.inspect(
+        '{"b":{"o":{"cmd":"ct","sarsa":{"ty":"h","t":2,"c":"Abyss!"}}}}')
+    watcher.player_four_step(1, now)
+    check("nulgath: slot 4 schedules a taunt on the detection",
+          watcher._taunt_scheduled, True)
+    watcher.player_four_step(1, now + timedelta(milliseconds=2500))
+    check("nulgath: and sends ABYSS_TAUNT_DONE_1_1 when it fires",
+          watcher.sync.read("ABYSS_TAUNT_DONE_1_1").get(4), True)
+    check("nulgath: the cycle advances", watcher._abyss_cycle, 2)
+
+    taunter = _nulgath(3, "Stable")
+    taunter.start_taunt_cycle()
+    later = datetime.now() + timedelta(milliseconds=6000)
+    taunter.taunter_one_step(7, later)
+    check("nulgath: the taunter one opens with a taunt after 5 s",
+          taunter.taunt_requested, True)
+    taunter.taunt_requested = False
+    taunter.taunter_one_step(7, later)
+    check("nulgath: the next step waits for the slot 4 signal",
+          taunter._taunt_scheduled, False)
+    _party.publish(f"{taunter.sync.name}.ABYSS_TAUNT_DONE_7_1", 4, True)
+    taunter.taunter_one_step(7, later)
+    check("nulgath: a signal schedules the answer taunt",
+          (taunter._taunt_scheduled, taunter._taunt_at > later), (True, True))
+finally:
+    shutil.rmtree(REPO_ROOT / "capture_logs" / "ultra" / _abyss_run,
+                  ignore_errors=True)
+    if _previous_abyss is None:
+        os.environ.pop("AQW_RUN_ID", None)
+    else:
+        os.environ["AQW_RUN_ID"] = _previous_abyss
+
+check("nulgath: GenericPrebuff is 3, 2, 1 at 750 ms",
+      (nulgath.PREBUFF_SKILLS, nulgath.PREBUFF_GAP_MS), ((3, 2, 1), 750))
+
+finish('ultra v2 weekly tests')

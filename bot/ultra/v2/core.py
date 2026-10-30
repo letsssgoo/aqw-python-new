@@ -46,6 +46,11 @@ HEAL_SKILL_BY_CLASS = {
     "Legion Revenant": 3,
 }
 
+#: ``CoreLoneWolf.GenericPrebuff``: skills 3, 2, 1, 750 ms apart.  Every ultra
+#: casts this in the **safe room**, before the party is allowed to move.
+GENERIC_PREBUFF_SKILLS = (3, 2, 1)
+GENERIC_PREBUFF_GAP_MS = 750
+
 #: Panes that must be down before the party resets.  v1's daily fights
 #: (``ultra_engineer.py`` and friends) never reset at all: a dead pane respawns
 #: and walks back in while the rest keep fighting.  So a reset means the **whole
@@ -235,8 +240,8 @@ class V2Core:
             return False
         return self.abort(f"the party did not all reach {step}")
 
-    async def precast_buffs(self, skills: Sequence[int] = (1, 2, 3),
-                            gap_ms: int = 1000) -> None:
+    async def precast_buffs(self, skills: Sequence[int] = GENERIC_PREBUFF_SKILLS,
+                            gap_ms: int = GENERIC_PREBUFF_GAP_MS) -> None:
         """Cast the opening buffs before a pull -- and again after every wipe.
 
         v1's ``precast_buffs``, which the daily bosses use: the buffs are gone
@@ -298,9 +303,16 @@ class V2Core:
         index = 0
         while (self.cmd.is_still_connected()
                and not self.bot.player.ISDEAD
-               and not self.sync.aborted()
-               and self.cmd.is_monster_alive(self.pick_target(target))):
+               and not self.sync.aborted()):
             target = self.pick_target(target)
+            if not self.cmd.is_monster_alive(target):
+                # No target this instant -- the add died, the boss is about to
+                # spawn, the cell is still loading.  Idle and keep the engine:
+                # the fight loop owns "the fight is over".  Exiting here is what
+                # left a pane standing still after its add died, even after the
+                # add came back.
+                await self.cmd.sleep(self.poll_ms)
+                continue
             # The heal goes first: a rotation cast or an auto attack in front
             # of it is exactly the delay that made it look late.
             if await self._heal_step():

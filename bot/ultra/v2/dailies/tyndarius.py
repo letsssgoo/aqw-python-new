@@ -118,12 +118,12 @@ class UltraTyndarius(V2Core):
 
     # ------------------------------------------------------------ death logic
     async def recover(self, attempt: int) -> str:
-        """``RecoverFromDeath``: ``continue``, ``defeated``, ``reset``, ``stopped``.
+        """``GetFightResult`` / ``RecoverFromDeath``.
 
-        Death is handled **first**: checking "is the boss alive" first returned
-        ``continue`` for a dead pane whose boss still stood, so wait_respawn was
-        never reached -- and the skill loop (which exits on death) was never
-        restarted.  That is the pane that stood in the cell doing nothing.
+        The reference decides the fight is over the moment the boss is gone --
+        ``if (!IsMonsterAlive(MainBossMapId)) return Defeated;`` -- before it
+        looks at anything else.  Waiting for the turn-in here instead left the
+        loop spinning forever whenever the drop was not turnable yet.
         """
         if self.bot.player.ISDEAD:
             self.note_death()
@@ -132,18 +132,17 @@ class UltraTyndarius(V2Core):
                 return "reset"
             if state == "stopped":
                 return "stopped"
-        if self.boss_alive():
+            if not self.boss_alive():
+                return "defeated"
             if self.should_reset(attempt):
                 return "reset"
+            if not self.in_boss_room():
+                await self.jump_boss()
             return "continue"
-        if self.cmd.can_turnin_quest(self.spec.quest):
-            return "defeated"
         if not self.boss_alive():
-            if self.cmd.can_turnin_quest(self.spec.quest):
-                return "defeated"
-            await self.cmd.sleep(500)
-        if not self.in_boss_room():
-            await self.jump_boss()
+            return "defeated"
+        if self.should_reset(attempt):
+            return "reset"
         return "continue"
 
     # ---------------------------------------------------------------- setup
@@ -205,6 +204,10 @@ class UltraTyndarius(V2Core):
             await self.use_potions(drop_combat_potion=self.is_taunter)
             if self.is_taunter:
                 await scrolls.equip(self.cmd, scrolls.ENRAGE)
+            # Potions, scroll and prebuff all happen in the safe room: nobody
+            # moves before the whole party is dressed and buffed (LW's
+            # ``PrepareSafeRoom``, then ``FIGHT_READY``).
+            await self.precast_buffs()
             if not await self.require_step("FIGHT_READY"):
                 return False
 
@@ -227,9 +230,6 @@ class UltraTyndarius(V2Core):
             if not await self.ensure_boss_room():
                 return False
             if not await self.require_step("BOSS_ROOM"):
-                return False
-            await self.precast_buffs()
-            if not await self.require_step("BUFFS_DONE"):
                 return False
 
             self.begin_attempt(attempt)
