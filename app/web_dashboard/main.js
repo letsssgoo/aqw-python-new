@@ -87,6 +87,10 @@ document.addEventListener('DOMContentLoaded', () => {
         ultra_v2_warden: {
             title: "Ultra V2 - Ultra Warden",
             subtitle: "Four-pane army port of UltraWarden_LW: Enrage taunt at 500k, one boss"
+        },
+        ultra_v2_ezrajal: {
+            title: "Ultra V2 - Ultra Ezrajal",
+            subtitle: "Four-pane army port of UltraEzrajal_LW: buffs first, hold the rotation on Counter Attack"
         }
     };
 

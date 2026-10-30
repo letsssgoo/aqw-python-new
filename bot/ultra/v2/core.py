@@ -22,7 +22,7 @@ ends where it stood instead of walking the rest of the script.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence
 
 from bot.ultra import party
 from bot.ultra.v2 import enhancements, potions, presets, scrolls
@@ -61,6 +61,9 @@ class V2Core:
         self._death_reported = False
         self._skill_task: Optional[asyncio.Task] = None
         self._log = None
+        #: When True the rotation pauses while the target's counter-attack aura
+        #: is up.  Ezrajal is the boss that needs it (v1: ``respect_counter_attack``).
+        self.respect_counter_attack = False
 
     # ------------------------------------------------------------------ log
     @property
@@ -156,6 +159,23 @@ class V2Core:
                                   self.preset.elixir, combat)
 
     # ----------------------------------------------------------------- fight
+    async def precast_buffs(self, skills: Sequence[int] = (1, 2, 3),
+                            gap_ms: int = 1000) -> None:
+        """Cast the opening buffs before a pull -- and again after every wipe.
+
+        v1's ``precast_buffs``, which the daily bosses use: the buffs are gone
+        after a wipe, so a reset attempt that walks back in without them fights
+        with no buffs at all.  Every Ultra V2 module calls this before
+        :meth:`start_skills` and after :meth:`handle_reset`.
+        """
+        for skill in skills:
+            await self.cmd.use_skill(skill, buff_only=True)
+            await self.cmd.sleep(gap_ms)
+
+    def counter_attack_active(self, target: str) -> bool:
+        """True while the target carries Ezrajal's ``Counter Attack`` aura."""
+        return self.target_aura("Counter Attack")
+
     async def start_skills(self, target: str, *, use_survival: bool = False,
                            taunter: bool = False) -> None:
         """Run the skill engine in the background until :meth:`stop_skills`."""
@@ -190,6 +210,10 @@ class V2Core:
                 self.taunt_requested = False
                 if taunter and await self.cmd.use_skill(5, target_monsters=target):
                     self.log("taunt cast (skill 5).")
+            elif (self.respect_counter_attack
+                  and self.counter_attack_active(target)):
+                # Attacking into the counter attack is what kills the party.
+                await self.cmd.sleep(self.poll_ms)
             elif preset.mode == KINGS_ECHO:
                 await self._kings_echo_step(target, use_survival)
             elif preset.mode == STRICT:

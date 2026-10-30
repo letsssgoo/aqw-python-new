@@ -170,6 +170,33 @@ check("warden: Stable's King's Echo keeps its cape",
 check("tooltip: gramiel lists two rows",
       len(options.composition_tooltip("gramiel").splitlines()), 2)
 
+# --- Ezrajal ---------------------------------------------------------------
+from bot.ultra.v2.dailies import ezrajal  # noqa: E402
+from bot.ultra.v2.registry import ORDER as V2_ORDER, REGISTRY as V2_REGISTRY  # noqa: E402
+
+check("ezrajal: quest 8152 in ultraezrajal",
+      (ezrajal.SPEC.quest, ezrajal.SPEC.map), (8152, "ultraezrajal"))
+check("ezrajal: the boss is id.1", ezrajal.SPEC.monster_id, 1)
+check("ezrajal: Skip Mana Lock is on by default",
+      ezrajal.SPEC.extra_options[0]["default"], True)
+check("ezrajal: it is registered", "ezrajal" in V2_ORDER, True)
+check("ezrajal: the registry has a runner", sorted(V2_REGISTRY),
+      ["ezrajal", "warden"])
+ezr = ezrajal.UltraEzrajal(_StubCommand(), options.UltraOptions(
+    players=("a", "b", "c", "d")), 1)
+check("ezrajal: the rotation respects the counter attack",
+      ezr.respect_counter_attack, True)
+check("ezrajal: its schema carries the mana-lock toggle",
+      [f["key"] for f in options.schema(ezrajal.SPEC)][-1], "skip_mana_lock")
+check("ezrajal: the default form disables the mana lock",
+      ezr.skip_mana_lock, True)
+off = ezrajal.UltraEzrajal(_StubCommand(), options.UltraOptions(
+    players=("a", "b", "c", "d"), extras={"skip_mana_lock": False}), 1)
+check("ezrajal: asking for the mana lock is honoured as a value",
+      off.skip_mana_lock, False)
+check("ezrajal: a wipe needs two panes, same as every ultra",
+      ezr.should_reset(1), False)
+
 # --- potions ---------------------------------------------------------------
 check("potion: Sage Tonic is a 2-voucher, rank-8 alchemy recipe",
       (potions.POTIONS["Sage Tonic"].voucher_qty,

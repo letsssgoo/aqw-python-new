@@ -1,8 +1,8 @@
 """The daily-rotating ultras: Ezrajal, Warden, Engineer, Tyndarius.
 
-Only Warden is ported so far; the rest join this folder as they land, and
-``__all__`` is what the "run all" page and the tests walk.
+Ported so far: Warden and Ezrajal.  ``__all__`` is what the registry and the
+"run all" page walk.
 """
-from bot.ultra.v2.dailies import warden
+from bot.ultra.v2.dailies import ezrajal, warden
 
-__all__ = ["warden"]
+__all__ = ["ezrajal", "warden"]

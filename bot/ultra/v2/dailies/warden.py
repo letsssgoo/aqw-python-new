@@ -126,6 +126,7 @@ class UltraWarden(V2Core):
             await self.cmd.sleep(200)
             waited += 200
 
+        await self.precast_buffs()
         await self.start_skills(target, use_survival=use_survival,
                                taunter=self.is_taunter)
         self.log("started fighting.")
@@ -151,6 +152,8 @@ class UltraWarden(V2Core):
                     return "reset"
                 if not self.in_boss_room():
                     await self.jump_boss()
+                # The buffs died with us: cast them again before attacking.
+                await self.precast_buffs()
                 continue
 
             health = self.cmd.get_monster_hp(target)
