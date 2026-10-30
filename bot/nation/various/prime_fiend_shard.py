@@ -42,6 +42,20 @@ DRAGONBONE_AXE_QUEST = 629
 TEMPLE_DELVE_ITEM = "Void Nation Caster (TempleDelveMerge)"
 
 
+async def _unbank_requirements(cmd: Command, quest_id: int) -> None:
+    """``foreach (Item in quest.Requirements) Core.Unbank(Item.ID)``."""
+    loaded = cmd.get_loaded_quest(quest_id)
+    if loaded is None:
+        return
+    wanted = {int(item_id) for item_id, _qty in loaded.turn_in_items}
+    for entry in getattr(loaded, "items", []) or []:
+        if int(entry.get("ItemID") or 0) not in wanted:
+            continue
+        name = str(entry.get("sName") or "").strip()
+        if name and cmd.is_in_bank(name):
+            await cmd.bank_to_inv(name)
+
+
 async def _dual_dragonbone_axe(cmd: Command) -> None:
     """``Core.EnsureAccept(629)`` and its materials."""
     if await cmd.has_item(DUAL_DRAGONBONE_AXE):
@@ -78,6 +92,7 @@ async def storyline(cmd: Command) -> bool:
 
     # Quest 9555, up to the merge-shop items.
     if not await quest_progression(cmd, 9555):
+        await cmd.ensure_accept_quest(9555)
         await _dual_dragonbone_axe(cmd)
         await farm_uni13_quest(cmd, 13)
         await essence_of_nulgath(cmd, 20)
@@ -85,6 +100,7 @@ async def storyline(cmd: Command) -> bool:
         await buy_iron_dreadsaw(cmd)
         await buy_item(cmd, 1206, "Nation Soulstealer", 1,
                        map_name="shadowblast", shop_item_id=3615)
+        await _unbank_requirements(cmd, 9555)
 
         cmd.bot.log(f"[pfs] quest 9555 still needs {TEMPLE_DELVE_ITEM}; the "
                     f"Temple Siege storyline is not ported yet, so the chain "
