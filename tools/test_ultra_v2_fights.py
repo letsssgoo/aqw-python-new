@@ -17,8 +17,8 @@ check("ezrajal: Skip Mana Lock is on by default",
       ezrajal.SPEC.extra_options[0]["default"], True)
 check("ezrajal: it is registered", "ezrajal" in V2_ORDER, True)
 check("ezrajal: the registry has a runner", sorted(V2_REGISTRY),
-      ["dage", "drago", "drakath", "engineer", "ezrajal", "gramiel",
-       "nulgath", "speaker", "tyndarius", "warden"])
+      ["dage", "darkon", "drago", "drakath", "engineer", "ezrajal",
+       "gramiel", "nulgath", "speaker", "tyndarius", "warden"])
 ezr = ezrajal.UltraEzrajal(_StubCommand(), options.UltraOptions(
     players=("a", "b", "c", "d")), 1)
 check("ezrajal: the rotation respects the counter attack",
@@ -45,7 +45,7 @@ check("engineer: adds come first, in the reference's order",
       ("Attack Drone", "Defense Drone"))
 check("engineer: it is registered", V2_ORDER,
       ("warden", "ezrajal", "engineer", "tyndarius", "drakath", "nulgath",
-       "drago", "dage", "gramiel", "speaker"))
+       "drago", "dage", "gramiel", "speaker", "darkon"))
 eng = engineer.UltraEngineer(_StubCommand(), options.UltraOptions(
     players=("a", "b", "c", "d")), 1)
 check("engineer: the engine tries the adds before the boss",

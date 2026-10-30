@@ -834,4 +834,99 @@ check("speaker: and the owner waits for Sanctity",
       (_slot2._equalize_cycle, _slot2._section, _state.waiting_sanctity),
       (1, 1, 1))
 
+# --- Ultra Darkon (weekly) -------------------------------------------------
+# Attack2/Attack3 packets drive both the Enrage taunt ladder and the delayed
+# heals; the ArchPaladin switches its skill array off Aria/A Major, and the
+# Lord of Order holds skill 4 at 10M HP and releases it at 4.5M.
+from bot.ultra.v2.weeklies import darkon  # noqa: E402
+
+check("darkon: quest 8746 in ultradarkon",
+      (darkon.SPEC.quest, darkon.SPEC.map), (8746, "ultradarkon"))
+check("darkon: pulled from r2/Left, boss id.1",
+      (darkon.SPEC.boss_cell, darkon.SPEC.boss_pad, darkon.SPEC.monster_id),
+      ("r2", "Left", 1))
+check("darkon: level 90 gate", darkon.SPEC.min_level, 90)
+check("darkon: registered for the menu", "darkon" in V2_ORDER, True)
+check("darkon: the hold and release thresholds are the script's",
+      (darkon.LOO_HOLD_HP, darkon.LOO_RELEASE_HP),
+      (10_000_000, 4_500_000))
+check("darkon: taunt delay, heal delay and seal window",
+      (darkon.TAUNT_DELAY_MS, darkon.HEAL_DELAY_MS, darkon.SEAL_WINDOW_MS),
+      (1250, 250, 1500))
+
+
+def _darkon(slot, composition="Default"):
+    return darkon.UltraDarkon(_StubCommand(), options.UltraOptions(
+        players=("a", "b", "c", "d"), composition=composition), slot)
+
+
+check("darkon/default: Enrage taunters are slots 1 and 2",
+      [_darkon(slot).is_taunter() for slot in (1, 2, 3, 4)],
+      [True, True, False, False])
+check("darkon/stable: Enrage taunters are slots 2 and 3",
+      [_darkon(slot, "Stable").is_taunter() for slot in (1, 2, 3, 4)],
+      [False, True, True, False])
+check("darkon: slot 1 opens on Default, slot 2 on Stable",
+      ([_darkon(slot).is_opening_owner() for slot in (1, 2)],
+       [_darkon(slot, "Stable").is_opening_owner() for slot in (1, 2)]),
+      ([True, False], [False, True]))
+check("darkon: only Stable relays Attack2",
+      (_darkon(3).uses_relayed_attack2(),
+       _darkon(3, "Stable").uses_relayed_attack2()), (False, True))
+check("darkon: the ArchPaladin is slot 3 in every column",
+      [_darkon(slot).is_arch_paladin() for slot in (1, 2, 3, 4)],
+      [False, False, True, False])
+check("darkon: the Attack2 relay signal is per attempt and cycle",
+      _darkon(3, "Stable").attack2_signal(2, 5), "DARKON_ATTACK2_2_5")
+
+
+class _DarkonBossCommand(_StubCommand):
+    def __init__(self, hp=20_000_000, auras=()):
+        super().__init__()
+        self.hp = hp
+        self.auras = set(auras)
+        self.bot.player.canUseSkill = lambda slot: True
+
+    def is_monster_alive(self, target="*"):
+        return self.hp > 0
+
+    def get_monster(self, target="*"):
+        if str(target) not in ("id.1", "*"):
+            return None
+        return type("M", (), {"current_hp": self.hp, "max_hp": 30_000_000,
+                              "AURAS": [type("A", (), {"name": name,
+                                                       "expires_at": None})()
+                                        for name in self.auras]})()
+
+
+def _loo(hp, auras=()):
+    return darkon.UltraDarkon(_DarkonBossCommand(hp, auras),
+                              options.UltraOptions(
+                                  players=("a", "b", "c", "d")), 4)
+
+
+_high = _loo(20_000_000)
+check("darkon: skill 4 is free above the hold", _high._loo_released, False)
+_high.release_loo_skill_four()
+check("darkon: and nothing is held yet", _high.priority_skill, 0)
+_hold = _loo(9_000_000)
+_hold.release_loo_skill_four()
+check("darkon: under 10M it holds and logs", _hold._loo_hold_logged, True)
+check("darkon: without releasing early", _hold.priority_skill, 0)
+_release = _loo(4_000_000)
+_release.release_loo_skill_four()
+check("darkon: at 4.5M it releases with priority",
+      (_release.priority_skill, _release._loo_requested), (4, True))
+
+_ap = darkon.UltraDarkon(_DarkonBossCommand(1, auras=("Aria",)),
+                         options.UltraOptions(players=("a", "b", "c", "d")), 3)
+_ap.handle_arch_paladin()
+check("darkon: Aria switches the ArchPaladin to Phase 3",
+      (_ap._ap_phase_three, _ap.skill_rotation), (True, (1, 3)))
+_ap.blocked_boss = None
+_ap.cmd.hp = 1
+_ap.cmd.auras = {"Aria", "A Major"}
+_ap.handle_arch_paladin()
+check("darkon: A Major blocks skill 3", _ap.skill_rotation, (1,))
+
 finish('ultra v2 weekly tests')

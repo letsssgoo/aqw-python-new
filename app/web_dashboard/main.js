@@ -123,6 +123,10 @@
         ultra_v2_speaker: {
             title: "Ultra V2 - Ultra Speaker",
             subtitle: "Weekly army port of UltraSpeaker_LW: Truth/Listen chart, Equalize zone walks and the Righteous Seal cover"
+        },
+        ultra_v2_darkon: {
+            title: "Ultra V2 - Ultra Darkon",
+            subtitle: "Weekly army port of UltraDarkon_LW: Attack2/Attack3 cycles, alternating Enrage taunts, delayed heals and the LoO skill-4 hold"
         }
     };
 

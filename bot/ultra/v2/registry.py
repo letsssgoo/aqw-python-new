@@ -9,8 +9,8 @@ from __future__ import annotations
 from typing import Any, Dict, Tuple, Type
 
 from bot.ultra.v2.dailies import engineer, ezrajal, tyndarius, warden
-from bot.ultra.v2.weeklies import (dage, drago, drakath, gramiel,
-                                   nulgath, speaker)
+from bot.ultra.v2.weeklies import (dage, darkon, drago, drakath,
+                                   gramiel, nulgath, speaker)
 from bot.ultra.v2.options import UltraOptions, UltraSpec
 
 #: ``ultra id -> (spec, runner class)``.
@@ -25,12 +25,13 @@ REGISTRY: Dict[str, Tuple[UltraSpec, Type[Any]]] = {
     "dage": (dage.SPEC, dage.UltraDage),
     "gramiel": (gramiel.SPEC, gramiel.UltraGramiel),
     "speaker": (speaker.SPEC, speaker.UltraSpeaker),
+    "darkon": (darkon.SPEC, darkon.UltraDarkon),
 }
 
 #: Menu order: dailies first, weeklies after (as they land).
 ORDER: Tuple[str, ...] = ("warden", "ezrajal", "engineer", "tyndarius",
                           "drakath",
-                          "nulgath", "drago", "dage", "gramiel", "speaker")
+                          "nulgath", "drago", "dage", "gramiel", "speaker", "darkon")
 
 
 def spec(ultra: str) -> UltraSpec:
