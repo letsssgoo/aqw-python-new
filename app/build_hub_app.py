@@ -2304,6 +2304,16 @@ def _spec_name(spec):
     return getattr(spec, "name", spec)
 
 
+def _cooldown_reduction(player) -> float:
+    """Effective cooldown reduction the server honours (0.5 cap)."""
+    try:
+        from core.player import MAX_COOLDOWN_REDUCTION
+        return round(min(float(getattr(player, "CDREDUCTION", 0) or 0),
+                         MAX_COOLDOWN_REDUCTION), 3)
+    except Exception:
+        return 0.0
+
+
 def _slot5_name(bot) -> str:
     """Name of the item equipped in slot 5 (the potion or scroll), or ""."""
     wanted = str(getattr(bot, "scroll_id", "") or "")
@@ -2674,6 +2684,9 @@ class UltraApi:
                 # Slot 5 is the potion/scroll slot; naming it lets the menu show
                 # what is supposed to fire there.
                 "scroll": _slot5_name(b),
+                # The reduction the cooldown readout already reflects, so the
+                # badge numbers can be checked against it.
+                "cdr": _cooldown_reduction(p),
             }
         except Exception as e:
             return {"running": True, "username": thread.username, "role": thread.role, "error": str(e)}

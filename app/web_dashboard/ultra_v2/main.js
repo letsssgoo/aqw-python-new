@@ -188,6 +188,14 @@
             if (cdRow) {
                 // Slot 5 is the potion/scroll slot: name it, so it is obvious
                 // what fires there -- and its own countdown proves the cast.
+                if (s.cdr) {
+                    badges += '<span class="pill" title="Cooldown reduction in effect" ' +
+                        'style="display:inline-flex;align-items:center;padding:2px 8px;' +
+                        'border-radius:6px;font-size:.72rem;' +
+                        'border:1px solid rgba(56,189,248,.45);' +
+                        'background:rgba(56,189,248,.14);color:#7dd3fc">CDR ' +
+                        Math.round(s.cdr * 100) + '%</span>';
+                }
                 if (s.scroll) {
                     badges += '<span class="pill" title="Slot 5: ' +
                         esc(s.scroll) + '" style="display:inline-flex;' +
