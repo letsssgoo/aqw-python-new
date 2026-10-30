@@ -353,6 +353,8 @@ class UltraGramiel(V2Core):
         normal = ((3, 4, 2, 1) if (self.slot == 1
                                    and self.options.composition == "Default")
                   else tuple(self.preset.skills))
+        if self.is_shaman:
+            normal = (1, 2, 3)
         self.skill_rotation = tuple(s for s in normal if s != 0)
         self.auto_attack_enabled = True
         self.suppress_rotation = False
@@ -403,10 +405,12 @@ class UltraGramiel(V2Core):
                 invulnerable = self.target_aura(INVULNERABLE)
                 if invulnerable and not shaman_blocked:
                     shaman_blocked = True
+                    self.skill_rotation = (1, 2)
                     self.log("playerOne disabled skill 3 while Gramiel has "
                              "Invulnerable.")
                 elif not invulnerable and shaman_blocked:
                     shaman_blocked = False
+                    self.skill_rotation = (1, 2, 3)
                     self.log("playerOne restored skill 3 after Gramiel's "
                              "Invulnerable ended.")
 
