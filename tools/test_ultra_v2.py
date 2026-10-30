@@ -476,6 +476,8 @@ check("tyndarius: Lord of Order heals on cooldown, no HP gate",
       (loo.spam_heal, loo.heal_gap_ms), (True, 0))
 check("tyndarius: ArchPaladin keeps its heal for under 60",
       (ty3.spam_heal, ty3.heal_gap_ms), (False, 1500))
+check("tyndarius: and skill 2 is not in the ArchPaladin rotation",
+      2 in ty3.rotation, False)
 check("tyndarius: every pane heals below 60",
       (ty1.heal_below, ty1.heal_slots), (60, ()))
 

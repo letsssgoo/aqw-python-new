@@ -73,9 +73,12 @@ class UltraTyndarius(V2Core):
             self.spam_heal = True
             self.heal_gap_ms = 0
         elif self.preset.cls == "ArchPaladin":
-            # AP keeps its heal for the emergency (still only below 60%), so
-            # it does not spend the whole fight healing instead of damaging.
+            # AP keeps skill 2 for the emergency heal (below 60%, with a gap),
+            # so it is taken out of the rotation -- otherwise the rotation
+            # itself casts it and it is not "held" at all.
             self.heal_gap_ms = 1500
+            self.skill_rotation = tuple(
+                slot for slot in self.skill_rotation if slot != self.heal_skill)
         self.is_taunter = self.slot >= 3          # IsTaunterRole
         self.is_arch_paladin = self.slot == ARCH_PALADIN_SLOT
 
@@ -92,13 +95,13 @@ class UltraTyndarius(V2Core):
 
     # ------------------------------------------------------------ death logic
     async def recover(self, attempt: int) -> str:
-        """``RecoverFromDeath``: ``continue``, ``defeated``, ``reset``, ``stopped``."""
-        if self.boss_alive():
-            if self.should_reset(attempt):
-                return "reset"
-            return "continue"
-        if self.cmd.can_turnin_quest(self.spec.quest):
-            return "defeated"
+        """``RecoverFromDeath``: ``continue``, ``defeated``, ``reset``, ``stopped``.
+
+        Death is handled **first**: checking "is the boss alive" first returned
+        ``continue`` for a dead pane whose boss still stood, so wait_respawn was
+        never reached -- and the skill loop (which exits on death) was never
+        restarted.  That is the pane that stood in the cell doing nothing.
+        """
         if self.bot.player.ISDEAD:
             self.note_death()
             state = await self.wait_respawn(attempt)
@@ -106,6 +109,12 @@ class UltraTyndarius(V2Core):
                 return "reset"
             if state == "stopped":
                 return "stopped"
+        if self.boss_alive():
+            if self.should_reset(attempt):
+                return "reset"
+            return "continue"
+        if self.cmd.can_turnin_quest(self.spec.quest):
+            return "defeated"
         if not self.boss_alive():
             if self.cmd.can_turnin_quest(self.spec.quest):
                 return "defeated"
