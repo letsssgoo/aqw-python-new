@@ -383,10 +383,19 @@ class UltraTyndarius(V2Core):
         return slot in party.death_times(self.sync.name, (slot,))
 
     async def immediate_taunt(self, target: str) -> bool:
-        """``RequestImmediateTaunt``: hand skill 5 a specific target."""
+        """``RequestImmediateTaunt``: taunt now, and say whether it went out.
+
+        LW returns false when the taunt cannot be cast (skill 5 not ready), and
+        only then does the caller fall back to ``MaintainTarget``.  A successful
+        taunt also leaves the pane's target on that monster, which is why the
+        rotation follows it here.
+        """
         if not self.cmd.is_monster_alive(target):
             return False
+        if not self.bot.player.canUseSkill(5):
+            return False
         self.request_taunt(target)
+        self.target_priority = (target,)
         return True
 
     async def maintain_target(self, target: str) -> None:

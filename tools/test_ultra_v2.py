@@ -473,6 +473,26 @@ check("tyndarius: the ArchPaladin slot is 3", ty3.is_arch_paladin, True)
 check("tyndarius: heal below 60 on slots 3-4",
       (ty1.heal_below, ty1.heal_slots), (60, (3, 4)))
 
+# RequestImmediateTaunt only succeeds when skill 5 is ready (LW returns false).
+class _TauntCommand(_StubCommand):
+    def __init__(self, ready):
+        super().__init__()
+        self.bot.player.canUseSkill = lambda slot: ready
+
+    def is_monster_alive(self, target="*"):
+        return True
+
+
+blocked = tyndarius.UltraTyndarius(_TauntCommand(False), options.UltraOptions(
+    players=("a", "b", "c", "d")), 1)
+check("tyndarius: a taunt without skill 5 is refused",
+      run(blocked.immediate_taunt("id.1")), False)
+allowed = tyndarius.UltraTyndarius(_TauntCommand(True), options.UltraOptions(
+    players=("a", "b", "c", "d")), 1)
+check("tyndarius: a ready taunt is requested and takes the target",
+      (run(allowed.immediate_taunt("id.1")), allowed.target_priority),
+      (True, ("id.1",)))
+
 # A boss that never appears must never be reported as defeated: the timeout
 # before the pull is the only place that can tell "not here" from "already dead".
 never = warden.build(_StubCommand(), options.UltraOptions(
