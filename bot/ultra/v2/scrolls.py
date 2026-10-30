@@ -153,7 +153,7 @@ async def _prepare_enrage(cmd, held: int) -> bool:
             return False
         if not await _ensure(cmd, ZEALOUS_INK, turns):
             return False
-        if not await _complete(cmd, ENRAGE_QUEST, turns):
+        if not await _complete(cmd, ENRAGE_QUEST, turns, ENRAGE, ENRAGE_THRESHOLD):
             return False
     else:
         cmd.bot.log(f"[v2] {ENRAGE}: farming route (under 1,000,000 gold).")
@@ -220,7 +220,7 @@ async def _prepare_optional(cmd, name: str, held: int) -> bool:
         if not await _ensure_requirement(cmd, requirement, per_turn):
             return False
 
-    if not await _complete(cmd, quest_id, turns):
+    if not await _complete(cmd, quest_id, turns, name, target):
         return False
     held = await _quantity(cmd, name)
     cmd.bot.log(f"[v2] {name} prepared ({held}).")
@@ -518,9 +518,20 @@ async def _ensure_requirement(cmd, requirement, quantity: int) -> bool:
     return False
 
 
-async def _complete(cmd, quest_id: int, turns: int) -> bool:
-    """Accept + turn the crafting quest in ``turns`` times."""
+async def _complete(cmd, quest_id: int, turns: int,
+                    scroll: Optional[str] = None,
+                    target: int = 0) -> bool:
+    """Accept + turn the crafting quest in ``turns`` times.
+
+    Stops as soon as ``scroll`` reaches ``target``: the plan is an upper bound,
+    and continuing past the stock level kept re-accepting the quest with 99
+    scrolls already in the bag.
+    """
     for index in range(1, turns + 1):
+        if scroll and target and await _quantity(cmd, scroll) >= target:
+            cmd.bot.log(f"[v2] {scroll} already at {target}; stopping the "
+                        f"turn-ins.")
+            return True
         if await cmd.ensure_accept_quest(quest_id) is False:
             cmd.bot.log(f"[v2] quest {quest_id} could not be accepted "
                         f"(turn-in {index}/{turns}).")
