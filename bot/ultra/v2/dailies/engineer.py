@@ -50,10 +50,16 @@ class UltraEngineer(V2Core):
         super().__init__(cmd, SPEC, options, slot)
         # Boss is the fallback; the drones are tried first while they live.
         self.target_priority = (FIRST_TARGET, SECOND_TARGET)
-        # v1 heals below 60% with skill 2 on the support classes.
+        # v1: ``attack_loop([0, 1, 2, 0, 3, 4], heal_below=60, heal_skill=2)``
+        # -- the literal rotation, and **every** slot heals (not only the
+        # support classes; Legion Revenant's 2 heals too).
+        self.skill_rotation = (0, 1, 2, 0, 3, 4)
         self.heal_below = HEAL_BELOW
         self.heal_skill = HEAL_SKILL
-        self.heal_slot_classes = SUPPORT_CLASSES
+        self.heal_slot_classes = ()
+        # Two panes down is not a wipe here: the survivors keep the ring while
+        # the others respawn.
+        self.wipe_deaths = 4
 
     async def run(self) -> bool:
         if not await self.sync.step("PREFLIGHT"):

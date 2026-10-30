@@ -36,9 +36,11 @@ KINGS_ECHO_MANA_FLOOR = 12
 KINGS_ECHO_SURVIVAL_HP = 50.0
 KINGS_ECHO_SURVIVAL_MANA = 24.0
 
-#: A wipe needs this many panes down inside one attempt (``ShouldResetFight``'s
-#: default ``deadPlayerThreshold``).
-WIPE_DEATHS = 2
+#: Panes that must be down inside one attempt before the party resets.  The
+#: reference's daily fights (``ultra_engineer.py``) never reset on two deaths --
+#: the two survivors keep going and the dead panes respawn -- so two is too
+#: eager; three (a majority) is a party that cannot finish.
+WIPE_DEATHS = 3
 
 
 class V2Core:
@@ -73,6 +75,11 @@ class V2Core:
         self.heal_below: Optional[float] = None
         self.heal_skill: int = 2
         self.heal_slot_classes: tuple = ()
+        #: A fixed rotation, for the fights that copy v1's literal skill string
+        #: (Engineer's ``0 1 2 0 3 4``) instead of the class preset.
+        self.skill_rotation: tuple = ()
+        #: Panes-down threshold for the reset; 0 uses :data:`WIPE_DEATHS`.
+        self.wipe_deaths: int = 0
 
     # ------------------------------------------------------------------ log
     @property
@@ -291,9 +298,14 @@ class V2Core:
                 continue
         return False
 
+    @property
+    def rotation(self) -> tuple:
+        """Slots the engine casts: the module's fixed order, else the preset's."""
+        return self.skill_rotation or self.preset.skills
+
     async def _simple_step(self, target: str) -> None:
         """Cast the first rotation skill the server says is ready."""
-        for slot in self.preset.skills:
+        for slot in self.rotation:
             if not self.bot.player.canUseSkill(slot):
                 continue
             if await self.cmd.use_skill(slot, target_monsters=target):
@@ -392,7 +404,7 @@ class V2Core:
         deaths = party.death_times(self.sync.name, SLOTS)
         down = [slot for slot, when in deaths.items()
                 if when >= self._attempt_started]
-        if len(down) >= WIPE_DEATHS:
+        if len(down) >= (self.wipe_deaths or WIPE_DEATHS):
             self._tele("wipe", slots=sorted(down))
             self.log(f"wipe detected: slots {', '.join(map(str, sorted(down)))} "
                      f"went down this attempt.")

@@ -515,7 +515,7 @@ check("warden: a Stable pane is not the taunter",
 check("warden: Reliable slot 1 is",
       warden.build(_StubCommand(),
                    options.UltraOptions(composition="Reliable"), 1).is_taunter, True)
-check("core: a wipe needs two panes down", WIPE_DEATHS, 2)
+check("core: a wipe is a majority down", WIPE_DEATHS, 3)
 check("enhancements: every preset field has a slot",
       [slot for _field, slot in enhancements.SLOTS],
       ["class", "cape", "helm", "weapon"])
