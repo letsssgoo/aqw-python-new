@@ -40,9 +40,8 @@ async def find_ingredients(cmd: Command, item_id: int, name: str,
     if name == "Pink Star Diamond of Nulgath":
         await buy_item(cmd, 1951, name, quantity, map_name="tercessuinotlim")
     elif name == "Musgravite of Nulgath":
-        await hunt_item(cmd, name, quantity, "timelibrary", cell="Enter",
-                        pad="Spawn", monster_name="Ancient Chest",
-                        is_temp=False)
+        await hunt_item(cmd, name, quantity, "timelibrary",
+                        monster_name="Ancient Chest", is_temp=False)
     elif name == "Nulgath's Approval":
         await approval_and_favor(cmd, quantity, 0)
     elif name == "Archfiend's Favor":
@@ -69,21 +68,17 @@ async def find_ingredients(cmd: Command, item_id: int, name: str,
     elif name == "Essence of Nulgath":
         await essence_of_nulgath(cmd, quantity)
     elif name == "Hadean Onyx of Nulgath":
-        await hunt_item(cmd, name, quantity, "tercessuinotlim", cell="m4",
-                        pad="Right", monster_name="Shadow of Nulgath",
-                        is_temp=False)
+        await hunt_item(cmd, name, quantity, "tercessuinotlim",
+                        monster_name="Shadow of Nulgath", is_temp=False)
     elif name == "Letter from Asuka and Tendou":
-        await hunt_item(cmd, name, quantity, "citadel", cell="Enter",
-                        pad="Spawn", monster_name="Burning Witch",
-                        is_temp=False)
+        await hunt_item(cmd, name, quantity, "citadel",
+                        monster_name="Burning Witch", is_temp=False)
     elif name == "Chain of Nulgath":
-        await hunt_item(cmd, name, quantity, "necrocavern", cell="Enter",
-                        pad="Spawn", monster_name="Shadow Dragon",
-                        is_temp=False)
+        await hunt_item(cmd, name, quantity, "necrocavern",
+                        monster_name="Shadow Dragon", is_temp=False)
     elif name == "Yulgath's Hut":
-        await hunt_item(cmd, name, quantity, "originul", cell="Enter",
-                        pad="Spawn", monster_name="Fiend Champion",
-                        is_temp=False)
+        await hunt_item(cmd, name, quantity, "originul",
+                        monster_name="Fiend Champion", is_temp=False)
     elif name in ("Nulgath Nation House", "Corpse Maker of Nulgath",
                   "Overfiend Blade of Nulgath"):
         cmd.bot.log(f"[dirtlickers] {name!r} needs a script this repo does not "

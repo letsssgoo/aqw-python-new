@@ -57,8 +57,7 @@ async def _dual_dragonbone_axe(cmd: Command) -> None:
     await farm_diamond_of_nulgath(cmd, 13)
     await supplies(cmd, uni(21))
     await hunt_item(cmd, "Tainted Rune of Evil", 1, "evilmarsh",
-                    cell="Enter", pad="Spawn", monster_name="Tainted Elemental",
-                    is_temp=False)
+                    monster_name="Tainted Elemental", is_temp=False)
     await cmd.ensure_turn_in_quest(DRAGONBONE_AXE_QUEST)
 
 
