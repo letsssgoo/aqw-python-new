@@ -186,6 +186,16 @@
             }
             var cdRow = card.querySelector('[data-skills]');
             if (cdRow) {
+                // Slot 5 is the potion/scroll slot: name it, so it is obvious
+                // what fires there -- and its own countdown proves the cast.
+                if (s.scroll) {
+                    badges += '<span class="pill" title="Slot 5: ' +
+                        esc(s.scroll) + '" style="display:inline-flex;' +
+                        'align-items:center;padding:2px 8px;border-radius:6px;' +
+                        'font-size:.72rem;border:1px solid rgba(168,85,247,.45);' +
+                        'background:rgba(168,85,247,.14);color:#d8b4fe">S5 ' +
+                        esc(s.scroll) + '</span>';
+                }
                 cdRow.innerHTML = badges;
                 cdRow.style.display = badges ? 'flex' : 'none';
             }

@@ -2304,6 +2304,17 @@ def _spec_name(spec):
     return getattr(spec, "name", spec)
 
 
+def _slot5_name(bot) -> str:
+    """Name of the item equipped in slot 5 (the potion or scroll), or ""."""
+    wanted = str(getattr(bot, "scroll_id", "") or "")
+    if not wanted:
+        return ""
+    for item in getattr(getattr(bot, "player", None), "INVENTORY", []) or []:
+        if str(getattr(item, "item_id", "")) == wanted:
+            return str(getattr(item, "item_name", "") or "")
+    return ""
+
+
 def _skill_cooldown_seconds(player) -> dict:
     """``{slot: seconds_left}`` for the solo menu's skill badges."""
     out = {}
@@ -2342,7 +2353,7 @@ def _skill_cooldowns(player) -> list:
         skills = list(getattr(player, "SKILLS", []) or [])
     except Exception:
         return out
-    for slot, skill in enumerate(skills[:5]):
+    for slot, skill in enumerate(skills[:6]):
         deadline = getattr(skill, "next_use", None)
         ready_in = 0
         if deadline is not None and deadline > now:
@@ -2660,6 +2671,9 @@ class UltraApi:
                 "skills": _skill_cooldowns(p),
                 # What the pane is fighting, like the solo/slavery telemetry.
                 "monsters": _monster_readout(b),
+                # Slot 5 is the potion/scroll slot; naming it lets the menu show
+                # what is supposed to fire there.
+                "scroll": _slot5_name(b),
             }
         except Exception as e:
             return {"running": True, "username": thread.username, "role": thread.role, "error": str(e)}
