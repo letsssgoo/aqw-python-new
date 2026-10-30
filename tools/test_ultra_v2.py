@@ -470,11 +470,12 @@ check("tyndarius: priority is second add, first add, boss",
 check("tyndarius: taunter panes are slots 3 and 4",
       (ty1.is_taunter, ty3.is_taunter), (False, True))
 check("tyndarius: the ArchPaladin slot is 3", ty3.is_arch_paladin, True)
-check("tyndarius: Lord of Order heals without a gap",
-      tyndarius.UltraTyndarius(_StubCommand(), options.UltraOptions(
-          players=("a", "b", "c", "d")), 4).heal_gap_ms, 0)
+loo = tyndarius.UltraTyndarius(_StubCommand(), options.UltraOptions(
+    players=("a", "b", "c", "d")), 4)
+check("tyndarius: Lord of Order heals on cooldown, no HP gate",
+      (loo.spam_heal, loo.heal_gap_ms), (True, 0))
 check("tyndarius: ArchPaladin keeps its heal for under 60",
-      ty3.heal_gap_ms, 1500)
+      (ty3.spam_heal, ty3.heal_gap_ms), (False, 1500))
 check("tyndarius: every pane heals below 60",
       (ty1.heal_below, ty1.heal_slots), (60, ()))
 

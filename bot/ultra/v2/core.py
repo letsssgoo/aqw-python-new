@@ -95,6 +95,9 @@ class V2Core:
         #: instead of recasting every poll while an ally sits under the line.
         self.heal_gap_ms = 1000
         self._last_heal_at = 0.0
+        #: A dedicated healer (Tyndarius' Lord of Order) heals on cooldown
+        #: instead of waiting for somebody to drop under ``heal_below``.
+        self.spam_heal = False
         #: A fixed rotation, for the fights that copy v1's literal skill string
         #: (Engineer's ``0 1 2 0 3 4``) instead of the class preset.
         self.skill_rotation: tuple = ()
@@ -359,6 +362,11 @@ class V2Core:
             return False
         if not self.bot.player.canUseSkill(self.heal_skill):
             return False
+        if self.spam_heal:
+            healed = bool(await self.cmd.use_skill(self.heal_skill))
+            if healed:
+                self._last_heal_at = _time.time()
+            return healed
         for player in getattr(self.bot, "player_in_area", []) or []:
             try:
                 if player.is_hp_below(self.heal_below):
