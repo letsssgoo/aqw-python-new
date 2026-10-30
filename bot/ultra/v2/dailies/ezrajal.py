@@ -90,7 +90,10 @@ class UltraEzrajal(V2Core):
 
     async def fight_attempts(self) -> bool:
         retries = max(1, int(self.options.retries))
-        for attempt in range(1, retries + 1):
+        # One first attempt plus the wipeout retries, so "1" still means "go
+        # back in once" -- a reset must not end the run by itself.
+        attempts = retries + 1
+        for attempt in range(1, attempts + 1):
             await self.join()
             await self.use_potions()
             if not await self.sync.step("FIGHT_READY"):
@@ -118,8 +121,8 @@ class UltraEzrajal(V2Core):
                 if not await self.prepare():
                     return False
 
-            if attempt >= retries:
-                self.log(f"failed after {retries} fight attempt(s).")
+            if attempt >= attempts:
+                self.log(f"failed after {attempts} fight attempt(s).")
                 if self.slot == 1:
                     self.sync.stop("ATTEMPTS_EXHAUSTED")
                 return self.abort(f"the party wiped {retries} time(s)")
