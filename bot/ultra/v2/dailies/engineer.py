@@ -1,4 +1,4 @@
-"""Ultra Engineer, the four-player army fight -- port of ``UltraEngineer_LW``.
+﻿"""Ultra Engineer, the four-player army fight -- port of ``UltraEngineer_LW``.
 
 The boss comes with two adds, and the reference's fight loop re-reads which of
 the three is alive every pass, in a fixed order:
@@ -81,6 +81,10 @@ class UltraEngineer(V2Core):
             if not await self.sync.step("FIGHT_READY"):
                 return False
 
+            await self.precast_buffs()
+            if not await self.sync.step("BUFFS_DONE"):
+                return False
+
             await self.jump_boss()
             if not await self.sync.step("START_FIGHT"):
                 return False
@@ -116,7 +120,6 @@ class UltraEngineer(V2Core):
                        f"{self.spec.boss_cell}/{self.spec.boss_pad}")
             return "stopped"
 
-        await self.precast_buffs()
         await self.start_skills(boss)
         self.log("started fighting.")
 

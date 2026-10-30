@@ -92,6 +92,13 @@ class UltraWarden(V2Core):
             if not await self.sync.step("FIGHT_READY"):
                 return False
 
+            # Buffs go up *before* the jump: bosses that provoke on aggro
+            # punish a party that walks in unbuffed.  All four cast first, then
+            # the party pulls together.
+            await self.precast_buffs()
+            if not await self.sync.step("BUFFS_DONE"):
+                return False
+
             await self.jump_boss()
             if not await self.sync.step("START_FIGHT"):
                 return False
@@ -132,7 +139,6 @@ class UltraWarden(V2Core):
                        f"{self.spec.boss_cell}/{self.spec.boss_pad}")
             return "stopped"
 
-        await self.precast_buffs()
         await self.start_skills(target, use_survival=use_survival,
                                taunter=self.is_taunter)
         self.log("started fighting.")

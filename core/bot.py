@@ -1764,9 +1764,13 @@ class Bot:
         android tree and ``bot/templeshrine``'s usage.
 
         Args:
-            monsterid: Monster map ids to target.
+            monsterid: Monster map ids to target -- a list, or a single id in
+                either type.  A bare ``int`` used to raise "'int' object is not
+                iterable" from this line, which said nothing about the caller.
             max_target (int): Cap on how many get targeted.
         """
+        if isinstance(monsterid, (int, str)):
+            monsterid = [monsterid]
         self.target = [f"i1>m:{i}" for i in monsterid][:max_target]
         self.write_message(f"%xt%zm%gar%1%0%{','.join(self.target)}%{self.scroll_id}%wvz%")
         

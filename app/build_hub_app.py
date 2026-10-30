@@ -713,7 +713,11 @@ class UltraBotThread(threading.Thread):
 
             loop.run_until_complete(b.start_bot(run_bot))
         except Exception as e:
-            print(f"[ultra slot {self.slot}] execution stopped or error occurred: {e}")
+            # The thread swallows the stack otherwise, and "X is not iterable"
+            # says nothing about which line -- the hub log needs the traceback.
+            import traceback
+            print(f"[ultra slot {self.slot}] execution stopped or error "
+                  f"occurred: {e}\n{traceback.format_exc()}")
         finally:
             if telemetry is not None:
                 try:

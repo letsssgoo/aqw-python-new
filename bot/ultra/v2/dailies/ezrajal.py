@@ -95,6 +95,10 @@ class UltraEzrajal(V2Core):
             if not await self.sync.step("FIGHT_READY"):
                 return False
 
+            await self.precast_buffs()
+            if not await self.sync.step("BUFFS_DONE"):
+                return False
+
             await self.jump_boss()
             if not await self.sync.step("START_FIGHT"):
                 return False
@@ -130,7 +134,6 @@ class UltraEzrajal(V2Core):
                        f"{self.spec.boss_cell}/{self.spec.boss_pad}")
             return "stopped"
 
-        await self.precast_buffs()
         await self.start_skills(target, use_survival=True)
         self.log("started fighting.")
 
