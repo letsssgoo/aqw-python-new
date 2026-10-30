@@ -115,6 +115,10 @@
         ultra_v2_dage: {
             title: "Ultra V2 - Ultra Dage",
             subtitle: "Weekly army port of UltraDage_LW: Enrage taunt pair, Decay/Mystify scroll duties and the safe-window heal"
+        },
+        ultra_v2_gramiel: {
+            title: "Ultra V2 - Ultra Gramiel",
+            subtitle: "Weekly army port of UltraGramiel_LW: crystal balancing, packet-driven taunts, three nuke cycles with healing holds"
         }
     };
 

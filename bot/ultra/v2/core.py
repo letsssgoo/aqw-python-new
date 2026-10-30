@@ -113,6 +113,13 @@ class V2Core:
         #: ``Unleashed Doom``).
         self.blocked_skill: int = 0
         self.blocked_aura: str = ""
+        #: Same idea, but the aura is on the target (Gramiel's ``Safeguard``).
+        self.blocked_skill_target_aura: str = ""
+        #: Turned off during Gramiel's healing hold, which cancels the attack.
+        self.auto_attack_enabled: bool = True
+        #: Skip the rotation entirely (Gramiel's healing hold for the panes
+        #: whose ordinary skills the reference suppresses).
+        self.suppress_rotation: bool = False
 
     # ------------------------------------------------------------------ log
     @property
@@ -351,6 +358,8 @@ class V2Core:
                 # casting its buff/heal slots (``buff_only``).
                 await self._buff_step(target)
                 await self.cmd.sleep(self.poll_ms)
+            elif self.suppress_rotation:
+                await self.cmd.sleep(self.poll_ms)
             elif preset.mode == KINGS_ECHO:
                 # King's Echo and Verus DoomKnight follow the reference's own
                 # skill engines; the auto attack above is still theirs.
@@ -378,6 +387,8 @@ class V2Core:
         cooldown, so it is pressed here every pass and the rotation no longer
         contains it.
         """
+        if not self.auto_attack_enabled:
+            return False
         if not self.bot.player.canUseSkill(0):
             return False
         return bool(await self.cmd.use_skill(0, target_monsters=target))
@@ -477,8 +488,15 @@ class V2Core:
         if not rotation:
             return 0
         slot = rotation[index % len(rotation)]
-        if (slot == self.blocked_skill and self.blocked_aura
-                and self.self_aura(self.blocked_aura) is not None):
+        blocked = False
+        if slot == self.blocked_skill:
+            if (self.blocked_aura
+                    and self.self_aura(self.blocked_aura) is not None):
+                blocked = True
+            if (self.blocked_skill_target_aura
+                    and self.target_aura(self.blocked_skill_target_aura)):
+                blocked = True
+        if blocked:
             # Skip it for this pass instead of stalling the rotation on a slot
             # the aura forbids.
             return (index + 1) % len(rotation)

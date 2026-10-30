@@ -154,3 +154,65 @@ class ZoneWatcher:
             except Exception:
                 pass
         self._original = None
+
+
+class MarkerWatcher:
+    """Count packets whose raw text carries any of ``markers``.
+
+    Ultra Gramiel's detectors match raw fragments of the packet, not parsed
+    fields: ``"animStr":"Charge"``, ``"cInf":"m:2"``, ``Liberator``.  One
+    matching packet counts once, even when several markers overlap.
+    """
+
+    def __init__(self, bot, command: str = "ct", markers=()):
+        self.bot = bot
+        self.command = command
+        self.markers = tuple(m for m in markers if m)
+        self.count = 0
+        self.running = False
+        self._original = None
+
+    def start(self) -> bool:
+        self.stop()
+        handler = getattr(self.bot, "handle_server_response", None)
+        if handler is None or not self.markers:
+            return False
+        self._original = handler
+
+        async def wrapped(msg):
+            result = await handler(msg)
+            try:
+                self.inspect(msg)
+            except Exception:
+                pass
+            return result
+
+        try:
+            self.bot.handle_server_response = wrapped
+        except Exception:
+            self._original = None
+            return False
+        self.count = 0
+        self.running = True
+        return True
+
+    def inspect(self, msg: str) -> None:
+        if not self.running or not msg:
+            return
+        if self.command and f'"cmd":"{self.command}"' not in msg.replace(
+                " ", ""):
+            return
+        if any(marker in msg for marker in self.markers):
+            self.count += 1
+
+    def seen(self, detection: int) -> bool:
+        return bool(self.running and detection > 0 and self.count >= detection)
+
+    def stop(self) -> None:
+        self.running = False
+        if self._original is not None:
+            try:
+                self.bot.handle_server_response = self._original
+            except Exception:
+                pass
+        self._original = None

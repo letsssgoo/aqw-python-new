@@ -121,6 +121,19 @@ PRESETS: Dict[str, Preset] = {
         elixir="Potent Battle Elixir",
         combat_potion="Felicitous Philtre",
     ),
+    "shaman": Preset(
+        cls="Shaman",
+        # Skills 1-2; the Gramiel module drives 3 (Invulnerable) and 4 itself.
+        skills=(0, 1, 2),
+        base="Lucky",
+        cape="Vainglory",
+        helm="Forge",
+        weapon="Ravenous",
+        weapon_fallbacks=("Elysium", "Valiance", "Health Vamp"),
+        tonic="Fate Tonic",
+        elixir="Potent Malevolence Elixir",
+        combat_potion="Felicitous Philtre",
+    ),
     "chaos slayer berserker": Preset(
         cls="Chaos Slayer Berserker",
         # Skill 0 (the auto attack) is mandatory in every preset; the engine

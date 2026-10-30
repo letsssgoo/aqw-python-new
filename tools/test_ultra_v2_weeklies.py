@@ -556,4 +556,115 @@ check("dage: every pane wears Health Vamp and Vainglory",
        for slot in (1, 2, 3, 4)},
       {("Health Vamp", "Vainglory")})
 
+# --- Ultra Gramiel (weekly) ------------------------------------------------
+# Phase 1 balances the Grace Crystals (20 start / 2 stop) and answers crystal
+# charge packets with alternating taunts; phase 2 walks three nuke cycles with
+# a healing hold at 75 / 45 / 15 percent Gramiel HP.  Optimized puts a Shaman on
+# slot 1, which also queues skill 4 on Gramiel.
+from bot.ultra.v2.weeklies import gramiel  # noqa: E402
+
+check("gramiel: quest 10301 in ultragramiel",
+      (gramiel.SPEC.quest, gramiel.SPEC.map), (10301, "ultragramiel"))
+check("gramiel: pulled from r2/Down, boss id.1",
+      (gramiel.SPEC.boss_cell, gramiel.SPEC.boss_pad, gramiel.SPEC.monster_id),
+      ("r2", "Down", 1))
+check("gramiel: level 80 gate", gramiel.SPEC.min_level, 80)
+check("gramiel: registered for the menu", "gramiel" in V2_ORDER, True)
+
+
+def _gramiel(slot, composition="Default"):
+    return gramiel.UltraGramiel(_StubCommand(), options.UltraOptions(
+        players=("a", "b", "c", "d"), composition=composition), slot)
+
+
+check("gramiel: slots 1-2 hold crystal A, 3-4 crystal B",
+      [_gramiel(slot).assigned_crystal() for slot in (1, 2, 3, 4)],
+      ["id.2", "id.2", "id.3", "id.3"])
+check("gramiel: slots 1 and 3 own the odd cycles",
+      [_gramiel(slot).owns_cycle(1) for slot in (1, 2, 3, 4)],
+      [True, False, True, False])
+check("gramiel: the phase-2 taunt attacks are 1/3/5/7",
+      [_gramiel(slot).phase_two_taunt_attack() for slot in (1, 2, 3, 4)],
+      [1, 3, 5, 7])
+check("gramiel: healing-hold thresholds are 75/45/15",
+      [gramiel.UltraGramiel.healing_hold_threshold(cycle)
+       for cycle in (1, 2, 3)],
+      [75, 45, 15])
+check("gramiel: slots 1-2 hold with skill 3, slots 3-4 with skill 2",
+      ([_gramiel(slot).healing_hold_skills() for slot in (1, 2)],
+       [_gramiel(slot).healing_hold_skills() for slot in (3, 4)]),
+      ([(3,), (3,)], [(2,), (2,)]))
+check("gramiel/default: only slot 4 balances",
+      [_gramiel(slot).is_balancer() for slot in (1, 2, 3, 4)],
+      [False, False, False, True])
+check("gramiel/reliable: slots 2 and 4 balance",
+      [_gramiel(slot, "Reliable").is_balancer() for slot in (1, 2, 3, 4)],
+      [False, True, False, True])
+check("gramiel: Reliable's VDK blocks skill 4 under Safeguard",
+      (_gramiel(1, "Reliable").blocked_skill,
+       _gramiel(1, "Reliable").blocked_skill_target_aura),
+      (4, "Safeguard"))
+check("gramiel: the Optimized Shaman is slot 1 only",
+      ([_gramiel(1, "Optimized").is_shaman,
+        _gramiel(2, "Optimized").is_shaman],
+       _gramiel(1, "Optimized").preset.skills),
+      ([True, False], (0, 1, 2)))
+
+
+class _CrystalCommand(_StubCommand):
+    def __init__(self, a_hp, b_hp):
+        super().__init__()
+        self.hp = {"id.2": a_hp, "id.3": b_hp}
+
+    def is_monster_alive(self, target="*"):
+        return self.hp.get(str(target), 1) > 0
+
+    def get_monster(self, target="*"):
+        value = self.hp.get(str(target), 0)
+        return type("M", (), {"current_hp": value, "max_hp": 1000})()
+
+
+def _balance(slot, a_hp, b_hp):
+    runner = gramiel.UltraGramiel(_CrystalCommand(a_hp, b_hp),
+                                  options.UltraOptions(
+                                      players=("a", "b", "c", "d")), slot)
+    run(runner.maintain_phase_one_target(a_hp, b_hp))
+    return runner.target_priority, runner.crystal_balancing
+
+
+check("gramiel: an even pair sends the balancer to its own crystal",
+      _balance(4, 1000, 990)[0], ("id.3",))
+check("gramiel: a 20+ gap starts balancing on the healthier crystal",
+      (lambda r: (r[0], r[1]))(_balance(4, 1000, 700)), (("id.2",), True))
+check("gramiel: balancing stops within 2",
+      (lambda r: (r[0], r[1]))(_balance(4, 1000, 999)), (("id.3",), False))
+check("gramiel: a dead crystal becomes everyone's target",
+      _balance(4, 0, 700)[0], ("id.3",))
+
+# The Shaman queues skill 4 once opening and once after Safeguard.
+class _ShamanCommand(_StubCommand):
+    def __init__(self):
+        super().__init__()
+        self.casts = []
+        self.bot.player.canUseSkill = lambda slot: True
+
+    def is_monster_alive(self, target="*"):
+        return True
+
+    async def use_skill(self, slot, **kwargs):
+        self.casts.append(slot)
+        return True
+
+
+_shaman = gramiel.UltraGramiel(_ShamanCommand(), options.UltraOptions(
+    players=("a", "b", "c", "d"), composition="Optimized"), 1)
+_shaman.taunt_target_until = __import__("datetime").datetime.min
+run(_shaman.maintain_shaman_skill_four(True))
+check("gramiel: the Shaman queues its opening skill 4",
+      (_shaman._shaman_opening, _shaman.cmd.casts), (True, [4]))
+_shaman.safeguard_active = True
+run(_shaman.maintain_shaman_skill_four(True))
+check("gramiel: and a second one after Safeguard",
+      (_shaman._shaman_safeguard, _shaman.cmd.casts), (True, [4, 4]))
+
 finish('ultra v2 weekly tests')

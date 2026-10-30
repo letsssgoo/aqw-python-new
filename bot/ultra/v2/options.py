@@ -32,11 +32,13 @@ SHORT_NAMES = {
     "ArchPaladin": "AP",
     "Lord of Order": "LOO",
     "Dragon of Time": "DOT",
+    "Shaman": "SHM",
     "Chaos Slayer Berserker": "CS",
 }
 
 LR, SC, AP, LOO, KE, VDK = ("Legion Revenant", "StoneCrusher", "ArchPaladin",
                             "Lord of Order", "King's Echo", "Verus DoomKnight")
+SHAMAN = "Shaman"
 DOT = "Dragon of Time"
 CS = "Chaos Slayer Berserker"
 
@@ -192,6 +194,14 @@ COMPOSITIONS: Dict[str, Dict[str, Tuple[SlotPlan, ...]]] = {
                     SlotPlan(SC),
                     SlotPlan(AP, cape="Penitence"),
                     SlotPlan(LOO)),
+        # Optimized runs a Shaman on slot 1: Wizard base, Elysium, Absolution,
+        # and its own Sage/Malevolence potions.
+        "Optimized": (SlotPlan(SHAMAN, base="Wizard", cape="Absolution",
+                               weapon="Elysium", tonic="Sage Tonic",
+                               elixir="Potent Malevolence Elixir"),
+                      SlotPlan(SC),
+                      SlotPlan(AP, cape="Penitence"),
+                      SlotPlan(LOO)),
         "Reliable": (SlotPlan(VDK),
                      SlotPlan(SC),
                      SlotPlan(AP, cape="Penitence"),
