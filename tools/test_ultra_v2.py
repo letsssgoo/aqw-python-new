@@ -388,6 +388,28 @@ check("engineer: the engine tries the adds before the boss",
 check("engineer: it uses the standard composition",
       eng.preset.cls, "Legion Revenant")
 
+# Every V2 daily fights v1's literal rotation, skill 0 (auto attack) included.
+check("rotation: warden starts on skill 0",
+      warden.build(_StubCommand(), options.UltraOptions(
+          players=("a", "b", "c", "d")), 1).rotation[0], 0)
+check("rotation: ezrajal starts on skill 0",
+      ezrajal.UltraEzrajal(_StubCommand(), options.UltraOptions(
+          players=("a", "b", "c", "d")), 1).rotation[0], 0)
+check("rotation: engineer starts on skill 0", eng.rotation[0], 0)
+check("rotation: all three use v1's string",
+      [warden.build(_StubCommand(), options.UltraOptions(
+           players=("a", "b", "c", "d")), 1).rotation,
+       ezrajal.UltraEzrajal(_StubCommand(), options.UltraOptions(
+           players=("a", "b", "c", "d")), 1).rotation,
+       eng.rotation],
+      [(0, 1, 2, 0, 3, 4)] * 3)
+
+# Heal check follows v1's ``support_slots`` default: slots 3 and 4 only.
+check("heal: v1's support slots are 3 and 4", eng.heal_slots, (3, 4))
+check("heal: a slot outside them never heals",
+      warden.build(_StubCommand(), options.UltraOptions(
+          players=("a", "b", "c", "d")), 1).heal_slots, (3, 4))
+
 # A boss that never appears must never be reported as defeated: the timeout
 # before the pull is the only place that can tell "not here" from "already dead".
 never = warden.build(_StubCommand(), options.UltraOptions(

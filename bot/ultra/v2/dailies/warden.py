@@ -47,6 +47,12 @@ class UltraWarden(V2Core):
 
     def __init__(self, cmd, options: UltraOptions, slot: int = 1):
         super().__init__(cmd, SPEC, options, slot)
+        # v1: ``attack_loop([0, 1, 2, 0, 3, 4], heal_below=5, heal_skill=2)``
+        # -- the rotation starts on the auto attack and repeats it, which is
+        # what keeps the attack chain (and its mana) alive.
+        self.skill_rotation = (0, 1, 2, 0, 3, 4)
+        self.heal_below = 5
+        self.heal_skill = 2
         self.is_taunter = self.slot == taunter_slot(options.composition)
 
     async def run(self) -> bool:

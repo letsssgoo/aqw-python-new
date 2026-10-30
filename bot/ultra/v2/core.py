@@ -68,13 +68,12 @@ class V2Core:
         self.respect_counter_attack = False
         #: Extra targets tried before the boss, in order (Engineer's two adds).
         self.target_priority: tuple = ()
-        #: Party healing, the way v1's ``attack_loop`` does it: cast
-        #: ``heal_skill`` when an ally is under ``heal_below`` percent.  When
-        #: ``heal_slot_classes`` is non-empty only those classes heal (v1's
-        #: support slots); every other class keeps dpsing.
+        #: Party healing, exactly as v1's ``attack_loop`` gates it: only the
+        #: **slots** listed in ``heal_slots`` run the heal check, and slot
+        #: numbers are 1-based loadout slots -- v1's default is ``(3, 4)``.
         self.heal_below: Optional[float] = None
         self.heal_skill: int = 2
-        self.heal_slot_classes: tuple = ()
+        self.heal_slots: tuple = (3, 4)
         #: A fixed rotation, for the fights that copy v1's literal skill string
         #: (Engineer's ``0 1 2 0 3 4``) instead of the class preset.
         self.skill_rotation: tuple = ()
@@ -286,7 +285,7 @@ class V2Core:
         """
         if self.heal_below is None:
             return False
-        if self.heal_slot_classes and self.preset.cls not in self.heal_slot_classes:
+        if self.heal_slots and self.slot not in self.heal_slots:
             return False
         if not self.bot.player.canUseSkill(self.heal_skill):
             return False

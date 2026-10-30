@@ -36,9 +36,9 @@ FIRST_TARGET = "Attack Drone"
 SECOND_TARGET = "Defense Drone"
 BOSS_NAME = "Ultra Engineer"
 
-#: Support classes heal the party while the drones are up (v1: below 60% with
-#: skill 2).  Without it the party simply dies to the boss during the add phase.
-SUPPORT_CLASSES = ("StoneCrusher", "ArchPaladin", "Lord of Order")
+#: v1 heals below 60% with skill 2 (``attack_loop(..., heal_below=60,
+#: heal_skill=2)``); the heal check itself runs on slots 3 and 4, v1's
+#: ``support_slots`` default.
 HEAL_BELOW = 60
 HEAL_SKILL = 2
 
@@ -51,12 +51,11 @@ class UltraEngineer(V2Core):
         # Boss is the fallback; the drones are tried first while they live.
         self.target_priority = (FIRST_TARGET, SECOND_TARGET)
         # v1: ``attack_loop([0, 1, 2, 0, 3, 4], heal_below=60, heal_skill=2)``
-        # -- the literal rotation, and **every** slot heals (not only the
-        # support classes; Legion Revenant's 2 heals too).
+        # -- the literal rotation; the heal check runs on slots 3 and 4 only,
+        # which is v1's ``support_slots`` default (kept in the core).
         self.skill_rotation = (0, 1, 2, 0, 3, 4)
         self.heal_below = HEAL_BELOW
         self.heal_skill = HEAL_SKILL
-        self.heal_slot_classes = ()
         # Two panes down is not a wipe here: the survivors keep the ring while
         # the others respawn.
         self.wipe_deaths = 4
