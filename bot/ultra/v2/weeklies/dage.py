@@ -38,7 +38,7 @@ from typing import Optional
 from bot.ultra.v2 import scrolls
 from bot.ultra.v2.core import V2Core
 from bot.ultra.v2.options import UltraOptions, UltraSpec
-from bot.ultra.v2.packets import PacketDetector
+from bot.ultra.v2.packets import PacketDetector, ZoneWatcher
 
 SPEC = UltraSpec(
     id="dage",
@@ -68,6 +68,10 @@ FOCUS = "Focus"
 FOCUS_REFRESH_MS = 1500
 STABLE = "Stable"
 
+#: ``DrainZoneEvents`` walks to these spots inside the boss room.
+ZONE_WALK_Y = 420
+ZONE_WALK_X = {"A": 122, "B": 856}
+
 
 class UltraDage(V2Core):
     """One pane of the Ultra Dage fight."""
@@ -75,6 +79,8 @@ class UltraDage(V2Core):
     def __init__(self, cmd, options: UltraOptions, slot: int = 1):
         super().__init__(cmd, SPEC, options, slot)
         self.detector = PacketDetector(self.bot, "ct", DECAY_MESSAGE)
+        #: ``StartZoneListener``: zone changes, drained every pass.
+        self.zones = ZoneWatcher(self.bot)
         self.mystify_mode = False
         self.next_decay_cycle = 1
         self.safe_heal_used = False
@@ -210,13 +216,18 @@ class UltraDage(V2Core):
                 return False
             if not self.start_decay_detector():
                 return False
+            if not self.start_zone_listener():
+                return False
             if not await self.require_step("FIGHT_READY"):
                 return False
 
             await self.jump_boss()
             self.begin_attempt(attempt)
-            result = await self.fight(attempt)
-            self.detector.stop()
+            try:
+                result = await self.fight(attempt)
+            finally:
+                self.detector.stop()
+                self.zones.stop()
             if result == "defeated":
                 await self.cmd.jump_cell(self.spec.safe_cell, self.spec.safe_pad)
                 self.log("confirmed Ultra Dage defeated.")
@@ -268,6 +279,7 @@ class UltraDage(V2Core):
         if not self.bot.player.ISDEAD:
             return "continue"
         self.note_death()
+        await self.drain_zone_events(move=False)
         state = await self.wait_respawn(attempt)
         if state in ("reset", "stopped"):
             return state
@@ -462,10 +474,30 @@ class UltraDage(V2Core):
             self.log("used its safe-window heal.")
         return healed
 
-    async def drain_zone_events(self) -> None:
-        """``DrainZoneEvents``: back in the boss cell, or walk there."""
-        if not self.in_boss_room():
-            await self.jump_boss()
+    def start_zone_listener(self) -> bool:
+        """``StartZoneListener``: arm the zone listener for this attempt."""
+        if not self.zones.start():
+            self.abort("the zone listener could not start")
+            return False
+        return True
+
+    async def drain_zone_events(self, move: bool = True) -> None:
+        """``DrainZoneEvents``: walk to the spot each zone letter names.
+
+        The reference walks, never jumps: zone "A" is 122, zone "B" is 856 and
+        the middle is 500, all on y=420 inside the boss room.
+        """
+        while True:
+            drained = self.zones.drain()
+            if not drained:
+                return
+            for zone in drained:
+                if not move or self.bot.player.ISDEAD:
+                    continue
+                x = {"A": 122, "B": 856}.get(zone, 500)
+                await self.cmd.walk_to(x, ZONE_WALK_Y)
+                self.log(f"walked to zone {zone or 'middle'} ({x}, "
+                         f"{ZONE_WALK_Y}).")
 
     def partner_state(self, slot: int):
         """``TryGetPartnerState``: ``(dead, in_boss_room)`` or None."""

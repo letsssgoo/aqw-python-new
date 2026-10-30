@@ -452,6 +452,72 @@ finally:
     else:
         os.environ["AQW_RUN_ID"] = _previous_decay
 
+# The zone listener: the reference's RunToArea feed.  A ``ct`` packet carries
+# ``args.zoneSet`` ("A"/"B"), and DrainZoneEvents **walks** to the spot that
+# letter names -- it never jumps.
+from bot.ultra.v2.packets import ZoneWatcher  # noqa: E402
+
+
+class _ZoneBot:
+    def __init__(self):
+        async def handler(msg):
+            return None
+
+        self.handle_server_response = handler
+
+
+class _WalkCommand(_StubCommand):
+    def __init__(self):
+        super().__init__()
+        self.walks = []
+
+    async def walk_to(self, x, y, speed=8):
+        self.walks.append((x, y))
+
+    def is_monster_alive(self, target="*"):
+        return True
+
+
+async def _zone_watch():
+    watcher = ZoneWatcher(_ZoneBot())
+    started = watcher.start()
+    watcher.inspect('{"b":{"o":{"cmd":"ct","args":{"zoneSet":"A"}}}}')
+    watcher.inspect('{"b":{"o":{"cmd":"ct","args":{"zoneSet":"B"}}}}')
+    watcher.inspect('{"b":{"o":{"cmd":"ct"}}}')
+    drained = watcher.drain()
+    watcher.stop()
+    return started, drained, watcher.running
+
+
+_zone_started, _zone_events, _zone_running = run(_zone_watch())
+check("dage: the zone listener queues zoneSet letters",
+      (_zone_started, _zone_events), (True, ["A", "B"]))
+check("dage: and it stops cleanly", _zone_running, False)
+
+
+async def _zone_walk():
+    cmd = _WalkCommand()
+    runner = dage.UltraDage(cmd, options.UltraOptions(
+        players=("a", "b", "c", "d")), 1)
+
+    async def _handler(msg):
+        return None
+
+    cmd.bot.handle_server_response = _handler
+    runner.zones.start()
+    runner.zones.inspect('{"b":{"o":{"cmd":"ct","args":{"zoneSet":"A"}}}}')
+    runner.zones.inspect('{"b":{"o":{"cmd":"ct","args":{"zoneSet":"B"}}}}')
+    runner.zones.inspect('{"b":{"o":{"cmd":"ct","args":{"zoneSet":""}}}}')
+    await runner.drain_zone_events(move=True)
+    runner.zones.stop()
+    return cmd.walks
+
+
+check("dage: DrainZoneEvents walks A, B and the middle",
+      run(_zone_walk()), [(122, 420), (856, 420), (500, 420)])
+check("dage: each attempt starts with a fresh zone listener",
+      _dage(1).zones.running, False)
+
 # The safe-window heal: once per window, and never while Noxious Decay is up.
 class _HealCommand(_StubCommand):
     def __init__(self, aura=None):

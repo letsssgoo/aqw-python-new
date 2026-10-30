@@ -82,3 +82,73 @@ class PacketDetector:
     def armed(self) -> Optional[bool]:
         """True when armed; None keeps the type honest for callers."""
         return True if self.running else None
+
+
+class ZoneWatcher:
+    """Record ``zoneSet`` events off ``ct`` packets -- the ``RunToArea`` feed.
+
+    Ultra Dage's boss room announces two walk zones ("A" and "B", empty for the
+    middle) and the reference walks to a fixed spot for each; ``DrainZoneEvents``
+    below turns those letters into ``WalkTo`` calls.  The engine has no Flash
+    event bus, so the same letter comes from the packet's ``args.zoneSet``,
+    chained like :class:`PacketDetector` so the previous handler still runs.
+    """
+
+    def __init__(self, bot):
+        self.bot = bot
+        self.events: list = []
+        self.running = False
+        self._original = None
+
+    def start(self) -> bool:
+        """Arm the listener; False when there is nothing to hook."""
+        self.stop()
+        handler = getattr(self.bot, "handle_server_response", None)
+        if handler is None:
+            return False
+        self._original = handler
+
+        async def wrapped(msg):
+            result = await handler(msg)
+            try:
+                self.inspect(msg)
+            except Exception:
+                pass
+            return result
+
+        try:
+            self.bot.handle_server_response = wrapped
+        except Exception:
+            self._original = None
+            return False
+        self.events.clear()
+        self.running = True
+        return True
+
+    def inspect(self, msg: str) -> None:
+        if not self.running or not msg or '"cmd"' not in msg:
+            return
+        try:
+            data = json.loads(msg.strip())["b"]["o"]
+        except Exception:
+            return
+        if data.get("cmd") != "ct":
+            return
+        zone = (data.get("args") or {}).get("zoneSet")
+        if zone is None:
+            return
+        self.events.append(str(zone))
+
+    def drain(self) -> list:
+        """Take everything seen since the last drain."""
+        drained, self.events = self.events, []
+        return drained
+
+    def stop(self) -> None:
+        self.running = False
+        if self._original is not None:
+            try:
+                self.bot.handle_server_response = self._original
+            except Exception:
+                pass
+        self._original = None
