@@ -146,7 +146,7 @@ class UltraTyndarius(V2Core):
 
     # ------------------------------------------------------------------- flow
     async def run(self) -> bool:
-        if not await self.sync.step("PREFLIGHT"):
+        if not await self.require_step("PREFLIGHT"):
             return False
         if not await self.validate_access():
             return False
@@ -159,7 +159,7 @@ class UltraTyndarius(V2Core):
                                   else None,
                                   drop_combat_potion=self.is_taunter):
             return False
-        if not await self.sync.step("SETUP_DONE"):
+        if not await self.require_step("SETUP_DONE"):
             return False
 
         if not await self.defeat_and_turn_in():
@@ -182,7 +182,7 @@ class UltraTyndarius(V2Core):
             await self.use_potions(drop_combat_potion=self.is_taunter)
             if self.is_taunter:
                 await scrolls.equip(self.cmd, scrolls.ENRAGE)
-            if not await self.sync.step("FIGHT_READY"):
+            if not await self.require_step("FIGHT_READY"):
                 return False
 
             seal_signal = f"RIGHTEOUS_{attempt}"
@@ -192,18 +192,21 @@ class UltraTyndarius(V2Core):
                 self.sync.signal(seal_signal, True)
                 await self.jump_boss()
             else:
-                await self.sync.wait_signal(seal_signal,
-                                            key=ARCH_PALADIN_SLOT,
-                                            timeout=180)
+                if not await self.sync.wait_signal(seal_signal,
+                                                   key=ARCH_PALADIN_SLOT,
+                                                   timeout=180):
+                    if self.sync.aborted():
+                        return False
+                    return self.abort("the Righteous Seal signal never came")
                 await self.jump_boss()
             # Nobody fights from the safe cell: prove every pane stands in
             # Boss/Left before the party moves on.
             if not await self.ensure_boss_room():
                 return False
-            if not await self.sync.step("BOSS_ROOM"):
+            if not await self.require_step("BOSS_ROOM"):
                 return False
             await self.precast_buffs()
-            if not await self.sync.step("BUFFS_DONE"):
+            if not await self.require_step("BUFFS_DONE"):
                 return False
 
             self.begin_attempt(attempt)
@@ -374,6 +377,12 @@ class UltraTyndarius(V2Core):
         """Move into ``Boss/Left`` and wait until the pane is really there."""
         waited = 0
         while self.cmd.is_still_connected() and not self.sync.aborted():
+            if self.bot.player.ISDEAD:
+                # A dead pane cannot stand in the room; wait it out (attempt 0
+                # keeps the wipe detector out of this wait).
+                if await self.wait_respawn(0) == "stopped":
+                    return False
+                continue
             if self.in_boss_room():
                 return True
             await self.jump_boss()

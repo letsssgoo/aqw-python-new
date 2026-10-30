@@ -835,6 +835,50 @@ finally:
     else:
         os.environ["AQW_RUN_ID"] = _previous_run
 
+# --- barriers only count panes that are waiting *now* ----------------------
+# The run log showed every barrier passing instantly on the first pull: the
+# party folder had been reused (same AQW_RUN_ID), so attempt 1 found the four
+# markers a previous run left behind and pulled while one pane was still in
+# setup.  A marker is only a peer if it was written since we arrived.
+_fresh_run = "test_v2_fresh"
+_previous_fresh = os.environ.get("AQW_RUN_ID")
+os.environ["AQW_RUN_ID"] = _fresh_run
+try:
+    _directory = ultra_party._dir()
+    for _slot in (1, 2, 3, 4):
+        (_directory / f"v2_testfresh.STALE.{_slot}.ready").write_text(
+            "0", encoding="utf-8")
+    check("party: stale markers do not fill a barrier",
+          run(sync.Sync("testfresh", 1).step("STALE", timeout=2, strict=True)),
+          False)
+
+    async def _late_pane():
+        early = [sync.Sync("testfresh", slot) for slot in (1, 2, 3)]
+        last = sync.Sync("testfresh", 4)
+
+        async def late():
+            await asyncio.sleep(1.5)
+            return await last.step("LATE", timeout=10)
+
+        return await asyncio.gather(
+            *(pane.step("LATE", timeout=10) for pane in early), late())
+
+    check("party: a waiting pane keeps its marker fresh for a late pane",
+          run(_late_pane()), [True, True, True, True])
+
+    (_directory / "v2_testfresh.OLDSEAL.3.sig").write_text(
+        '{"value": true, "t": 0}', encoding="utf-8")
+    check("party: a signal from an earlier run is not a yes",
+          run(sync.Sync("testfresh", 2).wait_signal("OLDSEAL", key=3,
+                                                    timeout=1)), False)
+finally:
+    shutil.rmtree(REPO_ROOT / "capture_logs" / "ultra" / _fresh_run,
+                  ignore_errors=True)
+    if _previous_fresh is None:
+        os.environ.pop("AQW_RUN_ID", None)
+    else:
+        os.environ["AQW_RUN_ID"] = _previous_fresh
+
 print(f"passed {passed}   failed {len(failures)}")
 if failures:
     for line in failures:

@@ -56,7 +56,7 @@ class UltraWarden(V2Core):
 
     async def run(self) -> bool:
         """The reference's ``Run``: gate, setup, attempts, turn-in, sync."""
-        if not await self.sync.step("PREFLIGHT"):
+        if not await self.require_step("PREFLIGHT"):
             return False
         if not await self.validate_access():
             return False
@@ -68,7 +68,7 @@ class UltraWarden(V2Core):
         if not await self.prepare(scroll=scrolls.ENRAGE if self.is_taunter else None,
                                   drop_combat_potion=self.is_taunter):
             return False
-        if not await self.sync.step("SETUP_DONE"):
+        if not await self.require_step("SETUP_DONE"):
             return False
 
         if not await self.defeat_and_turn_in():
@@ -94,18 +94,18 @@ class UltraWarden(V2Core):
             await self.use_potions(drop_combat_potion=self.is_taunter)
             if self.is_taunter:
                 await scrolls.equip(self.cmd, scrolls.ENRAGE)
-            if not await self.sync.step("FIGHT_READY"):
+            if not await self.require_step("FIGHT_READY"):
                 return False
 
             # Buffs go up *before* the jump: bosses that provoke on aggro
             # punish a party that walks in unbuffed.  All four cast first, then
             # the party pulls together.
             await self.precast_buffs()
-            if not await self.sync.step("BUFFS_DONE"):
+            if not await self.require_step("BUFFS_DONE"):
                 return False
 
             await self.jump_boss()
-            if not await self.sync.step("START_FIGHT"):
+            if not await self.require_step("START_FIGHT"):
                 return False
 
             self.begin_attempt(attempt)

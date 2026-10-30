@@ -58,7 +58,7 @@ class UltraEngineer(V2Core):
         self.heal_below = HEAL_BELOW
 
     async def run(self) -> bool:
-        if not await self.sync.step("PREFLIGHT"):
+        if not await self.require_step("PREFLIGHT"):
             return False
         if not await self.validate_access():
             return False
@@ -69,7 +69,7 @@ class UltraEngineer(V2Core):
             return False
         if not await self.prepare():
             return False
-        if not await self.sync.step("SETUP_DONE"):
+        if not await self.require_step("SETUP_DONE"):
             return False
 
         if not await self.defeat_and_turn_in():
@@ -92,15 +92,15 @@ class UltraEngineer(V2Core):
         for attempt in range(1, attempts + 1):
             await self.join()
             await self.use_potions()
-            if not await self.sync.step("FIGHT_READY"):
+            if not await self.require_step("FIGHT_READY"):
                 return False
 
             await self.precast_buffs()
-            if not await self.sync.step("BUFFS_DONE"):
+            if not await self.require_step("BUFFS_DONE"):
                 return False
 
             await self.jump_boss()
-            if not await self.sync.step("START_FIGHT"):
+            if not await self.require_step("START_FIGHT"):
                 return False
 
             self.begin_attempt(attempt)

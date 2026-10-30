@@ -222,6 +222,19 @@ class V2Core:
         self.combat_equipped = bool(combat)
 
     # ----------------------------------------------------------------- fight
+    async def require_step(self, step: str, timeout: int = 180) -> bool:
+        """A barrier the party must **really** fill, or the run stops.
+
+        :meth:`Sync.step` concedes after its timeout so one dead pane cannot
+        hang the rest -- right for bookkeeping, wrong for the pull: the party
+        that walks into the boss room a pane short is the pull that fails.
+        """
+        if await self.sync.step(step, timeout=timeout, strict=True):
+            return True
+        if self.sync.aborted():
+            return False
+        return self.abort(f"the party did not all reach {step}")
+
     async def precast_buffs(self, skills: Sequence[int] = (1, 2, 3),
                             gap_ms: int = 1000) -> None:
         """Cast the opening buffs before a pull -- and again after every wipe.

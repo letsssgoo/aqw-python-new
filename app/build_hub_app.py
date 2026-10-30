@@ -2598,8 +2598,10 @@ class UltraApi:
         # One run id for the whole party, set before the threads start, so the
         # in-process panes share capture_logs/ultra/<run>/party like the .bat.
         os.environ.setdefault("AQW_TELEMETRY", "1")
-        if not os.environ.get("AQW_RUN_ID"):
-            os.environ["AQW_RUN_ID"] = time.strftime("%Y%m%d_%H%M%S")
+        # A fresh run id per START.  The run id names the party folder, so
+        # reusing it across starts left every barrier marker of the previous
+        # run in place and let the party pull without waiting for each other.
+        os.environ["AQW_RUN_ID"] = time.strftime("%Y%m%d_%H%M%S")
 
         # Fresh "done" markers so a previous run cannot look finished already.
         try:
@@ -2860,8 +2862,10 @@ class UltraV2Api(UltraApi):
         room_number = int(config.get("room_number", 9099) or 9099)
 
         os.environ.setdefault("AQW_TELEMETRY", "1")
-        if not os.environ.get("AQW_RUN_ID"):
-            os.environ["AQW_RUN_ID"] = time.strftime("%Y%m%d_%H%M%S")
+        # A fresh run id per START.  The run id names the party folder, so
+        # reusing it across starts left every barrier marker of the previous
+        # run in place and let the party pull without waiting for each other.
+        os.environ["AQW_RUN_ID"] = time.strftime("%Y%m%d_%H%M%S")
         try:
             from bot.ultra import party as ultra_party
             if ultra_party.enabled():
