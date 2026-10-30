@@ -490,6 +490,109 @@ def main() -> None:
     check("already carrying Valiance -> no packet",
           "enhance_item" not in stub2.kinds(), str(stub2.calls))
 
+    # --- Void Chasm Merge (the Ravenous ingredient chain) ------------------
+    # Shop 2410 in /voidchasm: the shop's own payload carries the recipe, and
+    # the ingredients it does not sell are the ones the reference teaches.
+    import asyncio as _asyncio
+
+    from bot.nation.merges import void_chasm_merge as _vcm
+
+    check("voidchasm: shop, map and quest are the reference's",
+          (_vcm.SHOP_ID, _vcm.MAP, _vcm.VOID_REMNANT_QUEST)
+          == (2410, "voidchasm", 9553))
+    check("voidchasm: one pass of the remnant quest is three hunts",
+          (_vcm.CARCANO_HUNT[0], _vcm.CARNAGE_HUNT[0], _vcm.HUSHED_HUNT[0],
+           _vcm.HUSHED_HUNT[4])
+          == ("Carcano's Teratoma", "Bloodied Chainlink",
+              "Defunct Seal of Approval", 6))
+
+    class _MergeCommand:
+        def __init__(self):
+            self.logs = []
+            self.bot = type("B", (), {
+                "log": lambda _s, line: self.logs.append(line)})()
+
+    async def _ingredient_dispatch():
+        calls = []
+
+        async def _tainted(cmd, qty):
+            calls.append(("tainted", qty))
+
+        async def _essence(cmd, qty):
+            calls.append(("essence", qty))
+
+        _vcm.farm_tainted_gem = _tainted
+        _vcm.essence_of_nulgath = _essence
+        cmd = _MergeCommand()
+        await _vcm.find_ingredients(cmd, 0, "Tainted Gem", 100)
+        await _vcm.find_ingredients(cmd, 0, "Essence of Nulgath", 20)
+        await _vcm.find_ingredients(cmd, 0, "Something Else", 1)
+        return calls, cmd.logs
+
+    _calls, _logs = _asyncio.run(_ingredient_dispatch())
+    check("voidchasm: Tainted Gem and Essence go to the Nation farms",
+          _calls == [("tainted", 100), ("essence", 20)])
+    check("voidchasm: an unknown ingredient is said, not guessed",
+          any("no farm is known" in line for line in _logs))
+
+    # --- Ravenous forge unlock ---------------------------------------------
+    # UnlockForgeEnhancements.Ravenous: quest 9560 once the Gluttonous Maw
+    # (shop 2411) is held; the daily Roentgenium line otherwise.
+    from bot.enhancements import ravenous as _ravenous
+
+    class _RavenousCommand:
+        def __init__(self, has_maw=False, roents=0, shops=True):
+            self.has_maw = has_maw
+            self.roents = roents
+            self.shops = shops
+            self.logs = []
+            self.accepted = []
+            self.turned_in = []
+            self.bot = type("B", (), {
+                "player": type("P", (), {
+                    "get_item_inventory": lambda _self, name: (
+                        type("I", (), {"qty": 1})()
+                        if name == _ravenous.GLUTTONOUS_MAW and self.has_maw
+                        else (type("I", (), {"qty": self.roents})()
+                              if name == _ravenous.ROENTGENIUM else None)),
+                })(),
+                "log": lambda _s, line: self.logs.append(line),
+            })()
+
+        async def has_item(self, name, qty=1, isTemp=False):
+            return self.has_maw and name == _ravenous.GLUTTONOUS_MAW
+
+        async def ensure_accept_quest(self, quest_id, *a, **k):
+            self.accepted.append(quest_id)
+            return True
+
+        async def ensure_turn_in_quest(self, quest_id, *a, **k):
+            self.turned_in.append(quest_id)
+            return True
+
+        def is_still_connected(self):
+            return True
+
+        def is_not_in_map(self, name):
+            return False
+
+        async def ensure_load_shop(self, shop_id):
+            return self.shops
+
+        async def sleep(self, ms):
+            return None
+
+    check("ravenous: quest id and shop are the reference's",
+          (_ravenous.RAVENOUS_QUEST, _ravenous.GLUTTONOUS_MAW_SHOP)
+          == (9560, 2411))
+    _maw = _RavenousCommand(has_maw=True)
+    check("ravenous: with the Maw it completes the quest",
+          _asyncio.run(_ravenous.unlock(_maw)) and _maw.turned_in == [9560])
+    _short = _RavenousCommand(has_maw=False, roents=3, shops=False)
+    check("ravenous: without the Maw it says the daily line",
+          (not _asyncio.run(_ravenous.unlock(_short)))
+          and any("Roentgenium" in line for line in _short.logs))
+
     print("\n" + "=" * 74)
     print(f"passed {len(PASSED)}   failed {len(FAILED)}")
     if FAILED:
