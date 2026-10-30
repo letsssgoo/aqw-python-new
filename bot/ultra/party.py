@@ -80,7 +80,10 @@ def barrier(name: str, key: str, size: int = 4, timeout: int = 60) -> bool:
     anyway -- a missing pane must not wedge the run).
     """
     directory = _dir()
-    safe_key = "".join(c for c in (key or "x") if c.isalnum() or c in "-_") or "x"
+    # ``key`` is a slot number for Ultra V2 and a username for v1; ``_safe_key``
+    # stringifies both.  Joining it inline raised "'int' object is not iterable"
+    # on every V2 run.
+    safe_key = _safe_key(key)
     try:
         (directory / f"{name}.{safe_key}.ready").write_text(str(time.time()),
                                                             encoding="utf-8")
@@ -198,3 +201,39 @@ def any_abort(name: str, keys=PARTY_SLOTS):
         except Exception:
             continue
     return None
+
+
+# --- named signals ------------------------------------------------------
+# One pane publishes a value another pane has to read: who holds the Decay
+# scroll this attempt, which mode the party agreed on.  Same directory and same
+# key as the barriers, so one run is one folder.
+
+def publish(name: str, key, value) -> None:
+    """Write ``value`` under ``name`` for this pane."""
+    try:
+        (_dir() / f"{name}.{_safe_key(key)}.sig").write_text(
+            json.dumps({"value": value, "t": time.time()}), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def published(name: str, keys=PARTY_SLOTS) -> dict:
+    """``{key: value}`` for every pane that published ``name``."""
+    found: dict = {}
+    for key in keys:
+        try:
+            data = json.loads(
+                (_dir() / f"{name}.{_safe_key(key)}.sig").read_text(encoding="utf-8"))
+            found[key] = data.get("value")
+        except Exception:
+            continue
+    return found
+
+
+def clear_signal(name: str, keys=PARTY_SLOTS) -> None:
+    for key in keys:
+        try:
+            (_dir() / f"{name}.{_safe_key(key)}.sig").unlink()
+        except Exception:
+            pass
+

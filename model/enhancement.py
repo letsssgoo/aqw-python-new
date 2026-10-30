@@ -141,6 +141,10 @@ class ForgeEnhancement:
     level: int = 0
     cost: int = 0
     dps: int = 100
+    #: ``bUpg``: the upgrade (member / LEGEND) variant of this tier.  A level
+    #: 100 enhancement comes in both flavours at the same price, so a
+    #: non-member account must be given the ``False`` one or the server refuses.
+    is_upgrade: bool = False
     shop_id: int = 0
     shop_name: str = ""
     #: Which capture this came from: ``"forge"``, ``"basic"`` or ``"custom"``
@@ -305,6 +309,7 @@ def _read_shop_file(target: Path) -> List[ForgeEnhancement]:
                 level=int(item.get("iLvl", 0) or 0),
                 cost=int(item.get("iCost", 0) or 0),
                 dps=int(item.get("iDPS", 0) or 0),
+                is_upgrade=bool(item.get("bUpg", False)),
                 shop_id=shop_id,
                 shop_name=shop_name,
                 source=source,

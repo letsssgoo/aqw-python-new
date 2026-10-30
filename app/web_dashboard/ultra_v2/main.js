@@ -1,0 +1,417 @@
+(function () {
+    // One page for every Ultra V2 fight: the menu entry that opened this iframe
+    // decides which ultra it is, and the bridge injected by the hub already
+    // binds every call to that id.
+    var SLOT_IDS = ['slot1', 'slot2', 'slot3', 'slot4'];
+    var form = null;             // the schema the backend sent
+
+    function api() { return window.pywebview && window.pywebview.api; }
+
+    function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+            return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+        });
+    }
+
+    function msg(text, ok) {
+        var el = document.getElementById('msg');
+        if (!el) return;
+        el.textContent = text || '';
+        el.className = 'cfg-msg' + (text ? (ok ? ' ok' : ' err') : '');
+    }
+
+    function field(key) {
+        return (form && form.schema || []).filter(function (f) { return f.key === key; })[0];
+    }
+
+    // --- composition ------------------------------------------------------
+    function fillComposition() {
+        var sel = document.getElementById('composition');
+        var spec = field('composition');
+        if (!spec) return;
+        // The composition detail belongs *inside* the option label; the hint
+        // line under the dropdown was the thing removed, not this.
+        sel.innerHTML = (spec.choices || []).map(function (c) {
+            return '<option value="' + esc(c.value) + '">' + esc(c.label) +
+                (c.help ? ' \u2014 ' + esc(c.help) : '') + '</option>';
+        }).join('');
+    }
+
+    function fillRetries() {
+        var sel = document.getElementById('retries');
+        var spec = field('retries');
+        sel.innerHTML = ((spec && spec.choices) || []).map(function (c) {
+            return '<option value="' + esc(c.value) + '">' + esc(c.label) + '</option>';
+        }).join('');
+    }
+
+    // --- panes ------------------------------------------------------------
+    function buildSlot(i, sId) {
+        var card = document.createElement('div');
+        card.className = 'slot-card ' + (i % 2 === 0 ? 'sun-theme' : 'moon-theme');
+        card.dataset.slot = sId;
+        card.innerHTML =
+            '<div class="slot-header" style="display:flex;justify-content:space-between;align-items:center">' +
+            '  <div class="slot-title-group" style="display:flex;align-items:center;gap:10px">' +
+            '    <div class="slot-icon-box" style="display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:8px;background:rgba(56,189,248,.15);border:1px solid rgba(56,189,248,.3)">' +
+            '      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;color:#38bdf8"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg>' +
+            '    </div>' +
+            '    <div style="display:flex;flex-direction:column">' +
+            '      <span style="font-size:.88rem;font-weight:700;line-height:1.2">Slot ' + (i + 1) + '</span>' +
+            '      <span class="slot-class" style="font-size:.68rem;color:var(--text-secondary,#94a3b8);font-weight:500">&mdash;</span>' +
+            '    </div>' +
+            '  </div>' +
+            '  <div class="status-badge" data-badge>Offline</div>' +
+            '</div>' +
+            '<div class="slot-body">' +
+            '  <div class="slot-inputs-container" style="display:flex;flex-direction:column;gap:10px">' +
+            '    <div class="form-group"><label>Player</label><select class="slot-player"></select></div>' +
+            '    <div class="form-group"><label>Username</label><input type="text" class="slot-user" placeholder="Username" autocomplete="off"></div>' +
+            '    <div class="form-group"><label>Password</label><div class="password-wrapper"><input type="password" class="slot-pass" placeholder="Password" autocomplete="off"></div></div>' +
+            '    <div class="slot-status" data-status><span class="pill">idle</span></div>' +
+            '    <div class="monster-row" data-monsters style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px"><span class="pill">no monsters yet</span></div>' +
+            '    <div class="skill-row" data-skills style="display:flex;gap:4px;flex-wrap:nowrap;overflow-x:auto;margin-top:6px"><span class="pill">no skills yet</span></div>' +
+            '  </div>' +
+            '</div>';
+        attachPlayersDropdown(card.querySelector('.slot-player'), function (user, pass) {
+            card.querySelector('.slot-user').value = user;
+            card.querySelector('.slot-pass').value = pass;
+        });
+        return card;
+    }
+
+    function applyConfig(config) {
+        document.getElementById('server').value = config.server || 'Alteon';
+        document.getElementById('room').value = config.room_number || 9099;
+        if (config.composition) document.getElementById('composition').value = config.composition;
+        if (config.retries) document.getElementById('retries').value = String(config.retries);
+        document.getElementById('use-potions').checked = config.use_potions !== false;
+        document.getElementById('use-enhancements').checked = config.use_enhancements !== false;
+        var slots = config.slots || {};
+        SLOT_IDS.forEach(function (sId) {
+            var card = document.querySelector('.slot-card[data-slot="' + sId + '"]');
+            var s = slots[sId] || {};
+            if (s.username) card.querySelector('.slot-user').value = s.username;
+            if (s.password) card.querySelector('.slot-pass').value = s.password;
+            // The log tabs are labelled by these, and lines are routed by them.
+            paneUsers[sId] = s.username || '';
+        });
+        syncPaneUsers();
+    }
+
+    function collect() {
+        var room = parseInt(document.getElementById('room').value || '9099', 10);
+        var config = {
+            server: document.getElementById('server').value || 'Alteon',
+            // One room field: the header's.  A number in the private range is
+            // the private map room; anything lower is the public map (0).
+            room_number: room,
+            private_room: room >= 1001 ? room : 0,
+            composition: document.getElementById('composition').value,
+            retries: parseInt(document.getElementById('retries').value || '3', 10),
+            use_potions: document.getElementById('use-potions').checked,
+            use_enhancements: document.getElementById('use-enhancements').checked,
+            slots: {}
+        };
+        SLOT_IDS.forEach(function (sId) {
+            var card = document.querySelector('.slot-card[data-slot="' + sId + '"]');
+            config.slots[sId] = {
+                username: card.querySelector('.slot-user').value.trim(),
+                password: card.querySelector('.slot-pass').value
+            };
+        });
+        return config;
+    }
+
+    function renderStatus(status) {
+        var slots = (status && status.slots) || {};
+        var running = !!(status && status.running);
+        setButton(running);
+        SLOT_IDS.forEach(function (sId) {
+            var card = document.querySelector('.slot-card[data-slot="' + sId + '"]');
+            if (!card) return;
+            var badge = card.querySelector('[data-badge]');
+            var el = card.querySelector('[data-status]');
+            var s = slots[sId];
+            if (!s || !s.running) {
+                badge.textContent = 'Offline'; badge.style.color = '';
+                el.innerHTML = '<span class="pill">idle</span>';
+                // A stopped pane has no live cooldowns: clear the rows, or the
+                // last run's badges would sit there as if the skills were still
+                // on cooldown.
+                var mon = card.querySelector('[data-monsters]');
+                if (mon) { mon.innerHTML = ''; mon.style.display = 'none'; }
+                var cd = card.querySelector('[data-skills]');
+                if (cd) { cd.innerHTML = ''; cd.style.display = 'none'; }
+                return;
+            }
+            badge.textContent = 'Online'; badge.style.color = '#34d399';
+            var hp = s.max_hp ? Math.round(s.hp / s.max_hp * 100) : 0;
+            // Same badge markup/classes as the solo menu (skill-cd-badge,
+            // on-cooldown / ready), fed by the server deadline per slot.
+            var cds = s.cooldowns || {};
+            var badges = '';
+            if (Object.keys(cds).length) {
+                for (var i = 0; i < 6; i++) {
+                    var cd = Number(cds[i] || 0);
+                    var label = i === 0 ? 'A' : String(i);
+                    var extra = i === 5 ? ' skill-5-badge' :
+                        (i === 0 ? ' skill-0-badge' : '');
+                    if (cd > 0) {
+                        badges += '<span class="skill-cd-badge on-cooldown' + extra +
+                            '" title="Skill ' + label + ' on cooldown">' +
+                            '<span class="skill-idx">' + label + '</span>' +
+                            '<span class="skill-cd-val">' + cd.toFixed(1) + 's</span></span>';
+                    } else {
+                        badges += '<span class="skill-cd-badge ready' + extra +
+                            '" title="Skill ' + label + ' ready">' +
+                            '<span class="skill-idx">' + label + '</span>' +
+                            '<span class="skill-cd-val">&#10003;</span></span>';
+                    }
+                }
+            }
+            var monsters = (s.monsters || []).filter(function (m) { return m.alive; })
+                .slice(0, 4).map(function (m) {
+                    var pct = m.max_hp ? Math.round(m.hp / m.max_hp * 100) : 0;
+                    return '<span class="pill" style="display:inline-flex;' +
+                        'align-items:center;gap:4px;padding:2px 8px;border-radius:6px;' +
+                        'font-size:.72rem;border:1px solid rgba(148,163,184,.35);' +
+                        'background:rgba(148,163,184,.12);color:#cbd5e1">' +
+                        esc(m.name) + ' (id.' + esc(String(m.id || '?')) + ') ' +
+                        esc(String(pct)) + '%</span>';
+                }).join(' ');
+            // The pane's live target: the engine sets player.last_target on
+            // every hostile cast, so a retarget (add -> boss) shows up here
+            // without the fight code pushing anything.
+            var target = s.target || null;
+            var targetPill = '';
+            if (target && target.name) {
+                var tpct = target.max_hp ? Math.round(target.hp / target.max_hp * 100) : 0;
+                targetPill = '<span class="pill" title="Attacking now" ' +
+                    'style="display:inline-flex;align-items:center;gap:4px;' +
+                    'padding:2px 8px;border-radius:6px;font-size:.72rem;' +
+                    'border:1px solid rgba(251,191,36,.55);' +
+                    'background:rgba(251,191,36,.16);color:#fcd34d">' +
+                    'ATK ' + esc(target.name) + ' (id.' +
+                    esc(String(target.id || '?')) + ') ' +
+                    (target.alive ? esc(String(tpct)) + '%' : 'dead') + '</span>';
+            }
+            el.innerHTML =
+                '<span class="pill">' + esc(s.username || '-') + '</span>' +
+                '<span class="pill">HP ' + hp + '%</span>' +
+                '<span class="pill">MP ' + (s.mp || 0) + '</span>' +
+                '<span class="pill">' + esc(s.map || '-') + ' / ' + esc(s.cell || '-') + '</span>' +
+                (s.is_dead ? '<span class="pill" style="color:#f87171">dead</span>' : '');
+            // Monsters and skills get their own rows: the map/telemetry pills
+            // stay readable and the cooldown bar is one line, like the solo menu.
+            var monRow = card.querySelector('[data-monsters]');
+            if (monRow) {
+                monRow.innerHTML = targetPill + monsters;
+                monRow.style.display = (targetPill || monsters) ? 'flex' : 'none';
+            }
+            var cdRow = card.querySelector('[data-skills]');
+            if (cdRow) {
+                // Slot 5 is the potion/scroll slot: name it, so it is obvious
+                // what fires there -- and its own countdown proves the cast.
+                if (s.cdr) {
+                    badges += '<span class="pill" title="Cooldown reduction in effect" ' +
+                        'style="display:inline-flex;align-items:center;padding:2px 8px;' +
+                        'border-radius:6px;font-size:.72rem;' +
+                        'border:1px solid rgba(56,189,248,.45);' +
+                        'background:rgba(56,189,248,.14);color:#7dd3fc">CDR ' +
+                        Math.round(s.cdr * 100) + '%</span>';
+                }
+                if (s.scroll) {
+                    badges += '<span class="pill" title="Slot 5: ' +
+                        esc(s.scroll) + '" style="display:inline-flex;' +
+                        'align-items:center;padding:2px 8px;border-radius:6px;' +
+                        'font-size:.72rem;border:1px solid rgba(168,85,247,.45);' +
+                        'background:rgba(168,85,247,.14);color:#d8b4fe">S5 ' +
+                        esc(s.scroll) + '</span>';
+                }
+                cdRow.innerHTML = badges;
+                cdRow.style.display = badges ? 'flex' : 'none';
+            }
+            if (s.role) {
+                var cls = card.querySelector('.slot-class');
+                if (cls) cls.textContent = s.role;
+            }
+        });
+    }
+
+    // --- per-player logs ---------------------------------------------------
+    // Every line is tagged with the pane's username (each thread registers with
+    // the redirector under it), so the page can keep one console per player the
+    // way the temple and ultra v1 menus do.  "All" is the merged view.
+    var paneUsers = {};              // slot id -> username
+    var logBuffers = { all: [] };    // "all" | slot1..slot4 -> [html lines]
+    var activeLog = 'all';
+
+    // Re-read the username boxes into the tab labels.  The players dropdown
+    // fills those boxes programmatically, which fires no `input` event -- that
+    // is why picking another account left the old tab names in place.
+    function syncPaneUsers() {
+        SLOT_IDS.forEach(function (sId) {
+            var card = document.querySelector('.slot-card[data-slot="' + sId + '"]');
+            if (!card) return;
+            var field = card.querySelector('.slot-user');
+            var name = (field && field.value || '').trim();
+            if (name && paneUsers[sId] && paneUsers[sId] !== name) {
+                // A different account in this slot: its old console is not its
+                // own any more, so start that tab clean.
+                logBuffers[sId] = [];
+            }
+            paneUsers[sId] = name;
+        });
+        buildLogTabs();
+        renderLog();
+    }
+
+    function slotForUser(user) {
+        var wanted = String(user || '').trim().toLowerCase();
+        if (!wanted) return '';
+        for (var i = 0; i < SLOT_IDS.length; i++) {
+            if (String(paneUsers[SLOT_IDS[i]] || '').trim().toLowerCase() === wanted) {
+                return SLOT_IDS[i];
+            }
+        }
+        // Not in the saved config (a run started before the form was saved):
+        // claim the first free tab, so every pane still gets its own console.
+        for (var j = 0; j < SLOT_IDS.length; j++) {
+            if (!String(paneUsers[SLOT_IDS[j]] || '').trim()) {
+                paneUsers[SLOT_IDS[j]] = String(user).trim();
+                buildLogTabs();
+                return SLOT_IDS[j];
+            }
+        }
+        return '';
+    }
+
+    function buildLogTabs() {
+        var bar = document.getElementById('log-tabs');
+        if (!bar) return;
+        var buttons = ['<button class="console-tab' +
+            (activeLog === 'all' ? ' active' : '') + '" data-log="all">All</button>'];
+        SLOT_IDS.forEach(function (sId, index) {
+            var name = paneUsers[sId] || ('Slot ' + (index + 1));
+            if (!logBuffers[sId]) logBuffers[sId] = [];
+            buttons.push('<button class="console-tab' +
+                (activeLog === sId ? ' active' : '') + '" data-log="' + sId + '">' +
+                esc(name) + '</button>');
+        });
+        bar.innerHTML = buttons.join('');
+        Array.prototype.forEach.call(bar.querySelectorAll('[data-log]'),
+            function (btn) {
+                btn.onclick = function () {
+                    activeLog = btn.getAttribute('data-log');
+                    buildLogTabs();
+                    renderLog();
+                };
+            });
+    }
+
+    function renderLog() {
+        var log = document.getElementById('log');
+        if (!log) return;
+        log.innerHTML = (logBuffers[activeLog] || []).join('');
+        var c = document.getElementById('chk-auto-scroll');
+        if (!c || c.checked) { log.scrollTop = log.scrollHeight; }
+    }
+
+    function appendLog(user, html) {
+        var own = slotForUser(user);
+        var line = '<div><span class="who">' + esc(user || '') + '</span> ' +
+            html + '</div>';
+        logBuffers.all.push(line);
+        if (own) {
+            if (!logBuffers[own]) logBuffers[own] = [];
+            logBuffers[own].push(line);
+            while (logBuffers[own].length > 800) { logBuffers[own].shift(); }
+        }
+        while (logBuffers.all.length > 800) { logBuffers.all.shift(); }
+        if (activeLog === 'all' || activeLog === own) { renderLog(); }
+    }
+
+    window.addUltraLog = function (kind, key, user, html) {
+        appendLog(user, html);
+    };
+    window.addSlaveLog = function (user, html) { appendLog(user, html); };
+
+    // One button: START while idle, STOP while the party runs.  The label is
+    // driven by the same status poll the pane cards use, so a party that ends
+    // on its own turns the button back to START by itself.
+    var partyRunning = false;
+
+    function setButton(running) {
+        var btn = document.getElementById('btn-toggle');
+        if (!btn) return;
+        partyRunning = running;
+        btn.textContent = running ? 'STOP' : 'START';
+        btn.className = 'btn ' + (running ? 'btn-danger' : 'btn-success');
+    }
+
+    function toggleParty() {
+        var a = api();
+        if (!a) return;
+        var btn = document.getElementById('btn-toggle');
+        if (btn) btn.disabled = true;
+        var done = function () { if (btn) btn.disabled = false; };
+        if (partyRunning) {
+            a.stop_party().then(function () {
+                msg('Stopped.', true);
+                setButton(false);
+            }).then(done, done);
+            return;
+        }
+        msg('');
+        syncPaneUsers();          // labels and routing follow the form
+        a.start_party(collect()).then(function (res) {
+            if (!res || !res.success) {
+                msg((res && res.error) || 'Failed to start', false);
+                return;
+            }
+            msg('Party starting...', true);
+            setButton(true);
+        }).then(done, done);
+    }
+
+    window.whenApiReady(function (a) {
+        var container = document.getElementById('slots');
+        SLOT_IDS.forEach(function (sId, i) { container.appendChild(buildSlot(i, sId)); });
+
+        var ready = a.form ? a.form() : Promise.resolve({});
+        ready.then(function (data) {
+            form = data || {};
+            if (form.title) document.getElementById('title').textContent = form.title;
+            fillComposition();
+            fillRetries();
+            return a.load_config();
+        }).then(function (config) {
+            applyConfig(config || {});
+        });
+
+        document.getElementById('btn-toggle').onclick = toggleParty;
+        var clearBtn = document.getElementById('btn-clear-logs');
+        if (clearBtn) {
+            clearBtn.onclick = function () {
+                logBuffers = { all: [] };
+                SLOT_IDS.forEach(function (sId) { logBuffers[sId] = []; });
+                renderLog();
+            };
+        }
+
+        // Labels follow whatever is typed in the username boxes, so the tabs
+        // read like the temple menu even before a run has started.
+        SLOT_IDS.forEach(function (sId) {
+            var card = document.querySelector('.slot-card[data-slot="' + sId + '"]');
+            var field = card.querySelector('.slot-user');
+            ['input', 'change', 'blur'].forEach(function (event) {
+                field.addEventListener(event, syncPaneUsers);
+            });
+        });
+
+        setInterval(function () {
+            a.get_status().then(renderStatus);
+        }, 1500);
+    });
+})();

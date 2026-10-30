@@ -2,6 +2,14 @@ from datetime import datetime, timedelta
 from typing import Optional
 from core.utils import normalize
 
+
+def _int(value) -> int:
+    """``int()`` that tolerates the empty string and ``None`` the packet sends."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
 class Aura:
     def __init__(self, aura):
         duration: int = aura.get('dur', 0)
@@ -16,6 +24,11 @@ class Aura:
         self.applied_time: datetime = timestamp
         self.expires_at: datetime = expiration_time
         self.aura_val: int = 1
+        #: The aura's numeric value off the packet (``val``), 0 when it sends
+        #: none.  King's Echo reads "Residual Energy" from here: the reference
+        #: takes ``Bot.Self.GetAura(...).Value``, and without this the port would
+        #: see every aura as value 0 and never fire skill 4.
+        self.value: int = _int(aura.get("val"))
 
     def refresh(self, duration: Optional[int] = None):
         """Refresh the aura's applied_time and expiration."""

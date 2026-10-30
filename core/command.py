@@ -924,6 +924,26 @@ class Command:
               f"({len(self.bot.player.INVENTORY)} items checked)." + Fore.RESET)
         return False
 
+    async def use_item(self, item_name: str) -> bool:
+        """Consume a tonic/elixir from the inventory (not the slot-5 cast).
+
+        The reference's ``UsePotion`` for tonics and elixirs; a combat potion
+        goes through :meth:`equip_potion` + ``use_skill(5)`` instead.
+        """
+        for item in self.bot.player.INVENTORY:
+            if item.item_name.lower() != item_name.lower():
+                continue
+            self.bot.use_item(item.item_id)
+            await asyncio.sleep(0.5)
+            return True
+        print(Fore.YELLOW + f"[use_item] {item_name!r} is not in inventory."
+              + Fore.RESET)
+        return False
+
+    async def equip_potion(self, item_name: str) -> bool:
+        """Equip a combat potion into slot 5 (``geia ... potion``)."""
+        return await self.equip_scroll(item_name, ScrollType.POTION)
+
     @check_alive
     async def equip_item_by_enhancement(self, enh_id: int) -> bool:
         """Equip the first item carrying a given enhancement.

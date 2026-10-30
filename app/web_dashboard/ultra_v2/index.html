@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ultra V2</title>
+    <link rel="stylesheet" href="/temple/style.css">
+    <link rel="stylesheet" href="/cfg.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        /* Toggle switches: a checkbox pair reads as settings, these read as
+           switches -- and they keep the options row on one line. */
+        .v2-switch { display: inline-flex; align-items: center; gap: 8px;
+                     cursor: pointer; user-select: none; }
+        .v2-switch input { display: none; }
+        .v2-switch .v2-slider {
+            position: relative; width: 38px; height: 20px; border-radius: 999px;
+            background: rgba(148, 163, 184, .35);
+            transition: background .15s ease;
+        }
+        .v2-switch .v2-slider::after {
+            content: ''; position: absolute; top: 2px; left: 2px;
+            width: 16px; height: 16px; border-radius: 50%; background: #f8fafc;
+            transition: transform .15s ease;
+        }
+        .v2-switch input:checked + .v2-slider { background: #22c55e; }
+        .v2-switch input:checked + .v2-slider::after { transform: translateX(18px); }
+        .v2-switch-label { font-size: .85rem; }
+        /* Skill badges: same look as the solo bot menu. */
+        .skill-cd-badge { display: inline-flex; align-items: center; gap: 4px;
+            padding: 2px 7px; border-radius: 6px; font-size: .72rem;
+            font-weight: 600; border: 1px solid rgba(148,163,184,.35);
+            background: rgba(148,163,184,.10); color: #cbd5e1; }
+        .skill-cd-badge.ready { background: rgba(34,197,94,.14);
+            border-color: rgba(34,197,94,.45); color: #86efac; }
+        .skill-cd-badge.on-cooldown { background: rgba(248,113,113,.12);
+            border-color: rgba(248,113,113,.40); color: #fca5a5; }
+        .skill-cd-badge.skill-0-badge { border-style: dashed; }
+        .skill-cd-badge.skill-5-badge { border-color: rgba(168,85,247,.5); }
+        .skill-idx { opacity: .8; }
+        .skill-cd-val { font-variant-numeric: tabular-nums; }
+    </style>
+    <script src="/components.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <header class="app-header">
+            <div class="brand">
+                <div class="brand-text">
+                    <div class="title-row">
+                        <h1 id="title">Ultra V2</h1>
+                        <span class="version-badge">4-pane army</span>
+                    </div>
+                    <p>
+                        Port of the UltraLW script for this boss. The composition decides what each
+                        slot wears; gear is matched by <b>enhancement name</b> (inventory or bank),
+                        potions are bought at shop 2036, and a missing piece stops the run by name
+                        instead of fighting in the wrong gear.
+                    </p>
+                </div>
+            </div>
+            <div class="header-controls">
+                <div class="global-config-group">
+                    <div class="input-inline">
+                        <label for="server">Server</label>
+                        <server-select id="server" value="Alteon"></server-select>
+                    </div>
+                    <div class="input-inline">
+                        <label for="room">Room</label>
+                        <input type="number" id="room" value="9099">
+                    </div>
+                </div>
+                <span id="msg" class="cfg-msg"></span>
+                <button class="btn btn-success" id="btn-toggle">START</button>
+            </div>
+        </header>
+
+        <main class="app-body">
+            <section class="card" id="options">
+                <div class="slot-body">
+                    <div class="form-row" style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end">
+                        <div class="form-group">
+                            <label for="composition">Army Composition</label>
+                            <select id="composition"></select>
+                        </div>
+                        <div class="form-group">
+                            <label for="retries">Wipeout retries</label>
+                            <select id="retries"></select>
+                        </div>
+                        <div class="form-group">
+                            <label class="v2-switch">
+                                <input type="checkbox" id="use-potions" checked>
+                                <span class="v2-slider"></span>
+                                <span class="v2-switch-label">Use potions</span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label class="v2-switch">
+                                <input type="checkbox" id="use-enhancements" checked>
+                                <span class="v2-slider"></span>
+                                <span class="v2-switch-label">Use enhancements</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            <div class="slots-grid" id="slots"></div>
+        </main>
+
+        <footer class="app-console">
+            <div class="console-tabs-bar">
+                <div class="tabs-list" id="log-tabs">
+                    <button class="console-tab active" data-log="all">All</button>
+                </div>
+                <div class="console-actions">
+                    <div class="console-checkbox-wrapper">
+                        <input type="checkbox" id="chk-auto-scroll" checked>
+                        <label for="chk-auto-scroll">Auto-Scroll</label>
+                    </div>
+                    <button class="btn btn-small btn-secondary" id="btn-clear-logs">Clear Logs</button>
+                </div>
+            </div>
+            <div style="display:flex;flex:1;min-height:0;">
+                <div class="console-viewport" id="log"></div>
+            </div>
+        </footer>
+    </div>
+
+    <script src="/players_dropdown.js"></script>
+    <script src="main.js?v=20261030a"></script>
+</body>
+</html>

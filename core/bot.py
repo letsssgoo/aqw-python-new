@@ -3,7 +3,9 @@ from core.command import Command, StopRequested
 from core.player import Player
 from core.utils import normalize
 import json
+import os
 import pathlib
+import re
 import sys
 import zlib
 import base64
@@ -1038,6 +1040,19 @@ class Bot:
                     self.player.setIsInCombat(data["o"].get("intState"))
                     if self.player.IS_IN_COMBAT == False:
                         self.player.setLastTarget(None)
+                    # Keep our own entry in ``player_in_area`` in step with the
+                    # rest of the party.  It is built once when the map loads
+                    # and nothing else touched it, so a support check that read
+                    # it never saw us drop below the heal line.
+                    for _entry in self.player_in_area:
+                        if _entry.str_username.lower() == str(self.player.USER).lower():
+                            for _key, _attr in (("intHP", "int_hp"),
+                                                ("intHPMax", "int_hp_max"),
+                                                ("intMP", "int_mp"),
+                                                ("intMPMax", "int_mp_max")):
+                                if _key in data["o"]:
+                                    setattr(_entry, _attr, int(data["o"][_key]))
+                            break
                 else:
                     player_name: str = data['unm']
                     player_found = False
@@ -1764,14 +1779,32 @@ class Bot:
         android tree and ``bot/templeshrine``'s usage.
 
         Args:
-            monsterid: Monster map ids to target.
+            monsterid: Monster map ids to target -- a list, or a single id in
+                either type.  A bare ``int`` used to raise "'int' object is not
+                iterable" from this line, which said nothing about the caller.
             max_target (int): Cap on how many get targeted.
         """
+        if isinstance(monsterid, (int, str)):
+            monsterid = [monsterid]
         self.target = [f"i1>m:{i}" for i in monsterid][:max_target]
         self.write_message(f"%xt%zm%gar%1%0%{','.join(self.target)}%{self.scroll_id}%wvz%")
         
     def use_potion(self, potion_id):
         self.write_message(f"%xt%zm%gar%1%0%i1>p:{self.user_id}%{potion_id}%wvz%")
+
+    def use_item(self, item_id):
+        """Consume a potion from the inventory -- what a tonic/elixir needs.
+
+        Captured use of a Potent Destruction Elixir::
+
+            From client: %xt%zm%serverUseItem%175706%+%12056%
+            From server: {"cmd":"ct","a":[{"cmd":"aura+", ... "potionType":"elixir"}]}
+
+        ``gar`` (what :meth:`use_potion` sends) is the *equipped slot 5* cast a
+        combat potion/scroll uses; a tonic or elixir is consumed from the bag and
+        never touches slot 5.
+        """
+        self.write_message(f"%xt%zm%serverUseItem%{self.areaId}%+%{item_id}%")
 
     def use_skill_to_monster(self, skill, monsters_id, max_target):
         if not monsters_id:
@@ -1910,8 +1943,17 @@ class Bot:
         return self.get_loaded_quest(quest_id) is None
 
     def _daily_ledger_path(self):
-        """``daily_state.json`` beside the engine, next to the other configs."""
-        return pathlib.Path(__file__).resolve().parent.parent / "daily_state.json"
+        """One ledger file **per account**, beside the engine.
+
+        A four-pane ultra run is four processes writing this state at the same
+        moment; a shared file meant ``os.replace`` on Windows failing with
+        WinError 32 ("being used by another process").  Every pane only writes
+        its own account's rows, so there is nothing to share: each account gets
+        its own file and the race is gone.
+        """
+        safe = re.sub(r"[^A-Za-z0-9_-]", "_", self._daily_account() or "default")
+        return (pathlib.Path(__file__).resolve().parent.parent
+                / f"daily_state_{safe.lower()}.json")
 
     def _load_daily_ledger(self) -> dict:
         """Read the per-account daily ledger once: ``{account: {quest: date}}``."""
@@ -1948,7 +1990,13 @@ class Bot:
         return rows.get(str(normalize_quest_id(quest_id))) == today
 
     def mark_daily_done_today(self, quest_id) -> None:
-        """Record ``quest_id`` as handled today, so later runs skip it."""
+        """Record ``quest_id`` as handled today, so later runs skip it.
+
+        Four ultra panes are four processes writing this file, so the write goes
+        through a temp name unique to the process and retries the rename: on
+        Windows ``os.replace`` fails with WinError 32 while another pane holds
+        the destination open ("being used by another process").
+        """
         wanted = str(normalize_quest_id(quest_id))
         if wanted == "0":
             return
@@ -1963,14 +2011,31 @@ class Bot:
         for key in list(rows):
             if rows[key] != today:
                 del rows[key]
+        self._save_daily_ledger()
+
+    def _save_daily_ledger(self) -> None:
+        """Write the ledger, tolerating the other panes writing it at the same time."""
         path = self._daily_ledger_path()
+        temporary = path.with_name(f"{path.stem}.{os.getpid()}.tmp")
         try:
-            temporary = path.with_suffix(".tmp")
-            temporary.write_text(json.dumps(ledger, indent=1, sort_keys=True),
-                                 encoding="utf-8")
-            temporary.replace(path)
+            temporary.write_text(json.dumps(self._daily_ledger, indent=1,
+                                            sort_keys=True), encoding="utf-8")
         except OSError as error:
-            print(f"[daily] could not save {path.name}: {error}")
+            print(f"[daily] could not stage {path.name}: {error}")
+            return
+        for attempt in range(5):
+            try:
+                os.replace(temporary, path)
+                return
+            except OSError:
+                # A virus scanner or the app's reader can hold it briefly.
+                time.sleep(0.05 * (attempt + 1))
+        try:
+            temporary.unlink()
+        except OSError:
+            pass
+        print(f"[daily] could not save {path.name}: another pane kept the file "
+              f"open; the ledger is left as it was this run.")
 
     def daily_unavailable(self, quest_id) -> bool:
         """True when the server refused this quest's turn-in on the same day.

@@ -1,0 +1,830 @@
+"""``V2Core`` -- the shared engine every Ultra V2 fight is written on.
+
+The reference splits this between ``CoreLoneWolf`` (presets, skill engine, army
+sync, potions, scrolls, enhancements) and each script's own ``Run`` /
+``RunFightAttempts``; this is that core half.  A boss module keeps only what is
+boss-shaped: its cells, its role rules, and the order it does things in.
+
+Deliberate differences from the reference, each decided with the user:
+
+* **no GCD/haste reading** -- the reference computes "when is the next skill
+  ready" from the Flash client (``world.GCDTS``/``world.GCD``/haste).  This
+  engine paces from the cooldown packets it already receives, so a cast is sent
+  only when the server says the slot is ready;
+* **no ``Flash.GetGameObject``** -- bank state, mana, health and auras come from
+  the models (:mod:`model.player`, :mod:`model.aura`);
+* ``Events.RunToArea`` becomes a packet subscription on ``zoneSet`` (the same
+  mechanism Ultra Speaker and Ledgermayne use).
+
+``StopRequested`` from :mod:`core.command` unwinds everything, so a stopped pane
+ends where it stood instead of walking the rest of the script.
+"""
+from __future__ import annotations
+
+import asyncio
+from typing import Any, Dict, Optional, Sequence
+
+from bot.ultra import party
+from bot.ultra.v2 import enhancements, potions, presets, scrolls
+from bot.ultra.v2.options import UltraOptions, UltraSpec, compositions
+from bot.ultra.v2.sync import PARTY_SIZE, SLOTS, Sync
+from bot.ultra.v2.presets import KINGS_ECHO, STRICT, Preset
+
+#: King's Echo thresholds, verbatim from ``CoreLoneWolf``.
+RESIDUAL_ENERGY_SKILL4 = 24
+KINGS_ECHO_MANA_FLOOR = 12
+KINGS_ECHO_SURVIVAL_HP = 50.0
+KINGS_ECHO_SURVIVAL_MANA = 24.0
+
+#: Which skill a class heals with.  ArchPaladin and Lord of Order heal on 2;
+#: Legion Revenant heals on **3**, not 2.  A class that is not listed has no
+#: known heal skill here, and the heal check is skipped for it rather than
+#: guessing one.
+HEAL_SKILL_BY_CLASS = {
+    "ArchPaladin": 2,
+    "Lord of Order": 2,
+    "Legion Revenant": 3,
+}
+
+#: ``CoreLoneWolf.GenericPrebuff``: skills 3, 2, 1, 750 ms apart.  Every ultra
+#: casts this in the **safe room**, before the party is allowed to move.
+GENERIC_PREBUFF_SKILLS = (3, 2, 1)
+GENERIC_PREBUFF_GAP_MS = 750
+
+#: Panes that must be down before the party resets.  v1's daily fights
+#: (``ultra_engineer.py`` and friends) never reset at all: a dead pane respawns
+#: and walks back in while the rest keep fighting.  So a reset means the **whole
+#: party** is down -- anything less and a single rough pull ended the run.
+WIPE_DEATHS = 4
+
+
+class V2Core:
+    """One pane of one ultra: gear, pots, skills, wipeout and quest gates."""
+
+    def __init__(self, cmd, spec: UltraSpec, options: UltraOptions,
+                 slot: int = 1, *, poll_ms: int = 150):
+        self.cmd = cmd
+        self.bot = cmd.bot
+        self.spec = spec
+        self.options = options
+        self.slot = int(slot)
+        self.poll_ms = poll_ms
+        self.sync = Sync(spec.id, self.slot, PARTY_SIZE)
+        self.preset: Preset = presets.preset_for(spec.id, options.composition,
+                                                 self.slot, options.extras)
+        self.aborted = ""
+        self.taunt_requested = False
+        #: Target the pending skill-5 taunt must hit; None keeps the rotation's.
+        self.taunt_target: Optional[str] = None
+        self._attempt_started = 0.0
+        self._death_reported = False
+        self._skill_task: Optional[asyncio.Task] = None
+        #: Arguments of the last :meth:`start_skills`, replayed after a death.
+        self._skill_args: Optional[tuple] = None
+        self._log = None
+        #: When True the rotation pauses while the target's counter-attack aura
+        #: is up.  Ezrajal is the boss that needs it (v1: ``respect_counter_attack``).
+        self.respect_counter_attack = False
+        #: Extra targets tried before the boss, in order (Engineer's two adds).
+        self.target_priority: tuple = ()
+        #: Party healing, exactly as v1's ``attack_loop`` gates it: only the
+        #: **slots** listed in ``heal_slots`` run the heal check, and slot
+        #: numbers are 1-based loadout slots -- v1's default is ``(3, 4)``.
+        #: True once a combat potion was equipped into slot 5, so the skill
+        #: loop knows to press it when the server says it is ready.
+        self.combat_equipped = False
+        self.heal_below: Optional[float] = None
+        self.heal_skill: Optional[int] = HEAL_SKILL_BY_CLASS.get(self.preset.cls)
+        self.heal_slots: tuple = (3, 4)
+        #: Minimum gap between two heal casts, so the healer keeps dpsing
+        #: instead of recasting every poll while an ally sits under the line.
+        self.heal_gap_ms = 1000
+        self._last_heal_at = 0.0
+        #: A dedicated healer (the Lord of Order) heals on cooldown instead of
+        #: waiting for somebody to drop under ``heal_below``.
+        self.spam_heal = False
+        # The heal policy shared by every ultra that fields these two classes:
+        # the ArchPaladin keeps skill 2 for anyone under 65%, and the Lord of
+        # Order is the dedicated healer (spam on cooldown).  A module may still
+        # override either after this runs.
+        if self.preset.cls == "ArchPaladin":
+            self.heal_below = 65
+        elif self.preset.cls == "Lord of Order":
+            self.spam_heal = True
+            self.heal_gap_ms = 0
+        #: While a wounded ally is waiting for the heal, the rotation is held
+        #: so the heal is the next cast rather than one rotation later.
+        self._heal_hold_until = 0.0
+        #: A fixed rotation, for the fights that copy v1's literal skill string
+        #: (Engineer's ``0 1 2 0 3 4``) instead of the class preset.
+        self.skill_rotation: tuple = ()
+        #: Panes-down threshold for the reset; 0 uses :data:`WIPE_DEATHS`.
+        self.wipe_deaths: int = 0
+        #: A strict-mode slot to skip while the pane carries ``blocked_aura``
+        #: (Ultra Dage's Verus DoomKnight must not touch skill 2 under
+        #: ``Unleashed Doom``).
+        self.blocked_skill: int = 0
+        self.blocked_aura: str = ""
+        #: Same idea, but the aura is on the target (Gramiel's ``Safeguard``).
+        self.blocked_skill_target_aura: str = ""
+        #: Turned off during Gramiel's healing hold, which cancels the attack.
+        self.auto_attack_enabled: bool = True
+        #: Skip the rotation entirely (Gramiel's healing hold for the panes
+        #: whose ordinary skills the reference suppresses).
+        self.suppress_rotation: bool = False
+        #: One skill to cast as soon as the server allows it (the reference's
+        #: ``RequestPrioritySkill``); cleared once it goes out.
+        self.priority_skill: int = 0
+        #: Target for that skill (``RequestTargetedPrioritySkill``); empty keeps
+        #: whatever the rotation is aimed at.
+        self.priority_skill_target: str = ""
+        #: King's Echo only casts its upkeep skill above this mana percentage;
+        #: Ultra Darkon's Stable column raises it to 25 (``kingsEchoManaThreshold``).
+        self.kings_echo_mana_floor: float = KINGS_ECHO_MANA_FLOOR
+        #: Diagnostics: when the rotation last cast something, and when it was
+        #: last reported idle (a pane that only auto-attacks must say why).
+        self._last_cast_at = 0.0
+        self._idle_reported_at = 0.0
+
+    # ------------------------------------------------------------------ log
+    @property
+    def alias(self) -> str:
+        return f"player{self.slot}"
+
+    def log(self, message: str) -> None:
+        """One line, always tagged with the ultra, slot and class."""
+        line = f"[V2 {self.spec.title.replace('Ultra ', '')}] {self.alias} " \
+               f"({self.preset.cls}): {message}"
+        try:
+            self.bot.log(line)
+        except Exception:
+            print(line)
+
+    def owned_class(self) -> str:
+        """The first class name this pane actually owns (alternates included)."""
+        for name in self.class_names:
+            if self.cmd.is_in_inventory_or_bank(name):
+                return name
+        return self.preset.cls
+
+    @property
+    def class_names(self) -> tuple:
+        """The preset's class plus its ``AlternateClassNames``."""
+        return (self.preset.cls,) + tuple(getattr(self.preset, "alternates", ()))
+
+    def describe(self) -> str:
+        """The line a run prints before it touches anything."""
+        short = " / ".join(presets.preset_for_class(cls).short
+                           for cls in compositions(self.spec.id)[
+                               self.options.composition])
+        return (f"slot {self.slot} wears {self.preset.cls} in the "
+                f"{self.options.composition} composition ({short})")
+
+    def abort(self, reason: str) -> bool:
+        """Say why the run is stopping, tell the whole party, answer False.
+
+        One pane stopping stops the party: the abort marker is written for every
+        slot (the reference's ``StopArmySync``), so the others unwind at their
+        next step or loop check instead of waiting on a party that is already
+        gone.
+        """
+        self.aborted = reason
+        self.log(f"stopping: {reason}")
+        self._tele("abort", reason=reason)
+        if self.sync.enabled:
+            self.sync.stop(reason)
+        return False
+
+    def _tele(self, kind: str, **fields) -> None:
+        """Forward one event to the run telemetry, when one is attached.
+
+        The hub installs it per pane (``bot.ultra.telemetry.install_from_env``),
+        exactly as the v1 ultra menus do, so the dashboard reads Ultra V2 runs
+        the same way.  Never raises: telemetry must not end a fight.
+        """
+        telemetry = getattr(self.bot, "telemetry", None)
+        if telemetry is None:
+            return
+        try:
+            telemetry.write(kind, ultra=self.spec.id, slot=self.slot,
+                            cls=self.preset.cls, **fields)
+        except Exception:
+            pass
+
+    # --------------------------------------------------------------- access
+    async def validate_access(self) -> bool:
+        """Level and class, the reference's ``ValidateUltraAccess`` minus the quest probe.
+
+        The reference also gates on the prerequisite quest with
+        ``Quests.IsCompletedBefore``, which this engine answers by sending a
+        turn-in probe -- and a story quest still in progress replies "Missing
+        Turn In Item", which is indistinguishable from "not done".  Gating on
+        that refused every ultra on accounts that had done the quest.  The
+        prerequisite is not checked here: the ultra's own accept and turn-in
+        decide, and a missing item is retried by the module's run loop.
+        """
+        level = int(getattr(self.bot.player, "LEVEL", 0) or 0)
+        if level < self.spec.min_level:
+            self.log(f"level {level} is below the {self.spec.min_level} this "
+                     f"ultra needs.")
+            return self.abort(f"level {level} < {self.spec.min_level}")
+        owned = next((name for name in self.class_names
+                      if self.cmd.is_in_inventory_or_bank(name)), "")
+        if not owned:
+            self.log(f"{'/'.join(self.class_names)} is in neither the "
+                     f"inventory nor the bank.")
+            return self.abort(f"{self.preset.cls} is not owned")
+        return True
+
+    # ---------------------------------------------------------------- setup
+    async def prepare(self, *, scroll: Optional[str] = None,
+                      drop_combat_potion: bool = False) -> bool:
+        """Equip the class, wear the enhancements, stock the potions and scroll."""
+        self.log(f"starting setup: {self.describe()}")
+        equipped = self.owned_class()
+        if not await self.cmd.equip_item(equipped):
+            return self.abort(f"could not equip {equipped}")
+
+        if self.options.use_enhancements:
+            self.log(f"enhancements: {enhancements.describe(self.preset)}")
+            if not await enhancements.prepare(self.cmd, self.preset):
+                return self.abort("an enhancement the composition needs is "
+                                  "missing")
+        else:
+            self.log("enhancements: skipped by the option.")
+
+        if self.options.use_potions:
+            combat = None if drop_combat_potion else self.preset.combat_potion
+            for name in (self.preset.tonic, self.preset.elixir, combat):
+                if name:
+                    await potions.prepare(self.cmd, name)
+        else:
+            self.log("potions: skipped by the option.")
+
+        if scroll:
+            if not await scrolls.prepare(self.cmd, scroll):
+                return self.abort(f"{scroll} stock is short")
+        self._tele("loadout", composition=self.options.composition,
+                   retries=self.options.retries, rotation=list(self.rotation))
+        self.log("setup finished.")
+        return True
+
+    async def use_potions(self, *, drop_combat_potion: bool = False) -> None:
+        """Drink the tonic/elixir and equip slot 5 for this attempt."""
+        if not self.options.use_potions:
+            return
+        combat = None if drop_combat_potion else self.preset.combat_potion
+        await potions.use_loadout(self.cmd, self.preset.tonic,
+                                  self.preset.elixir, combat)
+        self.combat_equipped = bool(combat)
+
+    # ----------------------------------------------------------------- fight
+    async def require_step(self, step: str, timeout: int = 180) -> bool:
+        """A barrier the party must **really** fill, or the run stops.
+
+        :meth:`Sync.step` concedes after its timeout so one dead pane cannot
+        hang the rest -- right for bookkeeping, wrong for the pull: the party
+        that walks into the boss room a pane short is the pull that fails.
+        """
+        if await self.sync.step(step, timeout=timeout, strict=True):
+            return True
+        if self.sync.aborted():
+            return False
+        return self.abort(f"the party did not all reach {step}")
+
+    async def precast_buffs(self, skills: Sequence[int] = GENERIC_PREBUFF_SKILLS,
+                            gap_ms: int = GENERIC_PREBUFF_GAP_MS) -> None:
+        """Cast the opening buffs before a pull -- and again after every wipe.
+
+        v1's ``precast_buffs``, which the daily bosses use: the buffs are gone
+        after a wipe, so a reset attempt that walks back in without them fights
+        with no buffs at all.  Every Ultra V2 module calls this before
+        :meth:`start_skills` and after :meth:`handle_reset`.
+        """
+        for skill in skills:
+            await self.cmd.use_skill(skill, buff_only=True)
+            await self.cmd.sleep(gap_ms)
+
+    def counter_attack_active(self, target: str) -> bool:
+        """True while the target carries Ezrajal's ``Counter Attack`` aura."""
+        return self.target_aura("Counter Attack")
+
+    async def start_skills(self, target: str, *, use_survival: bool = False,
+                           taunter: bool = False) -> None:
+        """Run the skill engine in the background until :meth:`stop_skills`."""
+        await self.stop_skills()
+        self._skill_args = (target, use_survival, taunter)
+        self._skill_task = asyncio.create_task(
+            self._skill_loop(target, use_survival=use_survival,
+                             taunter=taunter))
+
+    async def resume_skills(self) -> None:
+        """Restart the skill engine after a death.
+
+        ``_skill_loop`` ends when the player dies (its condition includes
+        ``not ISDEAD``), so a respawned pane used to stand in the cell without
+        attacking -- exactly the ArchPaladin case.  Every fight loop calls this
+        through :meth:`wait_respawn`.
+        """
+        if self._skill_args is None:
+            return
+        if self._skill_task is not None and not self._skill_task.done():
+            return
+        target, use_survival, taunter = self._skill_args
+        await self.start_skills(target, use_survival=use_survival,
+                                taunter=taunter)
+
+    async def stop_skills(self) -> None:
+        task, self._skill_task = self._skill_task, None
+        if task is None or task.done():
+            return
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
+
+    def request_taunt(self, target: Optional[str] = None) -> None:
+        """Ask for skill 5 (``RequestTaunt``); ``target`` pins it to one monster."""
+        self.taunt_requested = True
+        self.taunt_target = target
+
+    async def _skill_loop(self, target: str, *, use_survival: bool,
+                          taunter: bool) -> None:
+        preset = self.preset
+        index = 0
+        while (self.cmd.is_still_connected()
+               and not self.bot.player.ISDEAD
+               and not self.sync.aborted()):
+            target = self.pick_target(target)
+            if not self.cmd.is_monster_alive(target):
+                # No target this instant -- the add died, the boss is about to
+                # spawn, the cell is still loading.  Idle and keep the engine:
+                # the fight loop owns "the fight is over".  Exiting here is what
+                # left a pane standing still after its add died, even after the
+                # add came back.
+                await self.cmd.sleep(self.poll_ms)
+                continue
+            # Skill 0 first, on its own: it never waits for the heal, the
+            # potion or the rotation.  The heal comes right after, so it is
+            # never more than one auto attack behind either.
+            if await self._auto_attack(target):
+                pass
+            if await self._heal_step():
+                await self.cmd.sleep(self.poll_ms)
+                continue
+            if self.combat_equipped and self.bot.player.canUseSkill(5):
+                # A combat potion lives in slot 5; the rotation never lists it,
+                # so it is pressed here on the server's own cooldown.
+                if await self.cmd.use_skill(5):
+                    await self.cmd.sleep(self.poll_ms)
+                    continue
+            taunt_cast = False
+            if self.taunt_requested:
+                taunt_on = self.taunt_target or target
+                if taunter and await self.cmd.use_skill(5, target_monsters=taunt_on):
+                    # Only a taunt that actually went out clears the request:
+                    # the reference keeps it pending until skill 5 is cast, so
+                    # a threshold taunt is not lost to one busy poll.
+                    self.taunt_requested = False
+                    self.taunt_target = None
+                    taunt_cast = True
+                    self.log(f"taunt cast (skill 5) on {taunt_on}.")
+                elif not self.cmd.is_monster_alive(taunt_on):
+                    self.taunt_requested = False
+                    self.taunt_target = None
+
+            if taunt_cast:
+                # A taunt that is still waiting for the scroll must **not** hold
+                # the rotation: the request stays pending, but the pane keeps
+                # casting.  Blocking here is what left Verus DoomKnight and the
+                # Lord of Order on auto attacks alone while a taunt was queued.
+                pass
+            elif (self.respect_counter_attack
+                  and self.counter_attack_active(target)):
+                # Attacking into the counter attack kills the party, but the
+                # buffs must keep going: v1 holds the rotation and keeps
+                # casting its buff/heal slots (``buff_only``).
+                await self._buff_step(target)
+                await self.cmd.sleep(self.poll_ms)
+            elif self.suppress_rotation:
+                await self.cmd.sleep(self.poll_ms)
+            elif self.suppress_rotation:
+                await self.cmd.sleep(self.poll_ms)
+            elif preset.mode == KINGS_ECHO:
+                # King's Echo and Verus DoomKnight follow the reference's own
+                # skill engines; the auto attack above is still theirs.
+                await self._kings_echo_step(target, use_survival)
+            elif preset.mode == STRICT:
+                index = await self._strict_step(target, index)
+            else:
+                await self._simple_step(target)
+            self._report_idle_rotation(target)
+            await self.cmd.sleep(self.poll_ms)
+
+    def _report_idle_rotation(self, target: str) -> None:
+        """Say why the rotation casts nothing, at most every 10 seconds.
+
+        ``canUseSkill`` is false while a slot is on cooldown **or** short of
+        mana, so a pane can sit on auto attacks alone without any error.  This
+        line is what tells the two apart after the fact.
+        """
+        import time as _time
+        now = _time.time()
+        if now - self._last_cast_at < 5.0 or now - self._idle_reported_at < 10.0:
+            return
+        self._idle_reported_at = now
+        player = self.bot.player
+        ready = [slot for slot in self.rotation
+                 if player.canUseSkill(slot)]
+        self.log(f"rotation idle: mana {int(getattr(player, 'MANA', 0))}"
+                 f"/{int(getattr(player, 'MAX_MP', 0))}, target {target}, "
+                 f"ready slots {ready or 'none'}"
+                 f"{' (rotation suppressed)' if self.suppress_rotation else ''}")
+
+    async def _buff_step(self, target: str) -> None:
+        """Cast whichever rotation slot is a buff -- no damage while holding."""
+        for slot in self.preset.skills:
+            if not self.bot.player.canUseSkill(slot):
+                continue
+            if await self.cmd.use_skill(slot, target_monsters=target,
+                                       buff_only=True):
+                return
+
+    async def _auto_attack(self, target: str) -> bool:
+        """Press skill 0 whenever it is ready -- separate from the rotation.
+
+        v1 lists ``0`` inside its string, but the user's rule is stronger: the
+        auto attack must run on its own and never wait for another skill's
+        cooldown, so it is pressed here every pass and the rotation no longer
+        contains it.
+        """
+        if not self.auto_attack_enabled:
+            return False
+        if not self.bot.player.canUseSkill(0):
+            return False
+        return bool(await self.cmd.use_skill(0, target_monsters=target))
+
+    async def _heal_step(self) -> bool:
+        """Cast the heal when a party member is under the threshold.
+
+        v1's ``attack_loop(..., heal_below=60, heal_skill=2)``: a support slot
+        tops the party up before its next rotation step.  This is what keeps a
+        drone phase from turning into a wipe.
+        """
+        if self.heal_slots and self.slot not in self.heal_slots:
+            return False
+        if self.heal_skill is None:
+            # No heal skill is known for this class; do not invent one.
+            return False
+        import time as _time
+        if (_time.time() - self._last_heal_at) * 1000 < self.heal_gap_ms:
+            return False
+        if not self.bot.player.canUseSkill(self.heal_skill):
+            return False
+        if self.spam_heal:
+            healed = bool(await self.cmd.use_skill(self.heal_skill))
+            if healed:
+                self._last_heal_at = _time.time()
+            return healed
+        if self.heal_below is None:
+            # No threshold and no spam: this class does not heal proactively.
+            return False
+        wounded = self.wounded_allies()
+        if not wounded:
+            self._heal_hold_until = 0.0
+            return False
+        healed = bool(await self.cmd.use_skill(self.heal_skill))
+        if healed:
+            self._last_heal_at = _time.time()
+            self._heal_hold_until = 0.0
+            self.log(f"heal (skill {self.heal_skill}) for "
+                     f"{', '.join(wounded)}")
+            return True
+        # The heal is needed but did not go out: hold the rotation for a moment
+        # so the retry is the very next cast (the reference's heal takes the
+        # engine's next slot), instead of a rotation skill taking it.
+        if self._heal_hold_until == 0.0:
+            self._heal_hold_until = _time.time() + 1.0
+            self.log(f"heal pending for {', '.join(wounded)}; holding the "
+                     f"rotation.")
+        if _time.time() < self._heal_hold_until:
+            return True
+        self._heal_hold_until = 0.0
+        return False
+
+    def wounded_allies(self) -> list:
+        """Names of party members under :attr:`heal_below`, with live HP.
+
+        Our own HP comes from the player model: ``player_in_area``'s self entry
+        was written once when the map loaded and never updated, so a guard that
+        trusted it never saw the pane itself drop.  A member at 0 HP is dead --
+        a heal cannot help there, and treating it as wounded latched the guard
+        onto a corpse and spent the heal away from the living.
+        """
+        threshold = self.heal_below
+        if threshold is None:
+            return []
+        player = self.bot.player
+        wounded = []
+        try:
+            if player.MAX_HP and (player.CURRENT_HP / player.MAX_HP) * 100 < threshold:
+                wounded.append(str(getattr(player, "USER", "self")))
+        except Exception:
+            pass
+        me = str(getattr(player, "USER", "") or "").lower()
+        for other in getattr(self.bot, "player_in_area", []) or []:
+            try:
+                name = str(getattr(other, "str_username", "") or "")
+                if name.lower() == me:
+                    continue
+                if int(getattr(other, "int_hp", 0) or 0) <= 0:
+                    continue
+                if other.is_hp_below(threshold):
+                    wounded.append(name)
+            except Exception:
+                continue
+        return wounded
+
+    @property
+    def rotation(self) -> tuple:
+        """The skill rotation, **without** skill 0.
+
+        Skill 0 is the auto attack and is pressed by :meth:`_auto_attack`
+        independently of the rotation, so it never waits for another skill's
+        cooldown and never appears twice in one pass.
+        """
+        rotation = tuple(self.skill_rotation or self.preset.skills)
+        return tuple(slot for slot in rotation if slot != 0)
+
+    async def _simple_step(self, target: str) -> None:
+        """Cast the first rotation skill the server says is ready."""
+        for slot in self.rotation:
+            if not self.bot.player.canUseSkill(slot):
+                continue
+            if await self.cmd.use_skill(slot, target_monsters=target):
+                self._last_cast_at = __import__("time").time()
+                return
+        await self.cmd.sleep(100)
+
+    async def _strict_step(self, target: str, index: int) -> int:
+        """Walk the fixed rotation, advancing only on a cast (``Strict``)."""
+        # Skill 0 is pressed by :meth:`_auto_attack`; a preset that lists it
+        # still walks the rest, so the auto attack is never cast twice.
+        rotation = tuple(slot for slot in self.preset.skills if slot != 0)
+        if not rotation:
+            return 0
+        slot = rotation[index % len(rotation)]
+        blocked = False
+        if slot == self.blocked_skill:
+            if (self.blocked_aura
+                    and self.self_aura(self.blocked_aura) is not None):
+                blocked = True
+            if (self.blocked_skill_target_aura
+                    and self.target_aura(self.blocked_skill_target_aura)):
+                blocked = True
+        if blocked:
+            # Skip it for this pass instead of stalling the rotation on a slot
+            # the aura forbids.
+            return (index + 1) % len(rotation)
+        if await self.cmd.use_skill(slot, target_monsters=target):
+            self._last_cast_at = __import__("time").time()
+            return (index + 1) % len(rotation)
+        return index
+
+    async def _kings_echo_step(self, target: str, use_survival: bool) -> None:
+        """``KingsEchoSkillEngine``: energy/mana first, survival second."""
+        player = self.bot.player
+        residual = self.self_aura_value("Residual Energy")
+        if ((residual >= RESIDUAL_ENERGY_SKILL4
+             or _percent(player.MANA, player.MAX_MP) < self.kings_echo_mana_floor)
+                and player.canUseSkill(4)):
+            if await self.cmd.use_skill(4, target_monsters=target):
+                return
+
+        hp = _percent(player.CURRENT_HP, player.MAX_HP)
+        mp = _percent(player.MANA, player.MAX_MP)
+        if (use_survival and hp < KINGS_ECHO_SURVIVAL_HP
+                and mp > KINGS_ECHO_SURVIVAL_MANA
+                and player.canUseSkill(3)):
+            if await self.cmd.use_skill(3, target_monsters=target):
+                return
+
+        for slot in self.preset.skills:
+            if slot == 0:
+                continue      # the auto attack has its own tick
+            if player.canUseSkill(slot):
+                if await self.cmd.use_skill(slot, target_monsters=target):
+                    self._last_cast_at = __import__("time").time()
+                    return
+        await self.cmd.sleep(100)
+
+    # ---------------------------------------------------------------- auras
+    def self_aura(self, name: str):
+        """The player's aura of that name, or None."""
+        return self.bot.player.getAura(name)
+
+    def self_aura_value(self, name: str) -> int:
+        aura = self.self_aura(name)
+        return int(getattr(aura, "value", 0) or 0) if aura else 0
+
+    def pick_target(self, default: str) -> str:
+        """The first alive target from :attr:`target_priority`, else ``default``.
+
+        Engineer is the boss that needs it: two adds (``id.2``, ``id.1``) come
+        before the main boss (``id.3``), and the reference re-reads that order
+        every pass of the fight loop.
+        """
+        for candidate in self.target_priority:
+            if self.cmd.is_monster_alive(candidate):
+                return candidate
+        return default
+
+    def target_aura_expiry(self, name: str, target: str = ""):
+        """The target's aura expiry for ``name``, or None (``GetFocusExpiry``).
+
+        ``target`` names the monster to read; without it the pane's own boss is
+        used.  Ultra Drago reads Focus off a *guard* while the rotation is on a
+        different monster, so the two cannot share the boss id.
+        """
+        monster = self.cmd.get_monster(target or self._target_name())
+        if monster is None:
+            return None
+        from core.utils import normalize
+        wanted = normalize(name)
+        for aura in getattr(monster, "AURAS", []) or []:
+            if normalize(getattr(aura, "name", "")) == wanted:
+                return getattr(aura, "expires_at", None)
+        return None
+
+    def target_aura(self, name: str, target: str = "") -> bool:
+        """True when ``target`` (default: the boss) carries that aura."""
+        monster = self.cmd.get_monster(target or self._target_name())
+        if monster is None:
+            return False
+        from core.utils import normalize
+        wanted = normalize(name)
+        return any(normalize(getattr(aura, "name", "")) == wanted
+                   for aura in getattr(monster, "AURAS", []) or [])
+
+    def _target_name(self) -> str:
+        return f"id.{self.spec.monster_id}"
+
+    # -------------------------------------------------------------- wipeout
+    def begin_attempt(self, attempt: int = 0) -> None:
+        """Mark the moment this attempt started, for the wipe detector."""
+        self._attempt_started = __import__("time").time()
+        self._death_reported = False
+        self._tele("attempt", attempt=attempt)
+
+    def note_death(self) -> None:
+        """Publish this pane's death; telemetry and the log once per attempt.
+
+        The marker goes out on **every** death: ``wait_respawn`` clears it when
+        the pane comes back, so a second death in the same attempt (the one a
+        wipe is made of) has to republish it, or ``should_reset`` never sees
+        four panes down.  The log line and the telemetry event stay one per
+        attempt so a pane on its third respawn does not spam them.
+        """
+        if not self.bot.player.ISDEAD:
+            return
+        if self.sync.enabled:
+            party.report_death(self.sync.name, self.slot)
+        if self._death_reported:
+            return
+        self._death_reported = True
+        self._tele("death")
+        self.log("died.")
+
+    def should_reset(self, attempt: int) -> bool:
+        """True when a wipe took ``WIPE_DEATHS`` panes down in this attempt."""
+        if attempt <= 0 or not self.sync.enabled:
+            return False
+        deaths = party.death_times(self.sync.name, SLOTS)
+        down = [slot for slot, when in deaths.items()
+                if when >= self._attempt_started]
+        if len(down) >= (self.wipe_deaths or WIPE_DEATHS):
+            self._tele("wipe", slots=sorted(down))
+            self.log(f"wipe detected: slots {', '.join(map(str, sorted(down)))} "
+                     f"went down this attempt.")
+            return True
+        return False
+
+    async def wait_respawn(self, attempt: int) -> str:
+        """Wait out a death; ``"alive"``, ``"reset"`` or ``"stopped"``."""
+        while (self.cmd.is_still_connected() and self.bot.player.ISDEAD
+               and not self.sync.aborted()):
+            self.note_death()
+            if self.should_reset(attempt):
+                return "reset"
+            await self.cmd.sleep(500)
+        if not self.cmd.is_still_connected() or self.sync.aborted():
+            return "stopped"
+        if self.sync.enabled:
+            party.clear_death(self.sync.name, self.slot)
+        self.log("respawned.")
+        # A dead player ends _skill_loop; bring it back with the pane.
+        await self.resume_skills()
+        return "alive"
+
+    async def handle_reset(self, attempt: int) -> bool:
+        """Regroup at the safe room after a wipe (``HandleFightReset``)."""
+        await self.stop_skills()
+        self.log(f"attempt {attempt} reset; regrouping at "
+                 f"{self.spec.safe_cell}/{self.spec.safe_pad}.")
+        # Always regroup in the safe cell (Enter/Spawn): the wipe restarts
+        # from there, never from wherever the boss left the pane.
+        await self.cmd.jump_cell(self.spec.safe_cell, self.spec.safe_pad)
+        alive = await self.wait_respawn(attempt)
+        if alive == "stopped":
+            return False
+        if alive == "reset":
+            return False
+        if not self.in_safe_room():
+            self.log("could not reach the safe room after the reset.")
+            return False
+        return self.sync.step(f"FIGHT_RESET_{attempt}_SAFE")
+
+    # ------------------------------------------------------------------ map
+    async def join(self, map_name: Optional[str] = None, *,
+                   safe: bool = True) -> None:
+        """Join the ultra's map (private room honoured) and take the safe cell."""
+        target = map_name or self.spec.map
+        room = self.options.private_room or None
+        await self.cmd.join_map(target, room)
+        if safe:
+            await self.cmd.jump_cell(self.spec.safe_cell, self.spec.safe_pad)
+
+    def in_safe_room(self) -> bool:
+        cell = str(getattr(self.bot.player, "CELL", "") or "")
+        return cell.lower() == self.spec.safe_cell.lower()
+
+    def in_boss_room(self) -> bool:
+        cell = str(getattr(self.bot.player, "CELL", "") or "")
+        return cell.lower() == self.spec.boss_cell.lower()
+
+    async def jump_boss(self) -> None:
+        await self.cmd.jump_cell(self.spec.boss_cell, self.spec.boss_pad)
+
+    # ---------------------------------------------------------------- quests
+    async def defeat_and_turn_in(self) -> bool:
+        """Win, then turn in -- pulling again only when the drop is missing.
+
+        The requirement is the items, not the turn-in itself: with every item in
+        hand a refused turn-in is the server's answer, so the run stops there
+        instead of farming a quest it already fulfilled.  Without the items, one
+        more pull per remaining attempt, then it stops and says so.
+        """
+        rounds = max(1, int(self.options.retries))
+        for round_number in range(1, rounds + 1):
+            if not await self.fight_attempts():
+                return False
+            if await self.finish_quest():
+                return True
+            if self.cmd.can_turnin_quest(self.spec.quest):
+                self.log("every item the quest asks for is in hand, but the "
+                         "server refused the turn-in; stopping here.")
+                return False
+            self.log(f"the turn-in is still short after round "
+                     f"{round_number}/{rounds}; pulling again.")
+        return self.abort("the quest never became turnable")
+
+    async def accept_quest(self) -> bool:
+        """Accept the ultra's quest, the reference's ``AcceptUltraQuest``."""
+        if not await self.cmd.ensure_accept_quest(self.spec.quest):
+            return self.abort(f"quest {self.spec.quest} could not be accepted "
+                              f"(the daily may already be done)")
+        return True
+
+    async def finish_quest(self) -> bool:
+        """Turn the ultra's quest in; False (no abort) when it is not ready.
+
+        A refused turn-in usually means the party is still short a drop, not
+        that the run is over -- the caller takes the party back in and tries
+        again, bounded by the retry option.
+        """
+        await self.cmd.jump_cell(self.spec.safe_cell, self.spec.safe_pad)
+        if not await self.cmd.ensure_turn_in_quest(self.spec.quest):
+            self.log(f"quest {self.spec.quest} did not turn in; the party is "
+                     f"probably still short its drop.")
+            return False
+        self.sync.mark_done()
+        self._tele("quest_done", quest=self.spec.quest)
+        return True
+
+    # ------------------------------------------------------------- reporting
+    def status(self) -> Dict[str, Any]:
+        """Small dict the hub page shows while the run is alive."""
+        return {
+            "ultra": self.spec.id,
+            "slot": self.slot,
+            "alias": self.alias,
+            "class": self.preset.cls,
+            "composition": self.options.composition,
+            "cell": getattr(self.bot.player, "CELL", ""),
+            "aborted": self.aborted,
+        }
+
+
+def _percent(value: int, maximum: int) -> float:
+    return (value / maximum * 100.0) if maximum else 0.0

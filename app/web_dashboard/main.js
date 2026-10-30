@@ -1,4 +1,4 @@
-document.addEventListener('DOMContentLoaded', () => {
+﻿document.addEventListener('DOMContentLoaded', () => {
     let statusInterval = null;
     let currentTheme = localStorage.getItem("global-theme") || "default";
 
@@ -83,6 +83,50 @@ document.addEventListener('DOMContentLoaded', () => {
         weekly_doom: {
             title: "Weekly Doom",
             subtitle: "Turn in the Gear of Doom quest for one or many accounts"
+        },
+        ultra_v2_warden: {
+            title: "Ultra V2 - Ultra Warden",
+            subtitle: "Four-pane army port of UltraWarden_LW: Enrage taunt at 500k, one boss"
+        },
+        ultra_v2_ezrajal: {
+            title: "Ultra V2 - Ultra Ezrajal",
+            subtitle: "Four-pane army port of UltraEzrajal_LW: buffs first, hold the rotation on Counter Attack"
+        },
+        ultra_v2_tyndarius: {
+            title: "Ultra V2 - Ultra Tyndarius",
+            subtitle: "Port of UltraTyndarius_LW: Righteous Seal gate, adds id.3/id.1, boss id.2"
+        },
+        ultra_v2_engineer: {
+            title: "Ultra V2 - Ultra Engineer",
+            subtitle: "Four-pane army port of UltraEngineer_LW: two adds (id.2, id.1) before the boss (id.3)"
+        },
+        ultra_v2_drakath: {
+            title: "Ultra V2 - Ultra Drakath",
+            subtitle: "Weekly army port of UltraDrakath_LW: boss id.1, StoneCrusher/ArchPaladin taunt ladder by boss HP"
+        },
+        ultra_v2_nulgath: {
+            title: "Ultra V2 - Ultra Nulgath",
+            subtitle: "Weekly army port of UltraNulgath_LW: Blade id.1 / Nulgath id.2, Abyss! packet taunt relay"
+        },
+        ultra_v2_drago: {
+            title: "Ultra V2 - Ultra Drago",
+            subtitle: "Weekly army port of UltraDrago_LW: guards Dene id.1 / Algie id.3, guard-pair Focus taunts, counted pull"
+        },
+        ultra_v2_dage: {
+            title: "Ultra V2 - Ultra Dage",
+            subtitle: "Weekly army port of UltraDage_LW: Enrage taunt pair, Decay/Mystify scroll duties and the safe-window heal"
+        },
+        ultra_v2_gramiel: {
+            title: "Ultra V2 - Ultra Gramiel",
+            subtitle: "Weekly army port of UltraGramiel_LW: crystal balancing, packet-driven taunts, three nuke cycles with healing holds"
+        },
+        ultra_v2_speaker: {
+            title: "Ultra V2 - Ultra Speaker",
+            subtitle: "Weekly army port of UltraSpeaker_LW: Truth/Listen chart, Equalize zone walks and the Righteous Seal cover"
+        },
+        ultra_v2_darkon: {
+            title: "Ultra V2 - Ultra Darkon",
+            subtitle: "Weekly army port of UltraDarkon_LW: Attack2/Attack3 cycles, alternating Enrage taunts, delayed heals and the LoO skill-4 hold"
         }
     };
 

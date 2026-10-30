@@ -1,4 +1,4 @@
-import os
+﻿import os
 import sys
 import time
 import json
@@ -11,6 +11,7 @@ import importlib
 import platform
 import subprocess
 import shutil
+import pathlib
 import hashlib
 try:
     import webview  # only needed for the desktop window; absent on headless servers
@@ -349,6 +350,42 @@ def _stop_panes(active_threads: dict, timeout_s: float = 20.0,
             if id(thread) in alive_ids}
 
 
+def _ultra_run_folder():
+    """``capture_logs/ultra/<run id>`` for the run the panes are in, or None."""
+    run_id = os.environ.get("AQW_RUN_ID", "").strip()
+    if not run_id or run_id == "manual":
+        return None
+    if not all(c.isalnum() or c in "-_" for c in run_id):
+        return None
+    return pathlib.Path(__file__).resolve().parents[1] / "capture_logs" / "ultra" / run_id
+
+
+def _clear_run_folder(threads, tag=""):
+    """Close the panes' telemetry and delete this run's folder.
+
+    The folder holds the party markers *and* the telemetry jsonl of one run.
+    The user asked for it to go on every stop, whatever caused it: markers left
+    behind are exactly what let a later run's barriers pass on their own, and
+    the panes are stopped by the time this runs, so nothing is still writing.
+    """
+    for thread in threads:
+        telemetry = getattr(getattr(thread, "bot_instance", None),
+                            "telemetry", None)
+        try:
+            if telemetry is not None:
+                telemetry.close()
+        except Exception:
+            pass
+    folder = _ultra_run_folder()
+    if folder is None or not folder.exists():
+        return
+    try:
+        shutil.rmtree(folder, ignore_errors=True)
+        print(f"[{tag or 'app'}] run folder cleared: {folder.name}")
+    except Exception:
+        pass
+
+
 class _WebLogs:
     """Ring buffer of log lines for browser (HTTP) clients.
 
@@ -647,7 +684,8 @@ class UltraBotThread(threading.Thread):
     """
 
     def __init__(self, slot, kind, username, password, server, room_number,
-                 leader, slaves, role, callback, missing_policy="stop"):
+                 leader, slaves, role, callback, missing_policy="stop",
+                 ultra=None, v2_options=None):
         super().__init__()
         self.slot = slot
         self.kind = kind                    # "daily" | "speaker"
@@ -660,6 +698,9 @@ class UltraBotThread(threading.Thread):
         self.role = role                    # speaker: class name; daily: ""
         self.callback = callback
         self.missing_policy = missing_policy
+        #: Ultra V2: which fight this pane runs, and the form's values.
+        self.ultra = ultra
+        self.v2_options = v2_options
         self.bot_instance = None
         self.daemon = True
 
@@ -679,6 +720,10 @@ class UltraBotThread(threading.Thread):
             isScriptable=True,
             followPlayer=(self.leader or "").lower(),
             slavesPlayer=self.slaves,
+            # An ultra is a fixed four-pane pull: a pane that drops stays down
+            # so the party stops together.  Relogin would put a half party back
+            # into the same fight, which is what the app watchdog used to do.
+            autoRelogin=self.ultra is None,
             soloClass=self.role or None,
             muteSpamWarning=True,
         )
@@ -692,7 +737,11 @@ class UltraBotThread(threading.Thread):
             except Exception as exc:
                 print(f"[ultra slot {self.slot}] telemetry off: {exc}")
 
-            if self.kind == "speaker":
+            if self.ultra:
+                from bot.ultra.v2.registry import build_runner
+                runner = build_runner(self.ultra, b.command, self.slot,
+                                      self.v2_options)
+            elif self.kind == "speaker":
                 from bot.ultra.core_ultra import UltraSpeaker
                 runner = UltraSpeaker(b.command, self.slot)
             else:
@@ -705,7 +754,11 @@ class UltraBotThread(threading.Thread):
 
             loop.run_until_complete(b.start_bot(run_bot))
         except Exception as e:
-            print(f"[ultra slot {self.slot}] execution stopped or error occurred: {e}")
+            # The thread swallows the stack otherwise, and "X is not iterable"
+            # says nothing about which line -- the hub log needs the traceback.
+            import traceback
+            print(f"[ultra slot {self.slot}] execution stopped or error "
+                  f"occurred: {e}\n{traceback.format_exc()}")
         finally:
             if telemetry is not None:
                 try:
@@ -2288,9 +2341,116 @@ def _spec_name(spec):
     return getattr(spec, "name", spec)
 
 
+def _cooldown_reduction(player) -> float:
+    """Effective cooldown reduction the server honours (0.5 cap)."""
+    try:
+        from core.player import MAX_COOLDOWN_REDUCTION
+        return round(min(float(getattr(player, "CDREDUCTION", 0) or 0),
+                         MAX_COOLDOWN_REDUCTION), 3)
+    except Exception:
+        return 0.0
+
+
+def _slot5_name(bot) -> str:
+    """Name of the item equipped in slot 5 (the potion or scroll), or ""."""
+    wanted = str(getattr(bot, "scroll_id", "") or "")
+    if not wanted:
+        return ""
+    for item in getattr(getattr(bot, "player", None), "INVENTORY", []) or []:
+        if str(getattr(item, "item_id", "")) == wanted:
+            return str(getattr(item, "item_name", "") or "")
+    return ""
+
+
+def _skill_cooldown_seconds(player) -> dict:
+    """``{slot: seconds_left}`` for the solo menu's skill badges."""
+    out = {}
+    for row in _skill_cooldowns(player):
+        out[row["slot"]] = round(row["ready_in"] / 1000.0, 1)
+    return out
+
+
+def _monster_readout(bot) -> list:
+    """``[{id, name, hp, max_hp, alive}]`` for the monsters in this cell."""
+    rows = []
+    try:
+        for monster in (getattr(bot, "monsters", None) or [])[:6]:
+            rows.append({
+                "id": str(getattr(monster, "mon_map_id", "") or ""),
+                "name": getattr(monster, "mon_name", "") or
+                        f"Monster {getattr(monster, 'mon_map_id', '?')}",
+                "hp": int(getattr(monster, "current_hp", 0) or 0),
+                "max_hp": int(getattr(monster, "max_hp", 0) or 0),
+                "alive": bool(getattr(monster, "is_alive", False)),
+            })
+    except Exception:
+        return []
+    return rows
+
+
+def _target_readout(bot) -> dict:
+    """The monster this pane is attacking right now, ``{}`` when none.
+
+    ``player.last_target`` is set by the engine on every hostile cast
+    (``use_skill_to_monster``), so it follows a retarget by itself -- the adds
+    fight and the boss cycle both show up without the fight code telling the
+    menu anything.  The live object from ``bot.monsters`` wins over the stored
+    reference so the HP is the current one.
+    """
+    try:
+        player = getattr(bot, "player", None)
+        monster = None
+        if player is not None:
+            getter = getattr(player, "getLastTarget", None)
+            monster = getter() if callable(getter) else \
+                getattr(player, "last_target", None)
+        if monster is None:
+            return {}
+        target_id = str(getattr(monster, "mon_map_id", "") or "")
+        try:
+            live = next(
+                (m for m in (getattr(bot, "monsters", None) or [])
+                 if str(getattr(m, "mon_map_id", "")) == target_id), None)
+        except Exception:
+            live = None
+        if live is not None:
+            monster = live
+        return {
+            "id": target_id,
+            "name": getattr(monster, "mon_name", "") or "",
+            "hp": int(getattr(monster, "current_hp", 0) or 0),
+            "max_hp": int(getattr(monster, "max_hp", 0) or 0),
+            "alive": bool(getattr(monster, "is_alive", False))
+                     and int(getattr(monster, "current_hp", 0) or 0) > 0,
+        }
+    except Exception:
+        return {}
+
+
+def _skill_cooldowns(player) -> list:
+    """``[{slot, ready_in}]`` for skill slots 0-4, ready_in in milliseconds.
+
+    The ``solo`` menu draws its skill icons from the same server deadlines; this
+    is only a readout, so it never changes how a skill is cast.
+    """
+    from datetime import datetime
+    now = datetime.now()
+    out = []
+    try:
+        skills = list(getattr(player, "SKILLS", []) or [])
+    except Exception:
+        return out
+    for slot, skill in enumerate(skills[:6]):
+        deadline = getattr(skill, "next_use", None)
+        ready_in = 0
+        if deadline is not None and deadline > now:
+            ready_in = int((deadline - now).total_seconds() * 1000)
+        out.append({"slot": slot, "ready_in": ready_in})
+    return out
+
+
 class UltraApi:
     """Shared plumbing for the Ultra Daily / Ultra Speaker menus.
-
     Four slots = four panes, exactly like the ``.bat`` launchers.  All four run
     as threads in this process, so they share one ``AQW_RUN_ID`` and the party
     coordination in ``bot/ultra/party.py`` works across them.
@@ -2299,6 +2459,10 @@ class UltraApi:
     kind = ""
     DEFAULT_SERVER = "Alteon"
     SLOT_IDS = ("slot1", "slot2", "slot3", "slot4")
+    #: Whether the party is brought back automatically after a pane stops.
+    #: Ultra V2 turns this off: a wipe is reported, not retried behind the
+    #: user's back.
+    relogin_on_stop = True
 
     def __init__(self, config_name):
         self.active_threads = {}
@@ -2365,8 +2529,8 @@ class UltraApi:
                 try:
                     from bot.ultra import party as ultra_party
                     if ultra_party.enabled():
-                        finished = ultra_party.all_done(f"ultra_{self.kind}")
-                        aborted = ultra_party.any_abort(f"ultra_{self.kind}")
+                        finished = ultra_party.all_done(self.party_name)
+                        aborted = ultra_party.any_abort(self.party_name)
                 except Exception:
                     pass
                 print(f"[{self.tab_id()}] {sorted(stopped)} stopped -> stopping whole party")
@@ -2376,6 +2540,12 @@ class UltraApi:
                     return
                 if finished and not self._manual_stop:
                     print(f"[{self.tab_id()}] all panes finished (no relogin)")
+                    return
+                if not self.relogin_on_stop:
+                    # Ultra V2: a failed pull stays failed.  The menu keeps the
+                    # panes stopped and the next attempt is a deliberate START.
+                    print(f"[{self.tab_id()}] stopped; this menu does not "
+                          f"relogin automatically.")
                     return
                 if gen != self._party_gen or self._manual_stop:
                     return
@@ -2422,6 +2592,16 @@ class UltraApi:
         """Hub iframe id for this menu. ``kind`` is 'daily'/'speaker', the tab is
         'ultra_daily'/'ultra_speaker' -- forwarding with the bare kind looked for
         an ``iframe-daily`` that does not exist, so logs were dropped."""
+        return f"ultra_{self.kind}"
+
+    @property
+    def party_name(self):
+        """Session name in ``bot.ultra.party`` for this menu's runs.
+
+        V1 keys it by kind ("ultra_daily"); Ultra V2 overrides it with
+        ``v2_<ultra>`` so two fights in one run id cannot read each other's
+        done/abort markers.
+        """
         return f"ultra_{self.kind}"
 
     def config_key(self):
@@ -2495,15 +2675,17 @@ class UltraApi:
         # One run id for the whole party, set before the threads start, so the
         # in-process panes share capture_logs/ultra/<run>/party like the .bat.
         os.environ.setdefault("AQW_TELEMETRY", "1")
-        if not os.environ.get("AQW_RUN_ID"):
-            os.environ["AQW_RUN_ID"] = time.strftime("%Y%m%d_%H%M%S")
+        # A fresh run id per START.  The run id names the party folder, so
+        # reusing it across starts left every barrier marker of the previous
+        # run in place and let the party pull without waiting for each other.
+        os.environ["AQW_RUN_ID"] = time.strftime("%Y%m%d_%H%M%S")
 
         # Fresh "done" markers so a previous run cannot look finished already.
         try:
             from bot.ultra import party as ultra_party
             if ultra_party.enabled():
-                ultra_party.clear_done(f"ultra_{self.kind}")
-                ultra_party.clear_abort(f"ultra_{self.kind}")
+                ultra_party.clear_done(self.party_name)
+                ultra_party.clear_abort(self.party_name)
         except Exception:
             pass
 
@@ -2538,8 +2720,12 @@ class UltraApi:
         if user_triggered:
             self._manual_stop = True
         self.start_time = None
+        threads = list(self.active_threads.values())
         self.active_threads = _stop_panes(self.active_threads,
                                           tag=self.tab_id())
+        # Every stop -- the button, a finished run, an error, a dropped pane,
+        # the watchdog -- tears the run folder down once the panes are down.
+        _clear_run_folder(threads, tag=self.tab_id())
         return {"success": True}
 
     def get_status(self):
@@ -2571,6 +2757,22 @@ class UltraApi:
                 "map": getattr(b, "strMapName", "") or "-",
                 "cell": p.CELL,
                 "pad": p.PAD,
+                # Cooldown readout for the menu, in the solo menu's shape
+                # (``cooldowns[index] = seconds``), plus the raw millisecond
+                # list.  Display only: the fight code paces itself.
+                "cooldowns": _skill_cooldown_seconds(p),
+                "skills": _skill_cooldowns(p),
+                # What the pane is fighting, like the solo/slavery telemetry.
+                "monsters": _monster_readout(b),
+                # Which monster the pane is hitting now, so the menu follows a
+                # retarget (add -> boss) instead of only listing the cell.
+                "target": _target_readout(b),
+                # Slot 5 is the potion/scroll slot; naming it lets the menu show
+                # what is supposed to fire there.
+                "scroll": _slot5_name(b),
+                # The reduction the cooldown readout already reflects, so the
+                # badge numbers can be checked against it.
+                "cdr": _cooldown_reduction(p),
             }
         except Exception as e:
             return {"running": True, "username": thread.username, "role": thread.role, "error": str(e)}
@@ -2633,6 +2835,157 @@ class UltraSpeakerApi(UltraApi):
                 "scroll": (loadout.scroll if loadout else "") or "",
             })
         return out
+
+
+class UltraV2Api(UltraApi):
+    """One Ultra V2 fight as a four-pane party.
+
+    The page is shared: the menu entry decides which ultra it opens, and the
+    form is ``bot.ultra.v2.options.schema`` -- the same table the tooltip and the
+    run's own log line come from, so a composition can never be described one
+    way in the menu and fought another way in the game.
+    """
+
+    kind = "v2"
+    #: No automatic relogin: the party stops where it stopped.
+    relogin_on_stop = False
+
+    def __init__(self, ultra):
+        from bot.ultra.v2.registry import spec as v2_spec
+        self.ultra = ultra
+        self.spec = v2_spec(ultra)
+        super().__init__(f"ultra_v2_{ultra}_config.json")
+
+    # --- identity ------------------------------------------------------
+    def tab_id(self):
+        return f"ultra_v2_{self.ultra}"
+
+    @property
+    def party_name(self):
+        """Matches :class:`bot.ultra.v2.sync.Sync` -- one session per ultra."""
+        return f"v2_{self.ultra}"
+
+    def _default_role(self, slot):
+        from bot.ultra.v2.options import compositions
+        table = compositions(self.ultra)
+        # A saved file may name a composition this build does not port; the
+        # defaults must still render instead of raising on a stale value.
+        slots = table.get(self._composition()) or table["Default"]
+        return slots[slot - 1] if 1 <= slot <= len(slots) else ""
+
+    def _composition(self):
+        """Saved composition, read straight off disk.
+
+        Deliberately **not** ``load_config()``: that builds the default slots,
+        which ask this for a role -- the two would call each other forever.
+        """
+        try:
+            with open(self.config_path, "r", encoding="utf-8") as handle:
+                return str(json.load(handle).get("composition") or "Default")
+        except Exception:
+            return "Default"
+
+    # --- form ----------------------------------------------------------
+    def get_form(self):
+        """Schema + defaults + saved values, for the page to render."""
+        from bot.ultra.v2 import options as v2_options
+        return {
+            "ultra": self.ultra,
+            "title": self.spec.title,
+            "schema": v2_options.schema(self.spec),
+            "defaults": v2_options.UltraOptions().to_dict(),
+            "config": self.load_config(),
+        }
+
+    def get_summary(self):
+        """What each slot will wear, for the page's preview under the dropdown."""
+        from bot.ultra.v2 import options as v2_options
+        saved = self.load_config() or {}
+        composition = str(saved.get("composition") or "Default")
+        slots = v2_options.compositions(self.ultra).get(composition, ())
+        return {
+            "composition": composition,
+            "slots": [{"slot": i + 1, "cls": cls} for i, cls in enumerate(slots)],
+            "tooltip": v2_options.composition_tooltip(self.ultra),
+        }
+
+    # --- party ---------------------------------------------------------
+    def start_party(self, config):
+        """Validate the form, then start four panes, one per account."""
+        from bot.ultra.v2 import options as v2_options
+
+        if any(t.is_alive() for t in self.active_threads.values()):
+            return {"success": False, "error": "Party is already running!"}
+
+        slots = config.get("slots", {})
+        players = []
+        for s_id in self.SLOT_IDS:
+            slot = slots.get(s_id, {})
+            if not slot.get("username") or not slot.get("password"):
+                return {"success": False,
+                        "error": "Fill username and password for all 4 slots."}
+            players.append(slot["username"])
+
+        options = v2_options.UltraOptions.from_dict({
+            "composition": config.get("composition"),
+            "players": players,
+            "private_room": config.get("private_room", 0),
+            "use_potions": config.get("use_potions", True),
+            "use_enhancements": config.get("use_enhancements", True),
+            "retries": config.get("retries", v2_options.DEFAULT_RETRIES),
+            "extras": config.get("extras") or {},
+        })
+        problems = v2_options.validate(self.spec, options)
+        if problems:
+            return {"success": False, "error": " ".join(problems)}
+        # Only a form that passed validation is worth remembering: saving a
+        # rejected one leaves the menu opening on a value it refused to run.
+        self.save_config(config)
+
+        server = config.get("server", self.DEFAULT_SERVER)
+        room_number = int(config.get("room_number", 9099) or 9099)
+
+        os.environ.setdefault("AQW_TELEMETRY", "1")
+        # A fresh run id per START.  The run id names the party folder, so
+        # reusing it across starts left every barrier marker of the previous
+        # run in place and let the party pull without waiting for each other.
+        os.environ["AQW_RUN_ID"] = time.strftime("%Y%m%d_%H%M%S")
+        try:
+            from bot.ultra import party as ultra_party
+            if ultra_party.enabled():
+                ultra_party.clear_done(self.party_name)
+                ultra_party.clear_abort(self.party_name)
+                ultra_party.clear_signal(f"{self.party_name}.COMPLETE")
+        except Exception:
+            pass
+
+        leader = players[0]
+        slaves = players[1:]
+        self.active_threads = {}
+        self.start_time = time.time()
+        for i, s_id in enumerate(self.SLOT_IDS, start=1):
+            slot = slots[s_id]
+            self.active_threads[s_id] = UltraBotThread(
+                slot=i,
+                kind="v2",
+                username=slot["username"],
+                password=slot["password"],
+                server=server,
+                room_number=room_number,
+                leader=leader,
+                slaves=slaves,
+                role="",
+                callback=(lambda name, msg: self.handle_log(name, msg)),
+                missing_policy=config.get("missing_policy", "stop"),
+                ultra=self.ultra,
+                v2_options=options,
+            )
+        for thread in self.active_threads.values():
+            thread.start()
+        self._party_config = config
+        self._manual_stop = False
+        self._start_watchdog()
+        return {"success": True}
 
 
 class WeeklyDoomApi:
@@ -2737,7 +3090,7 @@ class WeeklyDoomApi:
 class CombinedApi:
     def __init__(self, aqw_api, slavery_api, temple_api, eclipse_api,
                  players_api=None, ultra_daily_api=None, ultra_speaker_api=None,
-                 weekly_doom_api=None):
+                 weekly_doom_api=None, ultra_v2_api=None):
         self._aqw_api = aqw_api
         self._slavery_api = slavery_api
         self._temple_api = temple_api
@@ -2746,6 +3099,8 @@ class CombinedApi:
         self._ultra_daily_api = ultra_daily_api
         self._ultra_speaker_api = ultra_speaker_api
         self._weekly_doom_api = weekly_doom_api
+        #: ``{ultra id: UltraV2Api}`` -- one shared page, one API per fight.
+        self._ultra_v2_api = ultra_v2_api or {}
         self._window = None
         #: Which menu is on screen; used to route unregistered-thread logs.
         self._active_tab = "dashboard"
@@ -2884,6 +3239,38 @@ class CombinedApi:
 
     def ultra_speaker_stop_party(self):
         return self._ultra_speaker_api.stop_party(user_triggered=True)
+
+    # --- NAMESPACED API FOR ULTRA V2 ---
+    # One shared page: every call carries the ultra id the menu entry opened.
+    def _ultra_v2(self, ultra):
+        api = self._ultra_v2_api.get(ultra)
+        if api is None:
+            raise ValueError(f"{ultra!r} is not a ported ultra")
+        return api
+
+    def ultra_v2_form(self, ultra):
+        return self._ultra_v2(ultra).get_form()
+
+    def ultra_v2_summary(self, ultra):
+        return self._ultra_v2(ultra).get_summary()
+
+    def ultra_v2_load_config(self, ultra):
+        return self._ultra_v2(ultra).load_config()
+
+    def ultra_v2_save_config(self, ultra, config):
+        return self._ultra_v2(ultra).save_config(config)
+
+    def ultra_v2_reset_config(self, ultra):
+        return self._ultra_v2(ultra).reset_config()
+
+    def ultra_v2_get_status(self, ultra):
+        return self._ultra_v2(ultra).get_status()
+
+    def ultra_v2_start_party(self, ultra, config):
+        return self._ultra_v2(ultra).start_party(config)
+
+    def ultra_v2_stop_party(self, ultra):
+        return self._ultra_v2(ultra).stop_party(user_triggered=True)
 
     # --- NAMESPACED API FOR WEEKLY DOOM ---
     def weekly_doom_load_config(self):
@@ -3332,6 +3719,35 @@ def serve_injected_html(filepath, bot_type):
             </script>
             """
 
+        elif bot_type.startswith("ultra_v2_"):
+            # One page, one bridge per ultra: the menu entry decides which fight
+            # this iframe runs, and every call carries that id to the backend.
+            ultra_id = bot_type[len("ultra_v2_"):]
+            bridge_js = """
+            <script>
+            (function() {
+                var ULTRA = "__ULTRA__";
+                var topApi = (window.parent && window.parent.pywebview && window.parent.pywebview.api)
+                    || window.__AQW_WEB_API__;
+                if (topApi) {
+                    window.pywebview = {
+                        api: {
+                            form: () => topApi.ultra_v2_form(ULTRA),
+                            summary: () => topApi.ultra_v2_summary(ULTRA),
+                            load_config: () => topApi.ultra_v2_load_config(ULTRA),
+                            save_config: (cfg) => topApi.ultra_v2_save_config(ULTRA, cfg),
+                            reset_config: () => topApi.ultra_v2_reset_config(ULTRA),
+                            get_status: () => topApi.ultra_v2_get_status(ULTRA),
+                            start_party: (cfg) => topApi.ultra_v2_start_party(ULTRA, cfg),
+                            stop_party: () => topApi.ultra_v2_stop_party(ULTRA),
+                            list_players: () => topApi.players_list()
+                        }
+                    };
+                }
+            })();
+            </script>
+            """.replace("__ULTRA__", ultra_id)
+
         elif bot_type == "weekly_doom":
             bridge_js = """
             <script>
@@ -3686,10 +4102,12 @@ def run_gui():
     ultra_daily_api = UltraDailyApi()
     ultra_speaker_api = UltraSpeakerApi()
     weekly_doom_api = WeeklyDoomApi()
+    from bot.ultra.v2.registry import ORDER as _ULTRA_V2_ORDER
+    ultra_v2_api = {ultra: UltraV2Api(ultra) for ultra in _ULTRA_V2_ORDER}
 
     combined_api = CombinedApi(aqw_api, slavery_api, temple_api, eclipse_api,
                                players_api, ultra_daily_api, ultra_speaker_api,
-                               weekly_doom_api)
+                               weekly_doom_api, ultra_v2_api)
     
     unified_redirector_out.combined_api = combined_api
     unified_redirector_err.combined_api = combined_api
@@ -3705,6 +4123,15 @@ def run_gui():
         for name in ('aqw', 'slavery', 'temple', 'eclipse',
                      'players', 'ultra_daily', 'ultra_speaker', 'weekly_doom')
     }
+    # Ultra V2: one menu entry per ported ultra, all served from the same page
+    # folder -- the page reads which ultra it is off the path it was opened at.
+    try:
+        from bot.ultra.v2.registry import ORDER as _ULTRA_V2_ORDER
+        for _ultra in _ULTRA_V2_ORDER:
+            sub_apps[f'ultra_v2_{_ultra}'] = os.path.join(web_dashboard_dir,
+                                                          'ultra_v2')
+    except Exception as _exc:
+        print(f'Ultra V2 menus unavailable: {_exc}')
 
     print(f"Loading GUI assets from: {web_dashboard_dir}")
     url = start_local_server(web_dashboard_dir, sub_apps, combined_api=combined_api)
@@ -3782,10 +4209,12 @@ def run_web(host=None, port=None, password=None):
     ultra_daily_api = UltraDailyApi()
     ultra_speaker_api = UltraSpeakerApi()
     weekly_doom_api = WeeklyDoomApi()
+    from bot.ultra.v2.registry import ORDER as _ULTRA_V2_ORDER
+    ultra_v2_api = {ultra: UltraV2Api(ultra) for ultra in _ULTRA_V2_ORDER}
 
     combined_api = CombinedApi(aqw_api, slavery_api, temple_api, eclipse_api,
                                players_api, ultra_daily_api, ultra_speaker_api,
-                               weekly_doom_api)
+                               weekly_doom_api, ultra_v2_api)
     unified_redirector_out.combined_api = combined_api
     unified_redirector_err.combined_api = combined_api
 
@@ -3800,6 +4229,15 @@ def run_web(host=None, port=None, password=None):
         for name in ('aqw', 'slavery', 'temple', 'eclipse',
                      'players', 'ultra_daily', 'ultra_speaker', 'weekly_doom')
     }
+    # Ultra V2: one menu entry per ported ultra, all served from the same page
+    # folder -- the page reads which ultra it is off the path it was opened at.
+    try:
+        from bot.ultra.v2.registry import ORDER as _ULTRA_V2_ORDER
+        for _ultra in _ULTRA_V2_ORDER:
+            sub_apps[f'ultra_v2_{_ultra}'] = os.path.join(web_dashboard_dir,
+                                                          'ultra_v2')
+    except Exception as _exc:
+        print(f'Ultra V2 menus unavailable: {_exc}')
 
     if host not in ("127.0.0.1", "localhost"):
         print("Basic Auth is required from any address on the network.")
