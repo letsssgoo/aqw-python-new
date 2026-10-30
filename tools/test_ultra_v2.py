@@ -491,6 +491,38 @@ check("scroll buy: a member-only entry is refused",
 check("scroll buy: and says member-only", "member-only" in _member.logs[-1],
       True)
 
+# A full ink stack is a budget, not a dead end: the clamp counts what is
+# already held, so 50 held + 50 stack = 50 turn-ins, not an impossible 99.
+class _InkItem(_ShopItem):
+    def __init__(self, stackable=50):
+        super().__init__("ArchMage Ink", cost=0)
+        self.shop_item_id = "10374"
+        self.qty = 5
+        self.stackable = stackable
+        self.merge_requirements = [("17391", "Arcane Quill", 1)]
+
+
+class _InkCommand(_BuyCommand):
+    def __init__(self, held):
+        super().__init__([_InkItem()], gold=50_000_000)
+        self.bot.player.get_item_inventory = lambda name: (
+            type("I", (), {"qty": held})() if str(name) == "ArchMage Ink"
+            else None)
+
+
+class _Req:
+    name = "ArchMage Ink"
+
+
+check("scroll plan: a full stack still plans its held ink",
+      scrolls._clamp_turns(_InkCommand(50), _Req(), 99, 1), 50)
+check("scroll plan: a half stack plans held + room",
+      scrolls._clamp_turns(_InkCommand(40), _Req(), 99, 1), 50)
+check("scroll plan: an empty bag plans the whole stack",
+      scrolls._clamp_turns(_InkCommand(0), _Req(), 99, 1), 50)
+check("scroll plan: a small plan is left alone",
+      scrolls._clamp_turns(_InkCommand(0), _Req(), 10, 1), 10)
+
 # --- warden rules ----------------------------------------------------------
 check("warden: Default taunts from slot 1", warden.taunter_slot("Default"), 1)
 check("warden: Stable taunts from slot 2", warden.taunter_slot("Stable"), 2)

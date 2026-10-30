@@ -238,12 +238,17 @@ def _clamp_turns(cmd, requirement, turns: int, per_turn: int) -> int:
     stack = int(getattr(item, "stackable", 0) or 0) if item is not None else 0
     if stack <= 0:
         return turns
-    have = int(getattr(getattr(cmd.bot.player, "get_item_inventory", None)(
-        requirement.name), "qty", 0) or 0)
-    allowed = max(0, stack - have) // per_turn
-    if allowed and allowed < turns:
-        cmd.bot.log(f"[v2] {requirement.name}: stack holds {stack}; planning "
-                    f"{allowed} turn-in(s) instead of {turns}.")
+    inventory = getattr(cmd.bot.player, "get_item_inventory", None)
+    have = int(getattr(inventory(requirement.name) if inventory else None,
+                       "qty", 0) or 0)
+    # The ink already in the bag counts: the turn-ins consume it, so a full
+    # stack is not a dead end -- it is exactly the budget.
+    budget = have + max(0, stack - have)
+    allowed = budget // per_turn
+    if allowed < turns:
+        cmd.bot.log(f"[v2] {requirement.name}: {have} held + {max(0, stack - have)} "
+                    f"room in a {stack} stack; planning {allowed} turn-in(s) "
+                    f"instead of {turns}.")
         return allowed
     return turns
 
