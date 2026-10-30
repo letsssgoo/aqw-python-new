@@ -169,7 +169,7 @@ class UltraEngineer(V2Core):
                     return "reset"
                 if state == "stopped":
                     break
-                if not self.cmd.is_monster_alive(boss):
+                if not self.boss_alive():
                     break
                 if self.should_reset(attempt):
                     return "reset"
