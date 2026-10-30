@@ -199,6 +199,57 @@ check("base: the seven types the presets use",
        "Wizard"])
 check("base: the class slot codes", enhancements.CLASS_SLOTS, ("ar", "co"))
 
+# Skua's rule for the class slot: equip the class, look at what is socketed,
+# and enhance only when it is different.
+wizard = enhancements.best_base("Wizard", 100)
+check("base: Wizard resolves to the level-100 class tier",
+      (wizard.name, wizard.level, wizard.shop_id),
+      ("Wizard Armor Enhancement", 100, 765))
+check("base: a level cap picks the tier at or under it",
+      enhancements.best_base("Wizard", 80).level, 80)
+
+
+class _ClassCommand:
+    def __init__(self, enh_id=0):
+        self.calls = []
+        self.logs = []
+        item = type("I", (), {
+            "item_id": 5555, "item_name": "legion revenant", "is_equipped": True,
+            "s_es": "ar", "level": 100, "enh_id": enh_id,
+            "enh_pattern_id": wizard.pattern_id if enh_id else 0,
+            "enh_rarity": wizard.rarity if enh_id else 0,
+        })()
+        self.player = type("P", (), {"INVENTORY": [item], "LEVEL": 100})()
+        self.bot = type("B", (), {"player": self.player,
+                                  "log": lambda _s, line: self.logs.append(line)})()
+
+    async def ensure_load_shop(self, shop_id):
+        self.calls.append(("shop", shop_id))
+        return True
+
+    async def enhance_item(self, item_id, enh_item_id, shop_id):
+        self.calls.append(("enhance", item_id, enh_item_id, shop_id))
+
+
+already = _ClassCommand(enh_id=wizard.item_id)
+check("base: gear that already carries it is left alone",
+      run(enhancements._apply_base(already, "Wizard")), True)
+check("base: and no packet is sent", already.calls, [])
+
+different = _ClassCommand(enh_id=0)
+check("base: gear with a different enhancement is enhanced",
+      run(enhancements._apply_base(different, "Wizard")), True)
+check("base: the class item and tier are named in the packet",
+      different.calls, [("shop", 765),
+                        ("enhance", 5555, wizard.item_id, 765)])
+
+tiered = _ClassCommand(enh_id=0)
+tiered.player.INVENTORY[0].level = 80
+check("base: the tier follows the class level",
+      run(enhancements._apply_base(tiered, "Wizard")), True)
+check("base: level 80 gets the level-80 tier",
+      tiered.calls[-1][2], enhancements.best_base("Wizard", 80).item_id)
+
 # --- potion packets --------------------------------------------------------
 # Captured: an elixir is consumed with `serverUseItem`; a combat potion is
 # equipped into slot 5 (`geia ... potion`) and cast with `gar`.

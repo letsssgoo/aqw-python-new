@@ -116,27 +116,19 @@ async def _apply_one(cmd, slot: str, candidates: Sequence[str]) -> bool:
 
 
 async def _apply_base(cmd, name: str) -> bool:
-    """Apply a class-slot enhancement the reference's way.
+    """Class-slot enhancement: equip the class, compare, enhance only if different.
 
-    ``GetNormalEnhancementShop(type)`` gives the shop; the class slot's own shop
-    entry supplies the enhancement item id.  This is what makes ``Wizard`` work
-    even though no registry record is called that.
+    The reference names this enhancement by *type* ("Wizard"); the shop item is
+    called "Wizard Armor Enhancement", which is what the registry now carries
+    for the class slot.  So:
+
+    1. find the equipped class;
+    2. resolve the wanted tier at or below the class's level;
+    3. if the class already carries it, do nothing -- re-enhancing identical
+       gear is a wasted packet;
+    4. otherwise load the type's shop (``GetNormalEnhancementShop``) and socket
+       it with ``enhanceItemShop``.
     """
-    shops = NORMAL_ENHANCEMENT_SHOPS.get(name)
-    if shops is None:
-        return False
-    shop_id = shops[0] if int(getattr(cmd.bot.player, "LEVEL", 0) or 0) >= 50 \
-        else shops[1]
-    if not await cmd.ensure_load_shop(shop_id):
-        cmd.bot.log(f"[v2] class enhancement shop {shop_id} did not load "
-                    f"({name}).")
-        return False
-
-    shop = next((loaded for loaded in cmd.bot.loaded_shop_datas
-                 if str(getattr(loaded, "shop_id", "")) == str(shop_id)), None)
-    if shop is None:
-        return False
-
     worn = next((item for item in cmd.bot.player.INVENTORY
                  if getattr(item, "is_equipped", False)
                  and str(getattr(item, "s_es", "")).lower() in CLASS_SLOTS),
@@ -146,15 +138,57 @@ async def _apply_base(cmd, name: str) -> bool:
                     f"cannot be applied.")
         return False
 
-    candidates = [item for item in shop.items
-                  if str(getattr(item, "s_type", "")).lower() == "enhancement"
-                  and str(getattr(item, "s_es", "")).lower() in CLASS_SLOTS]
-    if not candidates:
+    record = best_base(name, int(getattr(worn, "level", 0) or 0))
+    if record is None:
+        cmd.bot.log(f"[v2] no class enhancement is registered for {name!r}.")
         return False
-    best = max(candidates, key=lambda item: (int(getattr(item, "level", 0) or 0),
-                                             int(getattr(item, "rarity", 0) or 0)))
-    await cmd.enhance_item(worn.item_id, best.item_id, shop_id)
+
+    if _carries(worn, record):
+        cmd.bot.log(f"[v2] class enhancement already {record.name} "
+                    f"(item {worn.item_id}); nothing to change.")
+        return True
+
+    shop_id = record.shop_id or _shop_id_for(name)
+    if not shop_id:
+        return False
+    if not await cmd.ensure_load_shop(shop_id):
+        cmd.bot.log(f"[v2] class enhancement shop {shop_id} did not load "
+                    f"({name}).")
+        return False
+    await cmd.enhance_item(worn.item_id, record.item_id, shop_id)
+    cmd.bot.log(f"[v2] class enhancement: {record.name} "
+                f"(lvl {record.level}, shop {shop_id}).")
     return True
+
+
+def best_base(name: str, level: int = 0):
+    """The class-slot record for a type name ("Wizard"), at or under ``level``."""
+    from model import enhancement as registry
+    for candidate in (f"{name} Armor Enhancement", name):
+        try:
+            rows = registry.find(candidate, "class")
+        except (KeyError, ValueError):
+            rows = []
+        if not rows:
+            continue
+        fit = [row for row in rows if not level or row.level <= level]
+        return (fit or rows)[-1]
+    return None
+
+
+def _carries(item, record) -> bool:
+    """True when ``item`` already has ``record`` socketed."""
+    if int(getattr(item, "enh_id", 0) or 0) == int(record.item_id):
+        return True
+    return (int(getattr(item, "enh_pattern_id", 0) or 0) == int(record.pattern_id)
+            and int(getattr(item, "enh_rarity", 0) or 0) == int(record.rarity))
+
+
+def _shop_id_for(name: str) -> int:
+    shops = NORMAL_ENHANCEMENT_SHOPS.get(name)
+    if shops is None:
+        return 0
+    return shops[0]
 
 
 def best_entry(name: str, slot: str):
