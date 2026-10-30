@@ -69,6 +69,8 @@ class V2Core:
                                                  self.slot, options.extras)
         self.aborted = ""
         self.taunt_requested = False
+        #: Target the pending skill-5 taunt must hit; None keeps the rotation's.
+        self.taunt_target: Optional[str] = None
         self._attempt_started = 0.0
         self._death_reported = False
         self._skill_task: Optional[asyncio.Task] = None
@@ -246,9 +248,10 @@ class V2Core:
         except (asyncio.CancelledError, Exception):
             pass
 
-    def request_taunt(self) -> None:
-        """Ask the engine for skill 5 on the current target (``RequestTaunt``)."""
+    def request_taunt(self, target: Optional[str] = None) -> None:
+        """Ask for skill 5 (``RequestTaunt``); ``target`` pins it to one monster."""
         self.taunt_requested = True
+        self.taunt_target = target
 
     async def _skill_loop(self, target: str, *, use_survival: bool,
                           taunter: bool) -> None:
@@ -270,8 +273,10 @@ class V2Core:
                     continue
             if self.taunt_requested:
                 self.taunt_requested = False
-                if taunter and await self.cmd.use_skill(5, target_monsters=target):
-                    self.log("taunt cast (skill 5).")
+                taunt_on = self.taunt_target or target
+                self.taunt_target = None
+                if taunter and await self.cmd.use_skill(5, target_monsters=taunt_on):
+                    self.log(f"taunt cast (skill 5) on {taunt_on}.")
             elif (self.respect_counter_attack
                   and self.counter_attack_active(target)):
                 # Attacking into the counter attack kills the party, but the
@@ -401,6 +406,18 @@ class V2Core:
             if self.cmd.is_monster_alive(candidate):
                 return candidate
         return default
+
+    def target_aura_expiry(self, name: str):
+        """The target's aura expiry for ``name``, or None (``GetFocusExpiry``)."""
+        monster = self.cmd.get_monster(self._target_name())
+        if monster is None:
+            return None
+        from core.utils import normalize
+        wanted = normalize(name)
+        for aura in getattr(monster, "AURAS", []) or []:
+            if normalize(getattr(aura, "name", "")) == wanted:
+                return getattr(aura, "expires_at", None)
+        return None
 
     def target_aura(self, name: str) -> bool:
         """True when the current target carries that aura (``Target.GetAura``)."""
