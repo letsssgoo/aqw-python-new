@@ -927,6 +927,32 @@ check("speaker: otherwise the plain Divine Elixir is used",
 
 # Heal policy: the Lord of Order spams skill 2, the ArchPaladin heals under
 # 65%, and the packet cycles no longer schedule heals at all.
+# The same heal policy everywhere: AP under 65, LoO spamming on cooldown
+# (Tyndarius keeps the 60 you set for it).
+def _heal_policy(module, cls, slot):
+    return getattr(module, cls)(_StubCommand(), options.UltraOptions(
+        players=("a", "b", "c", "d")), slot)
+
+
+check("heal policy: every weekly's ArchPaladin heals under 65",
+      [(_heal_policy(module, cls, 3).heal_below)
+       for module, cls in ((drakath, "UltraDrakath"),
+                           (nulgath, "UltraNulgath"),
+                           (drago, "UltraDrago"),
+                           (speaker, "UltraSpeaker"),
+                           (gramiel, "UltraGramiel"),
+                           (darkon, "UltraDarkon"))],
+      [65] * 6)
+check("heal policy: every weekly's Lord of Order spams",
+      [(_heal_policy(module, cls, 4).spam_heal)
+       for module, cls in ((drakath, "UltraDrakath"),
+                           (nulgath, "UltraNulgath"),
+                           (drago, "UltraDrago"),
+                           (speaker, "UltraSpeaker"),
+                           (gramiel, "UltraGramiel"),
+                           (darkon, "UltraDarkon"))],
+      [True] * 6)
+
 check("darkon: the Lord of Order spams its heal",
       (_darkon(4).spam_heal, _darkon(4).heal_gap_ms), (True, 0))
 check("darkon: the ArchPaladin heals under 65",

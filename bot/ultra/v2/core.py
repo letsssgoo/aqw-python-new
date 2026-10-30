@@ -100,9 +100,18 @@ class V2Core:
         #: instead of recasting every poll while an ally sits under the line.
         self.heal_gap_ms = 1000
         self._last_heal_at = 0.0
-        #: A dedicated healer (Tyndarius' Lord of Order) heals on cooldown
-        #: instead of waiting for somebody to drop under ``heal_below``.
+        #: A dedicated healer (the Lord of Order) heals on cooldown instead of
+        #: waiting for somebody to drop under ``heal_below``.
         self.spam_heal = False
+        # The heal policy shared by every ultra that fields these two classes:
+        # the ArchPaladin keeps skill 2 for anyone under 65%, and the Lord of
+        # Order is the dedicated healer (spam on cooldown).  A module may still
+        # override either after this runs.
+        if self.preset.cls == "ArchPaladin":
+            self.heal_below = 65
+        elif self.preset.cls == "Lord of Order":
+            self.spam_heal = True
+            self.heal_gap_ms = 0
         #: While a wounded ally is waiting for the heal, the rotation is held
         #: so the heal is the next cast rather than one rotation later.
         self._heal_hold_until = 0.0

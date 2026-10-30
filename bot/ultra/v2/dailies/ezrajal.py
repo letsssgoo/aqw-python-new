@@ -53,7 +53,8 @@ class UltraEzrajal(V2Core):
         # v1: ``attack_loop([0, 1, 2, 0, 3, 4], heal_below=50,
         # heal_skill=2, respect_counter_attack=True)``.
         self.skill_rotation = (0, 1, 2, 0, 3, 4)
-        self.heal_below = 50
+        self.heal_below = (50 if self.preset.cls != "ArchPaladin"
+                            else 65)
         self.respect_counter_attack = True
         self.skip_mana_lock = bool(options.extras.get("skip_mana_lock", True))
 
