@@ -255,30 +255,7 @@ class V2Core:
                 continue
             if await self.cmd.use_skill(slot, target_monsters=target):
                 return
-        # Nothing is ready: sleep until the soonest cooldown instead of a fixed
-        # tick, so the next cast lands the moment the server allows it.
-        await self.cmd.sleep(self._next_ready_ms(self.preset.skills))
-
-    def _next_ready_ms(self, slots) -> int:
-        """Milliseconds until the earliest slot in ``slots`` comes off cooldown.
-
-        ``Player.SKILLS`` carries the server's own cooldown deadline per slot
-        (``next_use``), which is the cooldown data the reference reads from the
-        Flash client.  Capped so a long cooldown cannot park the loop.
-        """
-        from datetime import datetime
-        now = datetime.now()
-        soonest = None
-        for slot in slots:
-            skills = getattr(self.bot.player, "SKILLS", []) or []
-            if not 0 <= slot < len(skills):
-                continue
-            deadline = getattr(skills[slot], "next_use", None)
-            if deadline is None or deadline <= now:
-                continue
-            remaining = (deadline - now).total_seconds() * 1000
-            soonest = remaining if soonest is None else min(soonest, remaining)
-        return int(max(80, min(soonest if soonest is not None else 100, 400)))
+        await self.cmd.sleep(100)
 
     async def _strict_step(self, target: str, index: int) -> int:
         """Walk the fixed rotation, advancing only on a cast (``Strict``)."""
@@ -286,10 +263,6 @@ class V2Core:
         if not rotation:
             return 0
         slot = rotation[index % len(rotation)]
-        if not self.bot.player.canUseSkill(slot):
-            # Keep the order: wait for *this* slot rather than skipping it.
-            await self.cmd.sleep(self._next_ready_ms((slot,)))
-            return index
         if await self.cmd.use_skill(slot, target_monsters=target):
             return (index + 1) % len(rotation)
         return index

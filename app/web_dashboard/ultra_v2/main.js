@@ -137,12 +137,22 @@
             }
             badge.textContent = 'Online'; badge.style.color = '#34d399';
             var hp = s.max_hp ? Math.round(s.hp / s.max_hp * 100) : 0;
+            var cooldowns = (s.skills || []).map(function (skill) {
+                var label = 'S' + (skill.slot === 0 ? 'A' : skill.slot);
+                var ready = (skill.ready_in || 0) <= 0;
+                return '<span class="pill" style="' +
+                    (ready ? 'opacity:.55' : '') + '">' + label + ' ' +
+                    (ready ? '✓' : (skill.ready_in / 1000).toFixed(1) + 's') +
+                    '</span>';
+            }).join(' ');
             el.innerHTML =
                 '<span class="pill">' + esc(s.username || '-') + '</span>' +
                 '<span class="pill">HP ' + hp + '%</span>' +
                 '<span class="pill">MP ' + (s.mp || 0) + '</span>' +
                 '<span class="pill">' + esc(s.map || '-') + ' / ' + esc(s.cell || '-') + '</span>' +
-                (s.is_dead ? '<span class="pill" style="color:#f87171">dead</span>' : '');
+                (s.is_dead ? '<span class="pill" style="color:#f87171">dead</span>' : '') +
+                (cooldowns ? '<div class="skill-cd" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">' +
+                    cooldowns + '</div>' : '');
             if (s.role) {
                 var cls = card.querySelector('.slot-class');
                 if (cls) cls.textContent = s.role;

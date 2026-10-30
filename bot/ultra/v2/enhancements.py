@@ -138,7 +138,8 @@ async def _apply_base(cmd, name: str) -> bool:
                     f"cannot be applied.")
         return False
 
-    record = best_base(name, int(getattr(cmd.bot.player, "LEVEL", 0) or 0))
+    record = best_base(name, int(getattr(cmd.bot.player, "LEVEL", 0) or 0),
+                       bool(getattr(cmd.bot.player, "is_member", False)))
     if record is None:
         cmd.bot.log(f"[v2] no class enhancement is registered for {name!r}.")
         return False
@@ -161,12 +162,15 @@ async def _apply_base(cmd, name: str) -> bool:
     return True
 
 
-def best_base(name: str, level: int = 0):
+def best_base(name: str, level: int = 0, is_member: bool = False):
     """The class-slot record for a type name ("Wizard"), at or under ``level``.
 
     ``level`` is the **character** level: enhancement tiers are gated by it, not
     by the class item's own level (a class item reports level 1, and using that
-    picked the worst tier -- or the best one, which the server then refused).
+    picked the worst tier).  Each tier also ships in two flavours -- the
+    ``bUpg`` (member/LEGEND) one and the regular one -- so a non-member account
+    only ever sees the regular entries; handing it the member tier is a packet
+    the server refuses.
     """
     from model import enhancement as registry
     for candidate in (f"{name} Armor Enhancement", name):
@@ -174,12 +178,13 @@ def best_base(name: str, level: int = 0):
             rows = registry.find(candidate, "class")
         except (KeyError, ValueError):
             rows = []
+        rows = [row for row in rows if is_member or not row.is_upgrade]
         if not rows:
             continue
         fit = [row for row in rows if not level or row.level <= level]
-        # No tier at or under the level means "the lowest one", never the
-        # highest -- a tier above the character is refused by the server.
-        return (fit or rows[:1])[-1]
+        # Fallback is the highest tier the account can actually take (the
+        # reference's behaviour), never one above its level.
+        return max(fit or rows, key=lambda row: (row.level, row.rarity))
     return None
 
 

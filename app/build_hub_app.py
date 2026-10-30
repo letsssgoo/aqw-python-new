@@ -2304,9 +2304,30 @@ def _spec_name(spec):
     return getattr(spec, "name", spec)
 
 
+def _skill_cooldowns(player) -> list:
+    """``[{slot, ready_in}]`` for skill slots 0-4, ready_in in milliseconds.
+
+    The ``solo`` menu draws its skill icons from the same server deadlines; this
+    is only a readout, so it never changes how a skill is cast.
+    """
+    from datetime import datetime
+    now = datetime.now()
+    out = []
+    try:
+        skills = list(getattr(player, "SKILLS", []) or [])
+    except Exception:
+        return out
+    for slot, skill in enumerate(skills[:5]):
+        deadline = getattr(skill, "next_use", None)
+        ready_in = 0
+        if deadline is not None and deadline > now:
+            ready_in = int((deadline - now).total_seconds() * 1000)
+        out.append({"slot": slot, "ready_in": ready_in})
+    return out
+
+
 class UltraApi:
     """Shared plumbing for the Ultra Daily / Ultra Speaker menus.
-
     Four slots = four panes, exactly like the ``.bat`` launchers.  All four run
     as threads in this process, so they share one ``AQW_RUN_ID`` and the party
     coordination in ``bot/ultra/party.py`` works across them.
@@ -2607,6 +2628,10 @@ class UltraApi:
                 "map": getattr(b, "strMapName", "") or "-",
                 "cell": p.CELL,
                 "pad": p.PAD,
+                # Cooldown readout for the menu: the server's own deadline per
+                # skill slot, as milliseconds from now.  0 = ready.  This is a
+                # display only; the fight code does its own pacing.
+                "skills": _skill_cooldowns(p),
             }
         except Exception as e:
             return {"running": True, "username": thread.username, "role": thread.role, "error": str(e)}

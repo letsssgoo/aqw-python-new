@@ -205,8 +205,15 @@ wizard = enhancements.best_base("Wizard", 100)
 check("base: Wizard resolves to the level-100 class tier",
       (wizard.name, wizard.level, wizard.shop_id),
       ("Wizard Armor Enhancement", 100, 765))
-check("base: a level cap picks the tier at or under it",
-      enhancements.best_base("Wizard", 80).level, 80)
+check("base: a non-member gets the highest regular tier at or under 80",
+      enhancements.best_base("Wizard", 80).level, 78)
+check("base: a member gets the upgrade tier at level 80",
+      enhancements.best_base("Wizard", 80, is_member=True).level, 80)
+check("base: the upgrade tier is the rarity-6 one",
+      enhancements.best_base("Wizard", 80, is_member=True).rarity, 6)
+check("base: a non-member never gets a bUpg tier",
+      any(row.is_upgrade for row in [enhancements.best_base("Wizard", 100)]),
+      False)
 
 
 class _ClassCommand:
@@ -270,28 +277,26 @@ check("telemetry: an abort is reported",
 check("telemetry: carrying the ultra, slot and class",
       tele.events[0][1].get("slot"), 2)
 
+# Cooldowns are a *display*: the same server deadlines the solo menu draws.
+from app import build_hub_app as hub  # noqa: E402  (imports pywebview lazily)
 
-class _CooldownSkill:
+class _Skill:
     def __init__(self, seconds):
         from datetime import datetime, timedelta
-        self.next_use = datetime.now() + timedelta(seconds=seconds)
+        self.next_use = None if seconds is None else datetime.now() + \
+            timedelta(seconds=seconds)
 
 
-class _CooldownCommand(_StubCommand):
-    def __init__(self, seconds):
-        super().__init__()
-        self.bot.player.SKILLS = [_CooldownSkill(0), _CooldownSkill(seconds)]
+class _Player:
+    SKILLS = [_Skill(None), _Skill(2.5), _Skill(0)]
 
 
-cool = warden.build(_CooldownCommand(5), options.UltraOptions(
-    players=("a", "b", "c", "d")), 1)
-wait_ms = cool._next_ready_ms((1,))
-check("cooldown: the wait is capped", 80 <= wait_ms <= 400, True)
-
-ready = warden.build(_CooldownCommand(0), options.UltraOptions(
-    players=("a", "b", "c", "d")), 1)
-check("cooldown: a ready slot waits the minimum tick",
-      ready._next_ready_ms((1,)), 100)
+readout = hub._skill_cooldowns(_Player())
+check("ui cooldown: one row per skill slot", [row["slot"] for row in readout],
+      [0, 1, 2])
+check("ui cooldown: a ready slot reads 0", readout[0]["ready_in"], 0)
+check("ui cooldown: a busy slot reports the wait",
+      2000 < readout[1]["ready_in"] <= 2600, True)
 
 # --- potion packets --------------------------------------------------------
 # Captured: an elixir is consumed with `serverUseItem`; a combat potion is
