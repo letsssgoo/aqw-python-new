@@ -65,6 +65,8 @@ class UltraTyndarius(V2Core):
         super().__init__(cmd, SPEC, options, slot)
         self.skill_rotation = (0, 1, 2, 0, 3, 4)
         self.heal_below = HEAL_BELOW
+        # Every pane tops the party up below 60%, not just slots 3 and 4.
+        self.heal_slots = ()
         self.is_taunter = self.slot >= 3          # IsTaunterRole
         self.is_arch_paladin = self.slot == ARCH_PALADIN_SLOT
 

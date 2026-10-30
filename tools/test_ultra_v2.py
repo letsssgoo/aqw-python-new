@@ -470,8 +470,8 @@ check("tyndarius: priority is second add, first add, boss",
 check("tyndarius: taunter panes are slots 3 and 4",
       (ty1.is_taunter, ty3.is_taunter), (False, True))
 check("tyndarius: the ArchPaladin slot is 3", ty3.is_arch_paladin, True)
-check("tyndarius: heal below 60 on slots 3-4",
-      (ty1.heal_below, ty1.heal_slots), (60, (3, 4)))
+check("tyndarius: every pane heals below 60",
+      (ty1.heal_below, ty1.heal_slots), (60, ()))
 
 # RequestImmediateTaunt only succeeds when skill 5 is ready (LW returns false).
 class _TauntCommand(_StubCommand):

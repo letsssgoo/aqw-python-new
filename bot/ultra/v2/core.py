@@ -89,6 +89,10 @@ class V2Core:
         self.heal_below: Optional[float] = None
         self.heal_skill: Optional[int] = HEAL_SKILL_BY_CLASS.get(self.preset.cls)
         self.heal_slots: tuple = (3, 4)
+        #: Minimum gap between two heal casts, so the healer keeps dpsing
+        #: instead of recasting every poll while an ally sits under the line.
+        self.heal_gap_ms = 1000
+        self._last_heal_at = 0.0
         #: A fixed rotation, for the fights that copy v1's literal skill string
         #: (Engineer's ``0 1 2 0 3 4``) instead of the class preset.
         self.skill_rotation: tuple = ()
@@ -331,12 +335,18 @@ class V2Core:
         if self.heal_skill is None:
             # No heal skill is known for this class; do not invent one.
             return False
+        import time as _time
+        if (_time.time() - self._last_heal_at) * 1000 < self.heal_gap_ms:
+            return False
         if not self.bot.player.canUseSkill(self.heal_skill):
             return False
         for player in getattr(self.bot, "player_in_area", []) or []:
             try:
                 if player.is_hp_below(self.heal_below):
-                    return bool(await self.cmd.use_skill(self.heal_skill))
+                    healed = bool(await self.cmd.use_skill(self.heal_skill))
+                    if healed:
+                        self._last_heal_at = _time.time()
+                    return healed
             except Exception:
                 continue
         return False

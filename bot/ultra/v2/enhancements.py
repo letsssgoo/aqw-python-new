@@ -58,7 +58,14 @@ async def prepare(cmd, preset: Preset) -> bool:
     for attribute, slot in SLOTS:
         wanted: Optional[str] = getattr(preset, attribute)
         if not wanted:
-            continue
+            if attribute != "helm":
+                continue
+            # No helm enhancement in the preset means "use the class's own
+            # base type" (Lord of Order is the case in Tyndarius): the helm
+            # takes "<Base> Helm Enhancement", not nothing.
+            wanted = f"{preset.base} Helm Enhancement"
+            if not best_entry(wanted, "helm"):
+                continue
         candidates: Sequence[str] = (wanted,)
         if attribute == "weapon":
             candidates = (wanted, *preset.weapon_fallbacks)
