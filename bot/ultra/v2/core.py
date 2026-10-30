@@ -317,8 +317,16 @@ class V2Core:
 
     @property
     def rotation(self) -> tuple:
-        """Slots the engine casts: the module's fixed order, else the preset's."""
-        return self.skill_rotation or self.preset.skills
+        """Slots the engine casts: the module's fixed order, else the preset's.
+
+        Skill ``0`` is the auto attack and is **mandatory** in this engine: a
+        module that leaves it out gets it put back at the front rather than
+        silently fighting without it (v1's dailies always start on 0).
+        """
+        rotation = tuple(self.skill_rotation or self.preset.skills)
+        if 0 not in rotation:
+            rotation = (0,) + rotation
+        return rotation
 
     async def _simple_step(self, target: str) -> None:
         """Cast the first rotation skill the server says is ready."""

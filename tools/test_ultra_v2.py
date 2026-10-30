@@ -417,6 +417,18 @@ check("rotation: Verus DoomKnight keeps the literal 0", (vdk.rotation[0],
 check("rotation: King's Echo keeps the literal 0", (ke.rotation[0],
                                                     ke.preset.mode), (0, "kings_echo"))
 
+# Skill 0 is mandatory: a module that leaves it out gets it prepended.
+class _NoZero(warden.UltraWarden):
+    def __init__(self, cmd, options, slot=1):
+        super().__init__(cmd, options, slot)
+        self.skill_rotation = (1, 2, 3)
+
+
+forced = _NoZero(_StubCommand(), options.UltraOptions(
+    players=("a", "b", "c", "d")), 1)
+check("rotation: skill 0 is put back when a module forgets it",
+      forced.rotation, (0, 1, 2, 3))
+
 check("rotation: all three use v1's string",
       [warden.build(_StubCommand(), options.UltraOptions(
            players=("a", "b", "c", "d")), 1).rotation,

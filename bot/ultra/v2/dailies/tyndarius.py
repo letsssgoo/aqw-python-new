@@ -119,10 +119,9 @@ class UltraTyndarius(V2Core):
             if result == "reset":
                 if not await self.handle_reset(attempt):
                     return False
-                # A wipe starts the attempt over: re-run the setup so the
-                # pane walks back in geared, potioned and buffed.
-                if not await self.prepare():
-                    return False
+                # A wipe retries from the potions up: nothing is re-equipped,
+                # only the consumed buffs and slot 5 are refreshed.
+                await self.use_potions()
 
             if attempt >= attempts:
                 self.log(f"failed after {attempts} fight attempt(s).")
