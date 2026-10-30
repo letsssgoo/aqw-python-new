@@ -535,6 +535,36 @@ def main() -> None:
     check("voidchasm: an unknown ingredient is said, not guessed",
           any("no farm is known" in line for line in _logs))
 
+    # --- Dirtlickers Merge (9555's Iron Dreadsaw) --------------------------
+    from bot.nation.merges import dirtlickers_merge as _dlm
+
+    check("dirtlickers: map and shop are the reference's",
+          (_dlm.MAP, _dlm.SHOP_ID, _dlm.IRON_DREADSAW)
+          == ("archportal", 1211, "Iron Dreadsaw"))
+
+    async def _dirt_dispatch():
+        calls = []
+
+        async def _approval(cmd, approval, favor):
+            calls.append(("approval", approval, favor))
+
+        async def _diamond(cmd, qty):
+            calls.append(("diamond", qty))
+
+        _dlm.approval_and_favor = _approval
+        _dlm.farm_diamond_of_nulgath = _diamond
+        cmd = _MergeCommand()
+        await _dlm.find_ingredients(cmd, 0, "Nulgath's Approval", 50)
+        await _dlm.find_ingredients(cmd, 0, "Diamond of Nulgath", 10)
+        await _dlm.find_ingredients(cmd, 0, "Nulgath Nation House", 1)
+        return calls, cmd.logs
+
+    _d_calls, _d_logs = _asyncio.run(_dirt_dispatch())
+    check("dirtlickers: approval and the 300-diamond rule",
+          _d_calls == [("approval", 50, 0), ("diamond", 300)])
+    check("dirtlickers: the unported chains are named",
+          any("does not have" in line for line in _d_logs))
+
     # --- Ravenous forge unlock ---------------------------------------------
     # UnlockForgeEnhancements.Ravenous: quest 9560 once the Gluttonous Maw
     # (shop 2411) is held; the daily Roentgenium line otherwise.
