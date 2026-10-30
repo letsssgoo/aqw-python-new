@@ -103,6 +103,10 @@
         ultra_v2_drakath: {
             title: "Ultra V2 - Ultra Drakath",
             subtitle: "Weekly army port of UltraDrakath_LW: boss id.1, StoneCrusher/ArchPaladin taunt ladder by boss HP"
+        },
+        ultra_v2_nulgath: {
+            title: "Ultra V2 - Ultra Nulgath",
+            subtitle: "Weekly army port of UltraNulgath_LW: Blade id.1 / Nulgath id.2, Abyss! packet taunt relay"
         }
     };
 

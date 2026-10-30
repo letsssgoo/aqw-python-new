@@ -1,0 +1,84 @@
+"""Packet detector -- count matching server responses (``StartPacketDetector``).
+
+Ultra Nulgath's slot 4 cannot see the boss's ``Abyss!`` cast in its own state:
+the packet is the only evidence that a taunt is due, so the reference arms a
+detector on the ``ct`` command and asks ``HasPacketDetection(n)`` (``count >=
+n``) how many casts it has seen.
+
+The hook chains the existing ``Bot.handle_server_response`` the same way
+:mod:`bot.ultra.telemetry` does -- the previous handler still runs first, so a
+detector can never swallow a packet another subscriber needs.
+"""
+from __future__ import annotations
+
+import json
+from typing import Optional
+
+
+class PacketDetector:
+    """Count responses whose ``cmd`` matches and whose body carries ``text``."""
+
+    def __init__(self, bot, command: str = "ct", text: str = "Abyss!"):
+        self.bot = bot
+        self.command = command
+        self.text = text
+        self.count = 0
+        self.running = False
+        self._original = None
+
+    def start(self) -> bool:
+        """Arm the detector; False when there is nothing to hook."""
+        self.stop()
+        handler = getattr(self.bot, "handle_server_response", None)
+        if handler is None or not self.command or not self.text:
+            return False
+        self._original = handler
+
+        async def wrapped(msg):
+            result = await handler(msg)
+            try:
+                self.inspect(msg)
+            except Exception:
+                pass
+            return result
+
+        try:
+            self.bot.handle_server_response = wrapped
+        except Exception:
+            self._original = None
+            return False
+        self.count = 0
+        self.running = True
+        return True
+
+    def inspect(self, msg: str) -> None:
+        """Count one response; ignore anything that is not our packet."""
+        if not self.running or not msg or '"cmd"' not in msg:
+            return
+        try:
+            data = json.loads(msg.strip())["b"]["o"]
+        except Exception:
+            return
+        if data.get("cmd") != self.command:
+            return
+        if self.text.lower() in json.dumps(data).lower():
+            self.count += 1
+
+    def seen(self, detection: int) -> bool:
+        """``HasPacketDetection``: at least ``detection`` matches so far."""
+        return bool(self.running and detection > 0 and self.count >= detection)
+
+    def stop(self) -> None:
+        """Disarm, putting the previous handler back."""
+        self.running = False
+        if self._original is not None:
+            try:
+                self.bot.handle_server_response = self._original
+            except Exception:
+                pass
+        self._original = None
+
+    @property
+    def armed(self) -> Optional[bool]:
+        """True when armed; None keeps the type honest for callers."""
+        return True if self.running else None
