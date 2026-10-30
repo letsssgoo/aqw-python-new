@@ -1,19 +1,22 @@
-"""Enhancements for Ultra V2: base / cape / helm / weapon, with fallbacks.
+"""Enhancements for Ultra V2: wear what we own, otherwise buy it.
 
-The reference's ``PrepareEnhancements`` buys a missing enhancement from its shop.
-That purchase half is **not ported**: this module resolves the enhancement to an
-item the account already owns (inventory or bank) and stops the run by name when
-it owns none, instead of silently fighting in the wrong gear.  The weapon tries
-the preset's ``weapon_fallbacks`` in order, exactly like ``WeaponEnhancement
-Fallbacks`` in the source.
+Two halves, both from the reference's ``PrepareEnhancements``:
 
-``equip_enhancement`` already knows which slot a name belongs to when the name is
-unique; the slot is passed explicitly anyway, because ``Forge`` alone exists as a
-weapon, a cape and a helm tier.
+1. **equip** -- :meth:`Command.equip_enhancement` finds whichever inventory item
+   carries the named enhancement (inventory first, then bank).  This is the
+   engine's existing path and is used unchanged;
+2. **buy** -- when the account owns nothing carrying it, the enhancement is
+   bought from the forge shop the enhancement registry records
+   (``model.enhancement.find``), then equipped.  The weapon tries the preset's
+   ``weapon_fallbacks`` in order, exactly like ``WeaponEnhancementFallbacks``.
+
+A class/base enhancement has no shop entry when the account never captured that
+shop, and a priced entry needs gold on hand: both are reported by name and stop
+the run instead of fighting in the wrong gear.
 """
 from __future__ import annotations
 
-from typing import Optional, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 from bot.ultra.v2.presets import Preset
 
@@ -25,9 +28,12 @@ SLOTS: Tuple[Tuple[str, str], ...] = (
     ("weapon", "weapon"),
 )
 
+#: How long to wait for a bought enhancement to land in the inventory.
+PURCHASE_WAIT_MS = 10_000
+
 
 async def prepare(cmd, preset: Preset) -> bool:
-    """Wear every enhancement the preset names; False stops the run."""
+    """Wear every enhancement the preset names, buying a missing one."""
     for attribute, slot in SLOTS:
         wanted: Optional[str] = getattr(preset, attribute)
         if not wanted:
@@ -36,8 +42,8 @@ async def prepare(cmd, preset: Preset) -> bool:
         if attribute == "weapon":
             candidates = (wanted, *preset.weapon_fallbacks)
         if not await _apply_one(cmd, slot, candidates):
-            cmd.bot.log(f"[v2] no {slot} enhancement {wanted!r} in the inventory "
-                        f"or bank"
+            cmd.bot.log(f"[v2] no {slot} enhancement {wanted!r} is owned or "
+                        f"buyable"
                         + (f" (fallbacks tried: "
                            f"{', '.join(preset.weapon_fallbacks)})"
                            if attribute == "weapon" and preset.weapon_fallbacks
@@ -49,11 +55,68 @@ async def prepare(cmd, preset: Preset) -> bool:
 
 
 async def _apply_one(cmd, slot: str, candidates: Sequence[str]) -> bool:
-    """Try each name for one slot; log which one landed."""
+    """Equip one of ``candidates``, buying it when the account owns none."""
     for candidate in candidates:
         if await cmd.equip_enhancement(candidate, slot=slot):
             cmd.bot.log(f"[v2] {slot} enhancement: {candidate}.")
             return True
+
+    for candidate in candidates:
+        entry = best_entry(candidate, slot)
+        if entry is None:
+            continue
+        cmd.bot.log(f"[v2] {slot} enhancement {candidate!r} is not owned; "
+                    f"buying it from shop {entry.shop_id}.")
+        if not await _buy(cmd, entry):
+            continue
+        if await cmd.equip_enhancement(candidate, slot=slot):
+            cmd.bot.log(f"[v2] {slot} enhancement: {candidate} (bought).")
+            return True
+    return False
+
+
+def best_entry(name: str, slot: str):
+    """The registry record to buy for ``name`` in ``slot``, or ``None``.
+
+    A *basic* enhancement is one name at every level 51-100, so the highest
+    tier is the right purchase; a forge enhancement has exactly one.
+    """
+    from model import enhancement as registry
+    try:
+        records: List = registry.find(name, slot)
+    except (KeyError, ValueError):
+        return None
+    if not records:
+        return None
+    return max(records, key=lambda record: (record.level, record.rarity))
+
+
+async def _buy(cmd, entry) -> bool:
+    """Buy one enhancement entry and wait for it to arrive."""
+    if not entry.shop_id:
+        cmd.bot.log(f"[v2] {entry.name!r} has no shop recorded, so it cannot "
+                    f"be bought automatically.")
+        return False
+    if entry.cost and cmd.bot.player.GOLD < entry.cost:
+        cmd.bot.log(f"[v2] {entry.name!r} costs {entry.cost} gold; the account "
+                    f"has {cmd.bot.player.GOLD}. Not farming gold for gear.")
+        return False
+
+    if not await cmd.ensure_load_shop(entry.shop_id):
+        cmd.bot.log(f"[v2] shop {entry.shop_id} did not load; {entry.name!r} "
+                    f"was not bought.")
+        return False
+
+    await cmd.buy_item(entry.shop_id, entry.item_id, 1)
+    waited = 0
+    while (cmd.is_still_connected() and waited < PURCHASE_WAIT_MS
+           and not await cmd.has_item_id(entry.item_id)):
+        await cmd.sleep(500)
+        waited += 500
+    if await cmd.has_item_id(entry.item_id):
+        return True
+    cmd.bot.log(f"[v2] {entry.name!r} did not arrive after the buy (shop "
+                f"{entry.shop_id}); the server refused it.")
     return False
 
 

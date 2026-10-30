@@ -214,6 +214,129 @@ check("enhancements: every preset field has a slot",
       [slot for _field, slot in enhancements.SLOTS],
       ["class", "cape", "helm", "weapon"])
 
+# --- enhancement buying ----------------------------------------------------
+# Wear what is owned; only when nothing carries it does the module buy it.  A
+# *basic* enhancement exists at every level, so the highest tier is the buy.
+valiance = enhancements.best_entry("Valiance", "weapon")
+check("enhancement: Valiance resolves to a shop entry", valiance is not None, True)
+check("enhancement: and names its shop",
+      bool(getattr(valiance, "shop_id", 0)), True)
+awe = enhancements.best_entry("Awe Blast", "weapon")
+check("enhancement: Awe Blast resolves", awe is not None, True)
+
+
+class _EnhCommand:
+    """A command whose first equip misses, then succeeds after the buy."""
+
+    def __init__(self):
+        self.calls = []
+        self.logs = []
+        self.equips = 0
+        self.bot = type("B", (), {
+            "GOLD": 10_000_000,
+            "log": lambda _self, line: self.logs.append(line),
+        })()
+        self.player = self.bot.player = type("P", (), {"GOLD": 10_000_000})()
+
+    async def equip_enhancement(self, name, slot=None, **kwargs):
+        self.calls.append(("equip", name, slot))
+        self.equips += 1
+        return self.equips > 1          # owned only after the purchase
+
+    async def ensure_load_shop(self, shop_id):
+        self.calls.append(("shop", shop_id))
+        return True
+
+    async def buy_item(self, shop_id, item, qty=1, **kwargs):
+        self.calls.append(("buy", shop_id, item, qty))
+
+    async def has_item_id(self, item_id):
+        return True
+
+    async def sleep(self, ms):
+        return None
+
+    def is_still_connected(self):
+        return True
+
+
+class _Entry:
+    name = "Valiance"
+    item_id = 70752
+    shop_id = 2126
+    cost = 0
+
+
+real_best = enhancements.best_entry
+enhancements.best_entry = lambda name, slot: _Entry() if name == "Valiance" else None
+try:
+    buy_cmd = _EnhCommand()
+    bought = run(enhancements._apply_one(buy_cmd, "weapon", ("Valiance",)))
+finally:
+    enhancements.best_entry = real_best
+check("enhancement: a missing one is bought then worn", bought, True)
+check("enhancement: the buy went to its shop",
+      [c for c in buy_cmd.calls if c[0] == "buy"],
+      [("buy", 2126, 70752, 1)])
+check("enhancement: it says it was bought",
+      any("bought" in line for line in buy_cmd.logs), True)
+
+# --- scroll crafting -------------------------------------------------------
+check("scroll: gold at 1,000,000 takes the gold route",
+      (scrolls.route(999_999), scrolls.route(1_000_000)), ("farm", "gold"))
+check("scroll: Enrage needs 25 turn-ins from empty",
+      scrolls.turns_for(0, 40, 1000), 25)
+check("scroll: from 320 it needs 17", scrolls.turns_for(320, 40, 1000), 17)
+check("scroll: an already-full stock needs none",
+      scrolls.turns_for(1000, 40, 1000), 0)
+check("scroll: Mystify has no farming route", scrolls.FARMABLE,
+      (scrolls.ENRAGE, scrolls.DECAY))
+check("scroll: Enrage needs SpellCrafting 5", scrolls.REQUIRED_RANK[scrolls.ENRAGE], 5)
+check("scroll: Mystify needs SpellCrafting 8", scrolls.REQUIRED_RANK[scrolls.MYSTIFY], 8)
+check("scroll: Enrage quest is 2330", scrolls.QUESTS[scrolls.ENRAGE], 2330)
+
+
+class _ScrollCommand:
+    def __init__(self, held=0):
+        self.held = held
+        self.calls = []
+        self.logs = []
+        self.player = type("P", (), {
+            "GOLD": 2_000_000,
+            "get_item_inventory": lambda _self, name: (
+                type("I", (), {"qty": self.held})() if self.held else None),
+        })()
+        self.bot = type("B", (), {
+            "player": self.player,
+            "log": lambda _self, line: self.logs.append(line),
+        })()
+
+    def is_in_bank(self, name):
+        return False
+
+    def get_faction_rank(self, name):
+        return 10
+
+    def is_in_inventory(self, name):
+        return bool(self.held)
+
+
+full = _ScrollCommand(held=80)
+check("scroll: a full stock returns without crafting",
+      run(scrolls.prepare(full, scrolls.ENRAGE)), True)
+check("scroll: and touches nothing", full.calls, [])
+check("scroll: no scroll requested is fine",
+      run(scrolls.prepare(_ScrollCommand(), None)), True)
+
+
+class _NoRankCommand(_ScrollCommand):
+    def get_faction_rank(self, name):
+        return 1
+
+
+check("scroll: a low SpellCrafting rank refuses",
+      run(scrolls.prepare(_NoRankCommand(), scrolls.ENRAGE)), False)
+
 print(f"passed {passed}   failed {len(failures)}")
 if failures:
     for line in failures:
