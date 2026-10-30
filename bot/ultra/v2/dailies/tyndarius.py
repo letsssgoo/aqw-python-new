@@ -71,15 +71,16 @@ class UltraTyndarius(V2Core):
         self.heal_below = HEAL_BELOW
         # Every pane tops the party up below 60%, not just slots 3 and 4.
         self.heal_slots = ()
-        if self.preset.cls in ("Lord of Order", "ArchPaladin"):
-            # Both healers hold skill 2 for the heal check instead of casting
-            # it in the rotation -- otherwise the rotation itself spends it and
-            # it is not "held" at all.  No extra gap on top of the gate: the
-            # gate is the guard, and a second delay is what made the heal land
-            # late.  Their thresholds differ: LoO lifts at 75%, AP at 60%.
-            self.heal_below = (LOO_HEAL_BELOW
-                               if self.preset.cls == "Lord of Order"
-                               else HEAL_BELOW)
+        if self.preset.cls == "Lord of Order":
+            # LoO is the dedicated healer: heal on cooldown, no HP gate, no
+            # gap, and skill 2 stays in its rotation like it always was.
+            self.spam_heal = True
+            self.heal_gap_ms = 0
+        elif self.preset.cls == "ArchPaladin":
+            # AP keeps skill 2 for the emergency heal only, so it is taken out
+            # of the rotation -- otherwise the rotation itself casts it and it
+            # is not "held" at all.  No extra gap on top of the 60% gate.
+            self.heal_below = HEAL_BELOW
             self.heal_gap_ms = 0
             self.skill_rotation = tuple(
                 slot for slot in self.skill_rotation if slot != self.heal_skill)

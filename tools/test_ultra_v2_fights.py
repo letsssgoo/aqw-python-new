@@ -132,10 +132,10 @@ check("tyndarius: Default arms every pane as a taunter",
 check("tyndarius: the ArchPaladin slot is 3", ty3.is_arch_paladin, True)
 loo = tyndarius.UltraTyndarius(_StubCommand(), options.UltraOptions(
     players=("a", "b", "c", "d")), 4)
-check("tyndarius: Lord of Order holds its heal and lifts it at 75",
-      (loo.spam_heal, loo.heal_below, loo.heal_gap_ms), (False, 75, 0))
-check("tyndarius: and skill 2 is not in the Lord of Order rotation",
-      2 in loo.rotation, False)
+check("tyndarius: Lord of Order spams its heal on cooldown",
+      (loo.spam_heal, loo.heal_gap_ms), (True, 0))
+check("tyndarius: and skill 2 stays in the Lord of Order rotation",
+      2 in loo.rotation, True)
 check("tyndarius: ArchPaladin keeps its heal for under 60, no extra gap",
       (ty3.spam_heal, ty3.heal_below, ty3.heal_gap_ms), (False, 60, 0))
 check("tyndarius: and skill 2 is not in the ArchPaladin rotation",
@@ -288,8 +288,8 @@ check("nulgath: no Fast column without the Arcana Invoker engine",
 
 check("tyndarius: the party heals below 60",
       (ty1.heal_below, ty1.heal_slots), (60, ()))
-check("tyndarius: the Lord of Order lifts its guard to 75",
-      loo.heal_below, 75)
+check("tyndarius: the Lord of Order needs no HP gate",
+      loo.spam_heal, True)
 check("tyndarius: the ArchPaladin stays at 60", ty3.heal_below, 60)
 check("tyndarius: the other panes keep 60", ty2.heal_below, 60)
 # The script puts Valiance on its Lord of Order instead of the preset's Awe
