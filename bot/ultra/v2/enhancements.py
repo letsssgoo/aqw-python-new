@@ -49,6 +49,9 @@ NORMAL_ENHANCEMENT_SHOPS = {
 #: ``sES`` codes of the class/armor slot an enhancement of this kind fits.
 CLASS_SLOTS = ("ar", "co")
 
+#: Where the normal (non-forge) enhancement shops are reachable from.
+ENHANCEMENT_MAP = "battleontown"
+
 
 async def prepare(cmd, preset: Preset) -> bool:
     """Wear every enhancement the preset names, buying a missing one."""
@@ -152,6 +155,11 @@ async def _apply_base(cmd, name: str) -> bool:
     shop_id = record.shop_id or _shop_id_for(name)
     if not shop_id:
         return False
+    # ``Lvl 50+ <Type> Enh`` is sold in battleontown (``Location:
+    # Menu,battleontown,trainers``); asking for it from the ultra map returns
+    # nothing, which is why the class stayed on its old enhancement.
+    if cmd.is_not_in_map(ENHANCEMENT_MAP):
+        await cmd.join_map(ENHANCEMENT_MAP)
     if not await cmd.ensure_load_shop(shop_id):
         cmd.bot.log(f"[v2] class enhancement shop {shop_id} did not load "
                     f"({name}).")
@@ -246,6 +254,8 @@ async def _buy(cmd, entry) -> bool:
         from bot import core_advanced as adv
         if cmd.is_not_in_map(adv.FORGE_MAP):
             await cmd.join_map(adv.FORGE_MAP)
+    elif cmd.is_not_in_map(ENHANCEMENT_MAP):
+        await cmd.join_map(ENHANCEMENT_MAP)
 
     if not await cmd.ensure_load_shop(entry.shop_id):
         cmd.bot.log(f"[v2] shop {entry.shop_id} did not load; {entry.name!r} "
