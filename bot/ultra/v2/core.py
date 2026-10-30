@@ -36,6 +36,16 @@ KINGS_ECHO_MANA_FLOOR = 12
 KINGS_ECHO_SURVIVAL_HP = 50.0
 KINGS_ECHO_SURVIVAL_MANA = 24.0
 
+#: Which skill a class heals with.  ArchPaladin and Lord of Order heal on 2;
+#: Legion Revenant heals on **3**, not 2.  A class that is not listed has no
+#: known heal skill here, and the heal check is skipped for it rather than
+#: guessing one.
+HEAL_SKILL_BY_CLASS = {
+    "ArchPaladin": 2,
+    "Lord of Order": 2,
+    "Legion Revenant": 3,
+}
+
 #: Panes that must be down inside one attempt before the party resets.  The
 #: reference's daily fights (``ultra_engineer.py``) never reset on two deaths --
 #: the two survivors keep going and the dead panes respawn -- so two is too
@@ -72,7 +82,7 @@ class V2Core:
         #: **slots** listed in ``heal_slots`` run the heal check, and slot
         #: numbers are 1-based loadout slots -- v1's default is ``(3, 4)``.
         self.heal_below: Optional[float] = None
-        self.heal_skill: int = 2
+        self.heal_skill: Optional[int] = HEAL_SKILL_BY_CLASS.get(self.preset.cls)
         self.heal_slots: tuple = (3, 4)
         #: A fixed rotation, for the fights that copy v1's literal skill string
         #: (Engineer's ``0 1 2 0 3 4``) instead of the class preset.
@@ -286,6 +296,9 @@ class V2Core:
         if self.heal_below is None:
             return False
         if self.heal_slots and self.slot not in self.heal_slots:
+            return False
+        if self.heal_skill is None:
+            # No heal skill is known for this class; do not invent one.
             return False
         if not self.bot.player.canUseSkill(self.heal_skill):
             return False

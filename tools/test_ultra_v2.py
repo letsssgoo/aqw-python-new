@@ -404,11 +404,19 @@ check("rotation: all three use v1's string",
        eng.rotation],
       [(0, 1, 2, 0, 3, 4)] * 3)
 
-# Heal check follows v1's ``support_slots`` default: slots 3 and 4 only.
+# Heal check follows v1's ``support_slots`` default (slots 3 and 4), and the
+# heal **skill** is per class: AP and LoO cast 2, Legion Revenant casts 3.
 check("heal: v1's support slots are 3 and 4", eng.heal_slots, (3, 4))
-check("heal: a slot outside them never heals",
-      warden.build(_StubCommand(), options.UltraOptions(
-          players=("a", "b", "c", "d")), 1).heal_slots, (3, 4))
+check("heal: ArchPaladin heals with 2",
+      engineer.UltraEngineer(_StubCommand(), options.UltraOptions(
+          players=("a", "b", "c", "d")), 3).heal_skill, 2)
+lr_heal = warden.build(_StubCommand(), options.UltraOptions(
+    players=("a", "b", "c", "d")), 1)
+check("heal: Legion Revenant heals with 3, not 2", lr_heal.heal_skill, 3)
+sc_heal = warden.build(_StubCommand(), options.UltraOptions(
+    players=("a", "b", "c", "d")), 2)
+check("heal: StoneCrusher has no listed heal, so none is cast",
+      sc_heal.heal_skill, None)
 
 # A boss that never appears must never be reported as defeated: the timeout
 # before the pull is the only place that can tell "not here" from "already dead".

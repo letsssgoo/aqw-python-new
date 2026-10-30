@@ -54,7 +54,6 @@ class UltraEzrajal(V2Core):
         # heal_skill=2, respect_counter_attack=True)``.
         self.skill_rotation = (0, 1, 2, 0, 3, 4)
         self.heal_below = 50
-        self.heal_skill = 2
         self.respect_counter_attack = True
         self.skip_mana_lock = bool(options.extras.get("skip_mana_lock", True))
 

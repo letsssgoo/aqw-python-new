@@ -51,11 +51,10 @@ class UltraEngineer(V2Core):
         # Boss is the fallback; the drones are tried first while they live.
         self.target_priority = (FIRST_TARGET, SECOND_TARGET)
         # v1: ``attack_loop([0, 1, 2, 0, 3, 4], heal_below=60, heal_skill=2)``
-        # -- the literal rotation; the heal check runs on slots 3 and 4 only,
-        # which is v1's ``support_slots`` default (kept in the core).
+        # -- the literal rotation; the heal check runs on slots 3 and 4 only
+        # (v1's ``support_slots``), each with its own heal skill.
         self.skill_rotation = (0, 1, 2, 0, 3, 4)
         self.heal_below = HEAL_BELOW
-        self.heal_skill = HEAL_SKILL
         # Two panes down is not a wipe here: the survivors keep the ring while
         # the others respawn.
         self.wipe_deaths = 4

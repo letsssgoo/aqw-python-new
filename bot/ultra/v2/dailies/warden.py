@@ -52,7 +52,6 @@ class UltraWarden(V2Core):
         # what keeps the attack chain (and its mana) alive.
         self.skill_rotation = (0, 1, 2, 0, 3, 4)
         self.heal_below = 5
-        self.heal_skill = 2
         self.is_taunter = self.slot == taunter_slot(options.composition)
 
     async def run(self) -> bool:
