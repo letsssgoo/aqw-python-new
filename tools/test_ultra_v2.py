@@ -478,6 +478,17 @@ check("scroll: Enrage needs 25 turn-ins from empty",
 check("scroll: from 320 it needs 17", scrolls.turns_for(320, 40, 1000), 17)
 check("scroll: an already-full stock needs none",
       scrolls.turns_for(1000, 40, 1000), 0)
+# The gold route buys its materials at shop 693 -- the reference's
+# PrepareOptionalGoldScrollMaterial passes ArcaneQuillShopId -- while the
+# farming route keeps the ink vendor 549.  Asking 549 for a 99 stack is what
+# left Dage's Decay/Mystify stock short in the live run.
+check("scroll: the gold-route shop is the quill shop",
+      scrolls.ARCANE_QUILL_SHOP, 693)
+check("scroll: the farming ink shop is the ink vendor",
+      scrolls.SPELL_INK_SHOP, 549)
+check("scroll: the gold route target is the reward stack",
+      scrolls.turns_for(0, 1, 99), 99)
+
 check("scroll: Mystify has no farming route", scrolls.FARMABLE,
       (scrolls.ENRAGE, scrolls.DECAY))
 check("scroll: Enrage needs SpellCrafting 5", scrolls.REQUIRED_RANK[scrolls.ENRAGE], 5)

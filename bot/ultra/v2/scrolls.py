@@ -283,7 +283,8 @@ class _Requirement:
 async def _farm_materials(cmd) -> bool:
     """2 Mystic Parchment from /underworld plus 5 Zealous Ink from shop 549."""
     if not await cmd.has_item(ZEALOUS_INK):
-        if not await _ensure(cmd, ZEALOUS_INK, 5):
+        # ``PrepareDecayByFarming`` buys these five at ``SpellInkShopId`` (549).
+        if not await _ensure(cmd, ZEALOUS_INK, 5, shop=SPELL_INK_SHOP):
             return False
     if await cmd.has_item(MYSTIC_PARCHMENT, 2):
         return True
@@ -299,12 +300,22 @@ async def _farm_materials(cmd) -> bool:
     return True
 
 
-async def _ensure(cmd, name: str, quantity: int, *, shop_item_id: int = 0) -> bool:
-    """Buy ``quantity`` of ``name`` at its /spellcraft shop when short."""
+async def _ensure(cmd, name: str, quantity: int, *, shop_item_id: int = 0,
+                  shop: Optional[int] = None) -> bool:
+    """Bring ``quantity`` of ``name`` into the inventory, buying the rest.
+
+    The gold route buys every material -- voucher, quill and ink -- from the
+    spellcraft shop **693**, which is what the reference's
+    ``PrepareOptionalGoldScrollMaterial`` passes as ``ArcaneQuillShopId``.  Shop
+    549 is the ink vendor the *farming* route uses, and asking it for a stack of
+    99 is what left Dage's Decay/Mystify stock short.
+    """
+    if cmd.is_in_bank(name) and await _quantity(cmd, name) < quantity:
+        await cmd.bank_to_inv(name)
     if await _quantity(cmd, name) >= quantity:
         return True
     from bot.core_bots import buy_item as core_buy
-    shop = SPELL_INK_SHOP if name == ZEALOUS_INK else ARCANE_QUILL_SHOP
+    shop = shop or ARCANE_QUILL_SHOP
     await core_buy(cmd, shop, name, quantity, map_name=SPELLCRAFT_MAP,
                    shop_item_id=shop_item_id)
     if await _quantity(cmd, name) < quantity:
@@ -314,11 +325,19 @@ async def _ensure(cmd, name: str, quantity: int, *, shop_item_id: int = 0) -> bo
 
 
 async def _ensure_requirement(cmd, requirement, quantity: int) -> bool:
-    """Buy the optional-scroll requirement (ink) by name at shop 549."""
+    """Buy the optional-scroll requirement (ink) at the spellcraft shop 693.
+
+    The reference's gold route calls ``PrepareOptionalGoldScrollMaterial`` for
+    the requirement too, and that one buys at ``ArcaneQuillShopId`` (693); shop
+    549 is only used by the farming route.
+    """
+    if cmd.is_in_bank(requirement.name) and \
+            await _quantity(cmd, requirement.name) < quantity:
+        await cmd.bank_to_inv(requirement.name)
     if await _quantity(cmd, requirement.name) >= quantity:
         return True
     from bot.core_bots import buy_item as core_buy
-    await core_buy(cmd, SPELL_INK_SHOP, requirement.name, quantity,
+    await core_buy(cmd, ARCANE_QUILL_SHOP, requirement.name, quantity,
                    map_name=SPELLCRAFT_MAP)
     if await _quantity(cmd, requirement.name) < quantity:
         cmd.bot.log(f"[v2] {requirement.name!r} could not be obtained "
