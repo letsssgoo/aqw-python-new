@@ -56,9 +56,6 @@ class UltraEngineer(V2Core):
         # (v1's ``support_slots``), each with its own heal skill.
         self.skill_rotation = (0, 1, 2, 0, 3, 4)
         self.heal_below = HEAL_BELOW
-        # Two panes down is not a wipe here: the survivors keep the ring while
-        # the others respawn.
-        self.wipe_deaths = 4
 
     async def run(self) -> bool:
         if not await self.sync.step("PREFLIGHT"):

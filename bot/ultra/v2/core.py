@@ -46,11 +46,11 @@ HEAL_SKILL_BY_CLASS = {
     "Legion Revenant": 3,
 }
 
-#: Panes that must be down inside one attempt before the party resets.  The
-#: reference's daily fights (``ultra_engineer.py``) never reset on two deaths --
-#: the two survivors keep going and the dead panes respawn -- so two is too
-#: eager; three (a majority) is a party that cannot finish.
-WIPE_DEATHS = 3
+#: Panes that must be down before the party resets.  v1's daily fights
+#: (``ultra_engineer.py`` and friends) never reset at all: a dead pane respawns
+#: and walks back in while the rest keep fighting.  So a reset means the **whole
+#: party** is down -- anything less and a single rough pull ended the run.
+WIPE_DEATHS = 4
 
 
 class V2Core:
