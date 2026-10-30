@@ -198,3 +198,39 @@ def any_abort(name: str, keys=PARTY_SLOTS):
         except Exception:
             continue
     return None
+
+
+# --- named signals ------------------------------------------------------
+# One pane publishes a value another pane has to read: who holds the Decay
+# scroll this attempt, which mode the party agreed on.  Same directory and same
+# key as the barriers, so one run is one folder.
+
+def publish(name: str, key, value) -> None:
+    """Write ``value`` under ``name`` for this pane."""
+    try:
+        (_dir() / f"{name}.{_safe_key(key)}.sig").write_text(
+            json.dumps({"value": value, "t": time.time()}), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def published(name: str, keys=PARTY_SLOTS) -> dict:
+    """``{key: value}`` for every pane that published ``name``."""
+    found: dict = {}
+    for key in keys:
+        try:
+            data = json.loads(
+                (_dir() / f"{name}.{_safe_key(key)}.sig").read_text(encoding="utf-8"))
+            found[key] = data.get("value")
+        except Exception:
+            continue
+    return found
+
+
+def clear_signal(name: str, keys=PARTY_SLOTS) -> None:
+    for key in keys:
+        try:
+            (_dir() / f"{name}.{_safe_key(key)}.sig").unlink()
+        except Exception:
+            pass
+
