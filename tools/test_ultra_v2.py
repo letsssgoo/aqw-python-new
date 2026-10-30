@@ -199,6 +199,51 @@ check("base: the seven types the presets use",
        "Wizard"])
 check("base: the class slot codes", enhancements.CLASS_SLOTS, ("ar", "co"))
 
+# --- potion packets --------------------------------------------------------
+# Captured: an elixir is consumed with `serverUseItem`; a combat potion is
+# equipped into slot 5 (`geia ... potion`) and cast with `gar`.
+class _PotionCommand:
+    def __init__(self):
+        self.calls = []
+        self.logs = []
+        self.player = type("P", (), {
+            "ISDEAD": False,
+            "AURAS": [],
+            "get_item_inventory": lambda _self, name: type(
+                "I", (), {"qty": 5, "item_id": 12056})(),
+        })()
+        self.bot = type("B", (), {"player": self.player,
+                                  "log": lambda _s, line: self.logs.append(line)})()
+
+    async def has_item(self, name, qty=1, isTemp=False):
+        return True
+
+    def is_in_bank(self, name):
+        return False
+
+    async def use_item(self, name):
+        self.calls.append(("use_item", name))
+        return True
+
+    async def equip_potion(self, name):
+        self.calls.append(("equip_potion", name))
+        return True
+
+    async def use_skill(self, slot, **kwargs):
+        self.calls.append(("skill", slot))
+        return True
+
+
+elixir = _PotionCommand()
+run(potions.use(elixir, "Potent Destruction Elixir"))
+check("potion: an elixir is consumed from the bag",
+      elixir.calls, [("use_item", "Potent Destruction Elixir")])
+
+combat = _PotionCommand()
+run(potions.use_loadout(combat, None, None, "Potent Honor Potion"))
+check("potion: a combat potion is equipped into slot 5",
+      combat.calls, [("equip_potion", "Potent Honor Potion")])
+
 # --- Ezrajal ---------------------------------------------------------------
 from bot.ultra.v2.dailies import ezrajal  # noqa: E402
 from bot.ultra.v2.registry import ORDER as V2_ORDER, REGISTRY as V2_REGISTRY  # noqa: E402

@@ -181,7 +181,9 @@ async def use(cmd, name: Optional[str]) -> bool:
     if not item_id:
         cmd.bot.log(f"[v2] {name} has no item id; skipped.")
         return False
-    await cmd.use_potion(item_id)
+    # A tonic/elixir is consumed from the bag (`serverUseItem`); only a combat
+    # potion is equipped into slot 5 and cast with `gar`.
+    await cmd.use_item(name)
     cmd.bot.log(f"[v2] used {name}.")
     return True
 
@@ -192,14 +194,14 @@ async def use_loadout(cmd, tonic: Optional[str], elixir: Optional[str],
     await use(cmd, tonic)
     await use(cmd, elixir)
     if combat and combat in POTIONS:
-        # A combat potion lives in slot 5, so it is *equipped*; the engine's
-        # skill loop presses 5 when it is off cooldown.
+        # A combat potion lives in slot 5, so it is *equipped* (captured:
+        # ``geia ... potion%400%<itemId>``), then the skill loop casts 5.
         if cmd.bot.player.get_item_inventory(combat) is None:
             if cmd.is_in_bank(combat):
                 await cmd.bank_to_inv(combat)
             else:
                 return
-        if await cmd.equip_scroll(combat):
+        if await cmd.equip_potion(combat):
             cmd.bot.log(f"[v2] {combat} equipped in slot 5.")
 
 

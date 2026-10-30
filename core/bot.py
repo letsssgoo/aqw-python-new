@@ -1777,6 +1777,20 @@ class Bot:
     def use_potion(self, potion_id):
         self.write_message(f"%xt%zm%gar%1%0%i1>p:{self.user_id}%{potion_id}%wvz%")
 
+    def use_item(self, item_id):
+        """Consume a potion from the inventory -- what a tonic/elixir needs.
+
+        Captured use of a Potent Destruction Elixir::
+
+            From client: %xt%zm%serverUseItem%175706%+%12056%
+            From server: {"cmd":"ct","a":[{"cmd":"aura+", ... "potionType":"elixir"}]}
+
+        ``gar`` (what :meth:`use_potion` sends) is the *equipped slot 5* cast a
+        combat potion/scroll uses; a tonic or elixir is consumed from the bag and
+        never touches slot 5.
+        """
+        self.write_message(f"%xt%zm%serverUseItem%{self.areaId}%+%{item_id}%")
+
     def use_skill_to_monster(self, skill, monsters_id, max_target):
         if not monsters_id:
             return
