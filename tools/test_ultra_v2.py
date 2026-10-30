@@ -396,6 +396,18 @@ class _BuyCommand:
     async def sleep(self, ms):
         await asyncio.sleep(0)
 
+    def is_still_connected(self):
+        return True
+
+    def is_not_in_map(self, name):
+        return False
+
+    async def join_map(self, name, room=None):
+        return None
+
+    async def ensure_load_shop(self, shop_id):
+        return True
+
     def is_in_bank(self, name):
         return False
 

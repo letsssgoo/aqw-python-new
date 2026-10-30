@@ -384,6 +384,18 @@ async def _buy_until(cmd, shop: int, name: str, quantity: int,
     import time as _time
     from bot.core_bots import buy_item as core_buy
 
+    # The shop must be loaded *before* its entries can be read: the reference
+    # joins the map and calls Bot.Shops.Load inside BuyItem, and only then
+    # parses the entry.  Looking it up first said "not in shop" for a shop that
+    # had simply never been opened.
+    while cmd.is_still_connected() and cmd.is_not_in_map(SPELLCRAFT_MAP):
+        await cmd.join_map(SPELLCRAFT_MAP)
+        await cmd.sleep(1000)
+    if not await cmd.ensure_load_shop(shop):
+        cmd.bot.log(f"[v2] shop {shop} never loaded; {name!r} was not bought.")
+        return False
+    await cmd.sleep(1500)
+
     item = _shop_item(cmd, shop, name, shop_item_id)
     if item is None:
         cmd.bot.log(f"[v2] {name!r} is not in shop {shop}.")
