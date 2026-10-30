@@ -49,9 +49,9 @@ BOSS = "id.2"
 RIGHTEOUS_SEAL = "Righteous Seal"
 FOCUS = "Focus"
 HEAL_BELOW = 60
-#: The ArchPaladin lifts its emergency heal earlier than the rest: 75% keeps a
-#: pane from ever reaching the burst range the boss punishes.
-ARCH_PALADIN_HEAL_BELOW = 75
+#: The Lord of Order lifts its heal earlier than the rest: 75% keeps a pane out
+#: of the burst range the boss punishes.
+LOO_HEAL_BELOW = 75
 ARCH_PALADIN_SLOT = 3
 TAUNT_PARTNER_SLOT = 4            # Pay2Win would use 3; not ported
 FOCUS_REFRESH_MS = 1500
@@ -70,18 +70,15 @@ class UltraTyndarius(V2Core):
         self.heal_below = HEAL_BELOW
         # Every pane tops the party up below 60%, not just slots 3 and 4.
         self.heal_slots = ()
-        if self.preset.cls == "Lord of Order":
-            # LoO is the dedicated healer here: heal on cooldown, no HP gate
-            # and no gap between heals.
-            self.spam_heal = True
-            self.heal_gap_ms = 0
-        elif self.preset.cls == "ArchPaladin":
-            # AP keeps skill 2 for the emergency heal, so it is taken out of
-            # the rotation -- otherwise the rotation itself casts it and it is
-            # not "held" at all.  Its guard is higher than the party's (75%
-            # instead of 60%) and has no extra gap: the gate is the guard, and
-            # a second delay on top of it is what made the heal land late.
-            self.heal_below = ARCH_PALADIN_HEAL_BELOW
+        if self.preset.cls in ("Lord of Order", "ArchPaladin"):
+            # Both healers hold skill 2 for the heal check instead of casting
+            # it in the rotation -- otherwise the rotation itself spends it and
+            # it is not "held" at all.  No extra gap on top of the gate: the
+            # gate is the guard, and a second delay is what made the heal land
+            # late.  Their thresholds differ: LoO lifts at 75%, AP at 60%.
+            self.heal_below = (LOO_HEAL_BELOW
+                               if self.preset.cls == "Lord of Order"
+                               else HEAL_BELOW)
             self.heal_gap_ms = 0
             self.skill_rotation = tuple(
                 slot for slot in self.skill_rotation if slot != self.heal_skill)
