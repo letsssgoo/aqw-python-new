@@ -523,8 +523,11 @@ check("tyndarius: ArchPaladin keeps its heal for under 60, no extra gap",
       (ty3.spam_heal, ty3.heal_gap_ms), (False, 0))
 check("tyndarius: and skill 2 is not in the ArchPaladin rotation",
       2 in ty3.rotation, False)
-check("tyndarius: every pane heals below 60",
+check("tyndarius: the party heals below 60",
       (ty1.heal_below, ty1.heal_slots), (60, ()))
+check("tyndarius: the ArchPaladin lifts its guard to 75",
+      ty3.heal_below, 75)
+check("tyndarius: the other panes keep 60", ty2.heal_below, 60)
 # The script puts Valiance on its Lord of Order instead of the preset's Awe
 # Blast, and that stays inside Tyndarius -- the base preset is untouched.
 check("tyndarius: Lord of Order wears Valiance in every composition",
