@@ -138,7 +138,15 @@ class UltraEngineer(V2Core):
 
         while self.cmd.is_still_connected() and not self.sync.aborted():
             if not self.cmd.is_monster_alive(boss):
-                break
+                # v1 wraps this loop in ``fight_until_party_ready``: the boss
+                # leaving the cell between drone phases is not a kill, so keep
+                # the party in the ring until the quest is actually turnable.
+                if self.cmd.can_turnin_quest(self.spec.quest):
+                    break
+                await self.cmd.sleep(500)
+                if not self.in_boss_room():
+                    await self.jump_boss()
+                continue
             if self.should_reset(attempt):
                 await self.stop_skills()
                 return "reset"

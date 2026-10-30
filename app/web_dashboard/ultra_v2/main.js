@@ -69,6 +69,8 @@
             '    <div class="form-group"><label>Username</label><input type="text" class="slot-user" placeholder="Username" autocomplete="off"></div>' +
             '    <div class="form-group"><label>Password</label><div class="password-wrapper"><input type="password" class="slot-pass" placeholder="Password" autocomplete="off"></div></div>' +
             '    <div class="slot-status" data-status><span class="pill">idle</span></div>' +
+            '    <div class="monster-row" data-monsters style="display:none;gap:4px;flex-wrap:wrap;margin-top:6px"></div>' +
+            '    <div class="skill-row" data-skills style="display:none;gap:4px;flex-wrap:nowrap;overflow-x:auto;margin-top:6px"></div>' +
             '  </div>' +
             '</div>';
         attachPlayersDropdown(card.querySelector('.slot-player'), function (user, pass) {
@@ -170,10 +172,19 @@
                 '<span class="pill">HP ' + hp + '%</span>' +
                 '<span class="pill">MP ' + (s.mp || 0) + '</span>' +
                 '<span class="pill">' + esc(s.map || '-') + ' / ' + esc(s.cell || '-') + '</span>' +
-                (s.is_dead ? '<span class="pill" style="color:#f87171">dead</span>' : '') +
-                (monsters ? '<div class="monster-row" style="margin-top:6px">' + monsters + '</div>' : '') +
-                (badges ? '<div class="skill-row" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">' +
-                    badges + '</div>' : '');
+                (s.is_dead ? '<span class="pill" style="color:#f87171">dead</span>' : '');
+            // Monsters and skills get their own rows: the map/telemetry pills
+            // stay readable and the cooldown bar is one line, like the solo menu.
+            var monRow = card.querySelector('[data-monsters]');
+            if (monRow) {
+                monRow.innerHTML = monsters;
+                monRow.style.display = monsters ? 'flex' : 'none';
+            }
+            var cdRow = card.querySelector('[data-skills]');
+            if (cdRow) {
+                cdRow.innerHTML = badges;
+                cdRow.style.display = badges ? 'flex' : 'none';
+            }
             if (s.role) {
                 var cls = card.querySelector('.slot-class');
                 if (cls) cls.textContent = s.role;
