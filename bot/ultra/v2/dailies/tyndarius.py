@@ -67,6 +67,13 @@ class UltraTyndarius(V2Core):
         self.heal_below = HEAL_BELOW
         # Every pane tops the party up below 60%, not just slots 3 and 4.
         self.heal_slots = ()
+        if self.preset.cls == "Lord of Order":
+            # LoO is the dedicated healer here: no gap between its heals.
+            self.heal_gap_ms = 0
+        elif self.preset.cls == "ArchPaladin":
+            # AP keeps its heal for the emergency (still only below 60%), so
+            # it does not spend the whole fight healing instead of damaging.
+            self.heal_gap_ms = 1500
         self.is_taunter = self.slot >= 3          # IsTaunterRole
         self.is_arch_paladin = self.slot == ARCH_PALADIN_SLOT
 

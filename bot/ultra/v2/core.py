@@ -74,6 +74,8 @@ class V2Core:
         self._attempt_started = 0.0
         self._death_reported = False
         self._skill_task: Optional[asyncio.Task] = None
+        #: Arguments of the last :meth:`start_skills`, replayed after a death.
+        self._skill_args: Optional[tuple] = None
         self._log = None
         #: When True the rotation pauses while the target's counter-attack aura
         #: is up.  Ezrajal is the boss that needs it (v1: ``respect_counter_attack``).
@@ -238,9 +240,26 @@ class V2Core:
                            taunter: bool = False) -> None:
         """Run the skill engine in the background until :meth:`stop_skills`."""
         await self.stop_skills()
+        self._skill_args = (target, use_survival, taunter)
         self._skill_task = asyncio.create_task(
             self._skill_loop(target, use_survival=use_survival,
                              taunter=taunter))
+
+    async def resume_skills(self) -> None:
+        """Restart the skill engine after a death.
+
+        ``_skill_loop`` ends when the player dies (its condition includes
+        ``not ISDEAD``), so a respawned pane used to stand in the cell without
+        attacking -- exactly the ArchPaladin case.  Every fight loop calls this
+        through :meth:`wait_respawn`.
+        """
+        if self._skill_args is None:
+            return
+        if self._skill_task is not None and not self._skill_task.done():
+            return
+        target, use_survival, taunter = self._skill_args
+        await self.start_skills(target, use_survival=use_survival,
+                                taunter=taunter)
 
     async def stop_skills(self) -> None:
         task, self._skill_task = self._skill_task, None
@@ -495,6 +514,8 @@ class V2Core:
         if self.sync.enabled:
             party.clear_death(self.sync.name, self.slot)
         self.log("respawned.")
+        # A dead player ends _skill_loop; bring it back with the pane.
+        await self.resume_skills()
         return "alive"
 
     async def handle_reset(self, attempt: int) -> bool:
