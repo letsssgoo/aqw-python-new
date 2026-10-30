@@ -269,6 +269,11 @@ class V2Core:
                 # casting its buff/heal slots (``buff_only``).
                 await self._buff_step(target)
                 await self.cmd.sleep(self.poll_ms)
+            elif self.skill_rotation:
+                # A literal rotation from the module (v1's "0 1 2 0 3 4") is
+                # used as-is for every class, mode engines included; that is how
+                # Verus DoomKnight and King's Echo keep the skill-0 auto attack.
+                await self._simple_step(target)
             elif preset.mode == KINGS_ECHO:
                 await self._kings_echo_step(target, use_survival)
             elif preset.mode == STRICT:

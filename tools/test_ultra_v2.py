@@ -407,6 +407,16 @@ check("rotation: ezrajal starts on skill 0",
       ezrajal.UltraEzrajal(_StubCommand(), options.UltraOptions(
           players=("a", "b", "c", "d")), 1).rotation[0], 0)
 check("rotation: engineer starts on skill 0", eng.rotation[0], 0)
+# VDK (strict) and KE (kings_echo) must cast skill 0 too, like every v1 daily.
+vdk = warden.build(_StubCommand(), options.UltraOptions(
+    players=("a", "b", "c", "d"), composition="Reliable"), 1)
+ke = warden.build(_StubCommand(), options.UltraOptions(
+    players=("a", "b", "c", "d"), composition="Stable"), 1)
+check("rotation: Verus DoomKnight keeps the literal 0", (vdk.rotation[0],
+                                                          vdk.preset.mode), (0, "strict"))
+check("rotation: King's Echo keeps the literal 0", (ke.rotation[0],
+                                                    ke.preset.mode), (0, "kings_echo"))
+
 check("rotation: all three use v1's string",
       [warden.build(_StubCommand(), options.UltraOptions(
            players=("a", "b", "c", "d")), 1).rotation,
