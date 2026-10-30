@@ -193,15 +193,18 @@ async def _prepare_optional(cmd, name: str, held: int) -> bool:
                     f"data.")
         return False
     requirement, per_turn, target = recipe
-    turns = turns_for(held, per_turn, target)
-    turns = _clamp_turns(cmd, requirement, turns, per_turn)
-    cmd.bot.log(f"[v2] {name}: {choice} route, {turns} turn-in(s) of quest "
-                f"{quest_id}.")
 
+    # The shop has to be open before the plan can be clamped: the ink's stack
+    # size lives in its shop entry, and an unopened shop reads as "no stack".
     await cmd.join_map(SPELLCRAFT_MAP)
     if not cmd.is_in_map(SPELLCRAFT_MAP):
         cmd.bot.log(f"[v2] {name}: {SPELLCRAFT_MAP} could not be joined.")
         return False
+
+    turns = turns_for(held, per_turn, target)
+    turns = await _clamp_turns(cmd, requirement, turns, per_turn)
+    cmd.bot.log(f"[v2] {name}: {choice} route, {turns} turn-in(s) of quest "
+                f"{quest_id}.")
 
     if choice == "gold":
         if not await _ensure(cmd, GOLD_VOUCHER, 2):
@@ -224,7 +227,7 @@ async def _prepare_optional(cmd, name: str, held: int) -> bool:
     return held >= min(OPTIONAL_SCROLL_THRESHOLD, target)
 
 
-def _clamp_turns(cmd, requirement, turns: int, per_turn: int) -> int:
+async def _clamp_turns(cmd, requirement, turns: int, per_turn: int) -> int:
     """Lower the turn-in count to what the requirement's stack can hold.
 
     The gold route asks for ``reward.MaxStack`` scrolls, but the ink it needs
@@ -234,6 +237,11 @@ def _clamp_turns(cmd, requirement, turns: int, per_turn: int) -> int:
     """
     if turns <= 0 or per_turn <= 0:
         return turns
+    while cmd.is_still_connected() and cmd.is_not_in_map(SPELLCRAFT_MAP):
+        await cmd.join_map(SPELLCRAFT_MAP)
+        await cmd.sleep(1000)
+    await cmd.ensure_load_shop(ARCANE_QUILL_SHOP)
+    await cmd.sleep(500)
     item = _shop_item(cmd, ARCANE_QUILL_SHOP, requirement.name)
     stack = int(getattr(item, "stackable", 0) or 0) if item is not None else 0
     if stack <= 0:

@@ -515,13 +515,13 @@ class _Req:
 
 
 check("scroll plan: a full stack still plans its held ink",
-      scrolls._clamp_turns(_InkCommand(50), _Req(), 99, 1), 50)
+      run(scrolls._clamp_turns(_InkCommand(50), _Req(), 99, 1)), 50)
 check("scroll plan: a half stack plans held + room",
-      scrolls._clamp_turns(_InkCommand(40), _Req(), 99, 1), 50)
+      run(scrolls._clamp_turns(_InkCommand(40), _Req(), 99, 1)), 50)
 check("scroll plan: an empty bag plans the whole stack",
-      scrolls._clamp_turns(_InkCommand(0), _Req(), 99, 1), 50)
+      run(scrolls._clamp_turns(_InkCommand(0), _Req(), 99, 1)), 50)
 check("scroll plan: a small plan is left alone",
-      scrolls._clamp_turns(_InkCommand(0), _Req(), 10, 1), 10)
+      run(scrolls._clamp_turns(_InkCommand(0), _Req(), 10, 1)), 10)
 
 # --- warden rules ----------------------------------------------------------
 check("warden: Default taunts from slot 1", warden.taunter_slot("Default"), 1)
