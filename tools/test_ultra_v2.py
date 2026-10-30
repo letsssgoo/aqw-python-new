@@ -1131,6 +1131,40 @@ check("drakath: and is not asked again", _ap.due_taunt(), None)
 _ap.cmd.boss.current_hp = 14_000_000
 check("drakath: the second threshold fires next", _ap.due_taunt(), 14_500_000)
 
+# ``Fight`` starts its own ``tauntIndex`` at zero, so a wipeout and retry walks
+# the ladder from the top again -- the boss comes back at full HP.
+_retry = drakath.UltraDrakath(_BossCommand(18_000_000), options.UltraOptions(
+    players=("a", "b", "c", "d")), 3)
+_retry._taunt_index = 2
+_retry.cmd.is_monster_alive = lambda target="*": False
+run(_retry.fight(2))
+check("drakath: a retry starts the taunt ladder over", _retry._taunt_index, 0)
+# A pane that already died and respawned this attempt must publish its next
+# death too, or the wipe detector never counts four panes down.
+_wr_run = "test_v2_deaths"
+_previous_wr = os.environ.get("AQW_RUN_ID")
+os.environ["AQW_RUN_ID"] = _wr_run
+try:
+    from bot.ultra import party as _party  # noqa: E402
+    _dead_cmd = _BossCommand(0)
+    _dead_cmd.bot.player.ISDEAD = True
+    _dead = drakath.UltraDrakath(_dead_cmd, options.UltraOptions(
+        players=("a", "b", "c", "d")), 3)
+    _dead.note_death()
+    _party.clear_death(_dead.sync.name, 3)          # it respawned
+    _dead.note_death()                              # and died again
+    check("deaths: a second death is published again",
+          _party.death_times(_dead.sync.name, (3,)).get(3) is not None, True)
+    check("deaths: but the log line stays once per attempt",
+          _dead._death_reported, True)
+finally:
+    shutil.rmtree(REPO_ROOT / "capture_logs" / "ultra" / _wr_run,
+                  ignore_errors=True)
+    if _previous_wr is None:
+        os.environ.pop("AQW_RUN_ID", None)
+    else:
+        os.environ["AQW_RUN_ID"] = _previous_wr
+
 # Capes: AP always Penitence, slot 1 by composition, Stable's KE on Lament.
 check("drakath: ArchPaladin wears Penitence in every composition",
       [presets.preset_for("drakath", composition, 3).cape

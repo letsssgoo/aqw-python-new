@@ -539,13 +539,22 @@ class V2Core:
         self._tele("attempt", attempt=attempt)
 
     def note_death(self) -> None:
-        """Publish this pane's death once per attempt."""
-        if self._death_reported or not self.bot.player.ISDEAD:
+        """Publish this pane's death; telemetry and the log once per attempt.
+
+        The marker goes out on **every** death: ``wait_respawn`` clears it when
+        the pane comes back, so a second death in the same attempt (the one a
+        wipe is made of) has to republish it, or ``should_reset`` never sees
+        four panes down.  The log line and the telemetry event stay one per
+        attempt so a pane on its third respawn does not spam them.
+        """
+        if not self.bot.player.ISDEAD:
+            return
+        if self.sync.enabled:
+            party.report_death(self.sync.name, self.slot)
+        if self._death_reported:
             return
         self._death_reported = True
         self._tele("death")
-        if self.sync.enabled:
-            party.report_death(self.sync.name, self.slot)
         self.log("died.")
 
     def should_reset(self, attempt: int) -> bool:
