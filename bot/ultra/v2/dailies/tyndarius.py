@@ -61,6 +61,8 @@ class UltraTyndarius(V2Core):
         self.skill_rotation = (0, 1, 2, 0, 3, 4)
         self.heal_below = HEAL_BELOW
         self.is_taunter = self.slot >= 3      # IsTaunterRole: slots 3 and 4
+        # GetPriorityTarget: the adds are hit before the boss on every tick.
+        self.target_priority = ("id.3", "id.1")
         self.is_arch_paladin = self.slot == ARCH_PALADIN_SLOT
 
     # ---------------------------------------------------------------- targets
