@@ -637,6 +637,24 @@ def main() -> None:
     check("nulgath diamond: Iron is reported, not farmed",
           any("does not have" in line for line in _n_logs))
 
+    # --- 9556: Void Paladin and Void Spartan --------------------------------
+    from bot.nation.various import void_paladin as _vp
+    from bot.nation.various import void_spartan as _vs
+
+    check("void paladin: quest 5827 and the chocolate shop",
+          (_vp.QUEST, _vp.CHOCOLATE_SHOP, _vp.CHOCOLATE_SHOP_ITEM)
+          == (5827, 44, 22367))
+    check("void paladin: two auras, twenty essences each",
+          (_vp.VOID_AURAS_NEEDED, _vp.ESSENCE_EACH) == (2, 20))
+    check("void paladin: the nine batch monsters are the reference's",
+          [(m, mid) for m, mid, _e in _vp.ESSENCE_BATCH],
+          [("necrocavern", 5), ("citadel", 21), ("greenguardwest", 22),
+           ("mudluk", 18), ("aqlesson", 17), ("hachiko", 10),
+           ("timevoid", 12), ("dragonchallenge", 4), ("maul", 17)])
+    check("void spartan: quest 5982, the drop and the cloak",
+          (_vs.QUEST, _vs.DROP, _vs.CLOAK, _vs.GOLD)
+          == (5982, "Zee's Red Jasper", "Fiend Cloak of Nulgath", 500_000))
+
     # --- Ravenous forge unlock ---------------------------------------------
     # UnlockForgeEnhancements.Ravenous: quest 9560 once the Gluttonous Maw
     # (shop 2411) is held; the daily Roentgenium line otherwise.
