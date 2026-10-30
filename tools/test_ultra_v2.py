@@ -413,6 +413,36 @@ check("scroll buy: insufficient gold fails before any packet",
 check("scroll buy: and names the price and the gold",
       ("25000" in _broke.logs[-1] and "0 in hand" in _broke.logs[-1]), True)
 _member = _BuyCommand([_ShopItem("Zealous Ink", is_upgrade=True)])
+# Shop 693 is a merge shop: the captured Arcane Quill buy is
+# `buyItem ... 693 7686 10` answered by `turnIn sItems:61043:2` -- ten quills
+# for two Gold Voucher 500k.  The bundle and its cost are read off the entry.
+class _MergeItem(_ShopItem):
+    def __init__(self):
+        super().__init__("Arcane Quill", cost=0)
+        self.qty = 10
+        self.stackable = 100
+        self.merge_requirements = [("61043", "Gold Voucher 500k", 2)]
+
+
+_merge = _MergeItem()
+check("scroll buy: the merge cost is read off the entry",
+      scrolls._merge_cost(_merge), [("61043", "Gold Voucher 500k", 2)])
+check("scroll buy: the bundle is what the shop sells",
+      _merge.qty, 10)
+
+
+class _StockCommand(_BuyCommand):
+    def __init__(self, vouchers):
+        super().__init__([_merge], gold=1_000_000)
+        self.bot.player.get_item_inventory = lambda name: (
+            type("I", (), {"qty": vouchers})()
+            if str(name) == "Gold Voucher 500k" else None)
+
+
+check("scroll buy: materials already in stock pass",
+      run(scrolls._ensure_materials(_StockCommand(2), _merge, "Arcane Quill")),
+      True)
+
 check("scroll buy: a member-only entry is refused",
       run(scrolls._buy_until(_member, 693, "Zealous Ink", 99)), False)
 check("scroll buy: and says member-only", "member-only" in _member.logs[-1],
