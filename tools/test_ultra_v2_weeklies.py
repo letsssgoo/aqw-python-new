@@ -667,4 +667,96 @@ run(_shaman.maintain_shaman_skill_four(True))
 check("gramiel: and a second one after Safeguard",
       (_shaman._shaman_safeguard, _shaman.cmd.casts), (True, [4, 4]))
 
+# --- Ultra Speaker (weekly) ------------------------------------------------
+# The fight is a walking chart: Truth/Listen warnings in a fixed order per
+# section, an Equalize (zoneSet "A") that hands the red zone to the next owner,
+# and the ArchPaladin covering Righteous Seal with skill 4.
+from bot.ultra.v2.weeklies import speaker  # noqa: E402
+
+check("speaker: quest 9173 in ultraspeaker",
+      (speaker.SPEC.quest, speaker.SPEC.map), (9173, "ultraspeaker"))
+check("speaker: pulled from Boss/Left, boss id.1",
+      (speaker.SPEC.boss_cell, speaker.SPEC.boss_pad, speaker.SPEC.monster_id),
+      ("Boss", "Left", 1))
+check("speaker: level 90 gate", speaker.SPEC.min_level, 90)
+check("speaker: registered for the menu", "speaker" in V2_ORDER, True)
+check("speaker: Truth and Listen are verbatim",
+      (speaker.TRUTH, speaker.LISTEN),
+      ("I will make you see the truth.", "You shall listen."))
+check("speaker: safe and red zones are the reference's coordinates",
+      ((speaker.SAFE_X, speaker.SAFE_Y), (speaker.RED_X, speaker.RED_Y),
+       speaker.TOLERANCE),
+      ((890, 395), (731, 380), 20))
+
+check("speaker: the opening chart is Truth then Listen",
+      [(step.warning, step.owner, step.fresh)
+       for step in speaker.UltraSpeaker.section_steps(0)],
+      [(speaker.TRUTH, 1, True), (speaker.LISTEN, 4, True)])
+check("speaker: sections one and three share their steps",
+      (speaker.UltraSpeaker.section_steps(1) ==
+       speaker.UltraSpeaker.section_steps(3), len(
+           speaker.UltraSpeaker.section_steps(1))), (True, 3))
+check("speaker: sections two and four share their steps",
+      (speaker.UltraSpeaker.section_steps(2) ==
+       speaker.UltraSpeaker.section_steps(4), len(
+           speaker.UltraSpeaker.section_steps(2))), (True, 4))
+check("speaker: zone owners cycle 2, 1, 3, 4",
+      [speaker.UltraSpeaker.zone_owner(cycle) for cycle in (1, 2, 3, 4, 5)],
+      [2, 1, 3, 4, 2])
+check("speaker: the chart skill steps name their owners",
+      [(step.skill_owner, step.skill)
+       for step in speaker.UltraSpeaker.section_steps(1) if step.skill],
+      [(3, 3), (4, 4)])
+check("speaker: the brute force toggle defaults off",
+      speaker.SPEC.extra_options[0]["key"], "brute_force")
+check("speaker: and is off by default",
+      speaker.SPEC.extra_options[0]["default"], False)
+
+
+def _speaker(slot, composition="Default", brute_force=False):
+    return speaker.UltraSpeaker(_StubCommand(), options.UltraOptions(
+        players=("a", "b", "c", "d"), composition=composition,
+        extras={"brute_force": brute_force}), slot)
+
+
+check("speaker: the signals follow the attempt and cycle",
+      (_speaker(1).zone_clear_signal(2, 3),
+       _speaker(1).chart_failure_signal(2),
+       _speaker(1).chart_reset_signal(2)),
+      ("SPEAKER_ZONE_2_3_CLEAR", "SPEAKER_CHART_FAILURE_2",
+       "SPEAKER_CHART_RESET_2"))
+check("speaker: every pane carries the scroll on Default",
+      [_speaker(slot).is_taunter for slot in (1, 2, 3, 4)],
+      [True, True, True, True])
+check("speaker: brute force is read from the options",
+      (_speaker(1).brute_force, _speaker(1, brute_force=True).brute_force),
+      (False, True))
+
+# The warning chart is walked in order; a wrong warning is a chart mismatch.
+_fresh = _speaker(1)                       # slot 1 owns the opening Truth step
+_fresh._warning_queue = [speaker.TRUTH]
+check("speaker: the opening Truth is the fresh owner's taunt",
+      (_fresh.process_warnings(), _fresh.taunt_requested),
+      ((True, ""), True))
+_wrong = _speaker(1)
+_wrong._warning_queue = [speaker.LISTEN]
+_ok, _mismatch = _wrong.process_warnings()
+check("speaker: a wrong warning is a chart mismatch",
+      (_ok, "expected Truth" in _mismatch), (False, True))
+
+# Equalize hands the red zone on: slot 2 owns cycle 1.
+_slot2 = _speaker(2)
+_slot2._section = 0
+_slot2._step = len(speaker.UltraSpeaker.section_steps(0))
+_slot2._equalize_events = 1
+_slot2.bot.player.X = speaker.RED_X      # the owner stands in the red zone
+_slot2.bot.player.Y = speaker.RED_Y
+_state = speaker.ZoneState()
+check("speaker: Equalize cycle 1 goes to slot 2",
+      _slot2.process_equalize(1, _state),
+      (True, ""))
+check("speaker: and the owner waits for Sanctity",
+      (_slot2._equalize_cycle, _slot2._section, _state.waiting_sanctity),
+      (1, 1, 1))
+
 finish('ultra v2 weekly tests')

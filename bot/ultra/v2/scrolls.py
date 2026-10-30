@@ -314,14 +314,44 @@ async def _ensure(cmd, name: str, quantity: int, *, shop_item_id: int = 0,
         await cmd.bank_to_inv(name)
     if await _quantity(cmd, name) >= quantity:
         return True
-    from bot.core_bots import buy_item as core_buy
     shop = shop or ARCANE_QUILL_SHOP
-    await core_buy(cmd, shop, name, quantity, map_name=SPELLCRAFT_MAP,
-                   shop_item_id=shop_item_id)
-    if await _quantity(cmd, name) < quantity:
-        cmd.bot.log(f"[v2] {name!r} could not be obtained (shop {shop}).")
-        return False
-    return True
+    if await _buy_until(cmd, shop, name, quantity, shop_item_id):
+        return True
+    cmd.bot.log(f"[v2] {name!r} could not be obtained (shop {shop}, "
+                f"{await _quantity(cmd, name)}/{quantity}).")
+    return False
+
+
+async def _buy_until(cmd, shop: int, name: str, quantity: int,
+                     shop_item_id: int = 0, attempts: int = 2,
+                     wait_ms: int = 6000) -> bool:
+    """Buy and **verify**, the way ``CoreBots.BuyItem`` does.
+
+    The reference sends the request and then waits up to 20 seconds for the
+    inventory to carry the quantity; a single immediate read is what made the
+    Dage ink look unobtainable.  Two attempts, each waiting ``wait_ms`` and
+    stopping as soon as the quantity stops moving.
+    """
+    import time as _time
+    from bot.core_bots import buy_item as core_buy
+    have = await _quantity(cmd, name)
+    for _attempt in range(attempts):
+        if have >= quantity:
+            return True
+        await core_buy(cmd, shop, name, quantity - have,
+                       map_name=SPELLCRAFT_MAP, shop_item_id=shop_item_id)
+        deadline = _time.time() + wait_ms / 1000.0
+        while _time.time() < deadline:
+            await cmd.sleep(500)
+            now = await _quantity(cmd, name)
+            if now >= quantity:
+                return True
+            if now != have:
+                have = now
+                break
+        else:
+            break        # nothing arrived in this attempt
+    return have >= quantity
 
 
 async def _ensure_requirement(cmd, requirement, quantity: int) -> bool:
@@ -336,14 +366,12 @@ async def _ensure_requirement(cmd, requirement, quantity: int) -> bool:
         await cmd.bank_to_inv(requirement.name)
     if await _quantity(cmd, requirement.name) >= quantity:
         return True
-    from bot.core_bots import buy_item as core_buy
-    await core_buy(cmd, ARCANE_QUILL_SHOP, requirement.name, quantity,
-                   map_name=SPELLCRAFT_MAP)
-    if await _quantity(cmd, requirement.name) < quantity:
-        cmd.bot.log(f"[v2] {requirement.name!r} could not be obtained "
-                    f"(shop {SPELL_INK_SHOP}).")
-        return False
-    return True
+    if await _buy_until(cmd, ARCANE_QUILL_SHOP, requirement.name, quantity):
+        return True
+    cmd.bot.log(f"[v2] {requirement.name!r} could not be obtained "
+                f"(shop {ARCANE_QUILL_SHOP}, "
+                f"{await _quantity(cmd, requirement.name)}/{quantity}).")
+    return False
 
 
 async def _complete(cmd, quest_id: int, turns: int) -> bool:

@@ -48,6 +48,7 @@ class PacketDetector:
             self._original = None
             return False
         self.count = 0
+        self.history = []
         self.running = True
         return True
 
@@ -170,6 +171,8 @@ class MarkerWatcher:
         self.markers = tuple(m for m in markers if m)
         self.count = 0
         self.running = False
+        self.last = ""          # which marker matched most recently
+        self.history: list = []  # every match, in arrival order
         self._original = None
 
     def start(self) -> bool:
@@ -193,6 +196,7 @@ class MarkerWatcher:
             self._original = None
             return False
         self.count = 0
+        self.history = []
         self.running = True
         return True
 
@@ -204,11 +208,22 @@ class MarkerWatcher:
         flat = msg.replace(" ", "")
         if self.command and f'"cmd":"{self.command}"' not in flat:
             return
-        if any(marker.replace(" ", "") in flat for marker in self.markers):
-            self.count += 1
+        for marker in self.markers:
+            if marker.replace(" ", "") in flat:
+                # Ultra Speaker needs to know *which* warning arrived, not just
+                # that one did.
+                self.last = marker
+                self.history.append(marker)
+                self.count += 1
+                return
 
     def seen(self, detection: int) -> bool:
         return bool(self.running and detection > 0 and self.count >= detection)
+
+    def drain_history(self) -> list:
+        """Take the matches seen since the last drain, in order."""
+        drained, self.history = self.history, []
+        return drained
 
     def stop(self) -> None:
         self.running = False

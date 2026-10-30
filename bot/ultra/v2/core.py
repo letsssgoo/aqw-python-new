@@ -120,6 +120,9 @@ class V2Core:
         #: Skip the rotation entirely (Gramiel's healing hold for the panes
         #: whose ordinary skills the reference suppresses).
         self.suppress_rotation: bool = False
+        #: One skill to cast as soon as the server allows it (the reference's
+        #: ``RequestPrioritySkill``); cleared once it goes out.
+        self.priority_skill: int = 0
 
     # ------------------------------------------------------------------ log
     @property

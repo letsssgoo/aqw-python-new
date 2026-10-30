@@ -119,6 +119,10 @@
         ultra_v2_gramiel: {
             title: "Ultra V2 - Ultra Gramiel",
             subtitle: "Weekly army port of UltraGramiel_LW: crystal balancing, packet-driven taunts, three nuke cycles with healing holds"
+        },
+        ultra_v2_speaker: {
+            title: "Ultra V2 - Ultra Speaker",
+            subtitle: "Weekly army port of UltraSpeaker_LW: Truth/Listen chart, Equalize zone walks and the Righteous Seal cover"
         }
     };
 
