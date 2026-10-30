@@ -99,6 +99,10 @@
         ultra_v2_engineer: {
             title: "Ultra V2 - Ultra Engineer",
             subtitle: "Four-pane army port of UltraEngineer_LW: two adds (id.2, id.1) before the boss (id.3)"
+        },
+        ultra_v2_drakath: {
+            title: "Ultra V2 - Ultra Drakath",
+            subtitle: "Weekly army port of UltraDrakath_LW: boss id.1, StoneCrusher/ArchPaladin taunt ladder by boss HP"
         }
     };
 

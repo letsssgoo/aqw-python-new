@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any, Dict, Tuple, Type
 
 from bot.ultra.v2.dailies import engineer, ezrajal, tyndarius, warden
+from bot.ultra.v2.weeklies import drakath
 from bot.ultra.v2.options import UltraOptions, UltraSpec
 
 #: ``ultra id -> (spec, runner class)``.
@@ -17,10 +18,12 @@ REGISTRY: Dict[str, Tuple[UltraSpec, Type[Any]]] = {
     "ezrajal": (ezrajal.SPEC, ezrajal.UltraEzrajal),
     "engineer": (engineer.SPEC, engineer.UltraEngineer),
     "tyndarius": (tyndarius.SPEC, tyndarius.UltraTyndarius),
+    "drakath": (drakath.SPEC, drakath.UltraDrakath),
 }
 
 #: Menu order: dailies first, weeklies after (as they land).
-ORDER: Tuple[str, ...] = ("warden", "ezrajal", "engineer", "tyndarius")
+ORDER: Tuple[str, ...] = ("warden", "ezrajal", "engineer", "tyndarius",
+                          "drakath")
 
 
 def spec(ultra: str) -> UltraSpec:

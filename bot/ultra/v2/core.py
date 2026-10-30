@@ -315,11 +315,17 @@ class V2Core:
                     await self.cmd.sleep(self.poll_ms)
                     continue
             if self.taunt_requested:
-                self.taunt_requested = False
                 taunt_on = self.taunt_target or target
-                self.taunt_target = None
                 if taunter and await self.cmd.use_skill(5, target_monsters=taunt_on):
+                    # Only a taunt that actually went out clears the request:
+                    # the reference keeps it pending until skill 5 is cast, so
+                    # a threshold taunt is not lost to one busy poll.
+                    self.taunt_requested = False
+                    self.taunt_target = None
                     self.log(f"taunt cast (skill 5) on {taunt_on}.")
+                elif not self.cmd.is_monster_alive(taunt_on):
+                    self.taunt_requested = False
+                    self.taunt_target = None
             elif (self.respect_counter_attack
                   and self.counter_attack_active(target)):
                 # Attacking into the counter attack kills the party, but the

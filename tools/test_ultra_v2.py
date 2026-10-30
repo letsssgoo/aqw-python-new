@@ -406,7 +406,7 @@ check("ezrajal: Skip Mana Lock is on by default",
       ezrajal.SPEC.extra_options[0]["default"], True)
 check("ezrajal: it is registered", "ezrajal" in V2_ORDER, True)
 check("ezrajal: the registry has a runner", sorted(V2_REGISTRY),
-      ["engineer", "ezrajal", "tyndarius", "warden"])
+      ["drakath", "engineer", "ezrajal", "tyndarius", "warden"])
 ezr = ezrajal.UltraEzrajal(_StubCommand(), options.UltraOptions(
     players=("a", "b", "c", "d")), 1)
 check("ezrajal: the rotation respects the counter attack",
@@ -432,7 +432,7 @@ check("engineer: adds come first, in the reference's order",
       (engineer.FIRST_TARGET, engineer.SECOND_TARGET),
       ("Attack Drone", "Defense Drone"))
 check("engineer: it is registered", V2_ORDER,
-      ("warden", "ezrajal", "engineer", "tyndarius"))
+      ("warden", "ezrajal", "engineer", "tyndarius", "drakath"))
 eng = engineer.UltraEngineer(_StubCommand(), options.UltraOptions(
     players=("a", "b", "c", "d")), 1)
 check("engineer: the engine tries the adds before the boss",
@@ -1057,6 +1057,86 @@ finally:
         os.environ.pop("AQW_RUN_ID", None)
     else:
         os.environ["AQW_RUN_ID"] = _previous_clean
+
+# --- Ultra Drakath (weekly) ------------------------------------------------
+# The fight is boss-only; what matters is the taunt ladder: StoneCrusher (slot
+# 2) and ArchPaladin (slot 3) each take aggro once as the boss crosses fixed HP
+# thresholds, in order, and Stable moves those numbers (``Adjusted*``).
+from bot.ultra.v2.weeklies import drakath  # noqa: E402
+
+check("drakath: quest 8300 in championdrakath",
+      (drakath.SPEC.quest, drakath.SPEC.map), (8300, "championdrakath"))
+check("drakath: pulled from r2/Left, boss id.1",
+      (drakath.SPEC.boss_cell, drakath.SPEC.boss_pad, drakath.BOSS),
+      ("r2", "Left", "id.1"))
+check("drakath: level 80 gate", drakath.SPEC.min_level, 80)
+check("drakath: registered for the menu", "drakath" in V2_ORDER, True)
+
+
+def _drakath(slot, composition="Default"):
+    return drakath.UltraDrakath(_StubCommand(), options.UltraOptions(
+        players=("a", "b", "c", "d"), composition=composition), slot)
+
+
+check("drakath: slots 2 and 3 taunt",
+      [(_drakath(slot).is_taunter) for slot in (1, 2, 3, 4)],
+      [False, True, True, False])
+check("drakath: slot 1 and 4 never taunt",
+      (_drakath(1).taunt_thresholds(), _drakath(4).taunt_thresholds()),
+      ((), ()))
+check("drakath: StoneCrusher ladder",
+      _drakath(2).taunt_thresholds(),
+      (16_500_000, 12_500_000, 6_200_000))
+check("drakath: Stable's StoneCrusher ladder",
+      _drakath(2, "Stable").taunt_thresholds(),
+      (16_500_000, 12_500_000, 6_500_000))
+check("drakath: ArchPaladin ladder",
+      _drakath(3).taunt_thresholds(),
+      (18_500_000, 14_500_000, 8_200_000, 4_200_000))
+check("drakath: Stable's ArchPaladin ladder",
+      _drakath(3, "Stable").taunt_thresholds(),
+      (18_500_000, 14_500_000, 8_500_000, 4_500_000))
+check("drakath: GenericPrebuff is 3, 2, 1 at 750 ms",
+      (drakath.PREBUFF_SKILLS, drakath.PREBUFF_GAP_MS),
+      ((3, 2, 1), 750))
+
+# The ladder is walked once per attempt, in order, only when the HP is crossed.
+class _Boss:
+    def __init__(self, hp):
+        self.current_hp = hp
+
+
+class _BossCommand(_StubCommand):
+    def __init__(self, hp):
+        super().__init__()
+        self.boss = _Boss(hp)
+
+    def get_monster(self, target="*"):
+        return self.boss
+
+    def is_monster_alive(self, target="*"):
+        return True
+
+
+_ap = drakath.UltraDrakath(_BossCommand(19_000_000), options.UltraOptions(
+    players=("a", "b", "c", "d")), 3)
+check("drakath: nothing to taunt above the first threshold",
+      _ap.due_taunt(), None)
+_ap.cmd.boss.current_hp = 18_400_000
+check("drakath: the first threshold fires", _ap.due_taunt(), 18_500_000)
+check("drakath: and is not asked again", _ap.due_taunt(), None)
+_ap.cmd.boss.current_hp = 14_000_000
+check("drakath: the second threshold fires next", _ap.due_taunt(), 14_500_000)
+
+# Capes: AP always Penitence, slot 1 by composition, Stable's KE on Lament.
+check("drakath: ArchPaladin wears Penitence in every composition",
+      [presets.preset_for("drakath", composition, 3).cape
+       for composition in ("Default", "Stable", "Reliable")],
+      ["Penitence"] * 3)
+check("drakath: slot 1 capes per composition",
+      [presets.preset_for("drakath", composition, 1).cape
+       for composition in ("Default", "Stable", "Reliable")],
+      ["Penitence", "Lament", "Penitence"])
 
 print(f"passed {passed}   failed {len(failures)}")
 if failures:

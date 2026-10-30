@@ -113,7 +113,17 @@ COMPOSITIONS: Dict[str, Dict[str, Tuple[SlotPlan, ...]]] = {
                      SlotPlan(LOO, weapon="Valiance")),
     },
     # --- weeklies -------------------------------------------------------
-    "drakath": _standard(),
+    # Drakath's capes are the script's own: the ArchPaladin always wears
+    # Penitence, slot 1 wears Penitence on Default/Reliable, and Stable's
+    # King's Echo trades Vainglory for Lament.
+    "drakath": {
+        "Default": (SlotPlan(LR, cape="Penitence"), SlotPlan(SC),
+                    SlotPlan(AP, cape="Penitence"), SlotPlan(LOO)),
+        "Stable": (SlotPlan(KE, cape="Lament"), SlotPlan(SC),
+                   SlotPlan(AP, cape="Penitence"), SlotPlan(LOO)),
+        "Reliable": (SlotPlan(VDK, cape="Penitence"), SlotPlan(SC),
+                     SlotPlan(AP, cape="Penitence"), SlotPlan(LOO)),
+    },
     "drago": _standard(),
     "nulgath": _standard(),
     # Dage overrides the rotations of slots 2-4 (and slot 1 restates LR's own).
