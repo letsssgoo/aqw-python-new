@@ -400,22 +400,20 @@ check("engineer: it uses the standard composition",
       eng.preset.cls, "Legion Revenant")
 
 # Every V2 daily fights v1's literal rotation, skill 0 (auto attack) included.
-check("rotation: warden starts on skill 0",
+check("rotation: auto attack is separate from the rotation",
       warden.build(_StubCommand(), options.UltraOptions(
-          players=("a", "b", "c", "d")), 1).rotation[0], 0)
+          players=("a", "b", "c", "d")), 1).rotation, (1, 2, 3, 4))
 check("rotation: ezrajal starts on skill 0",
       ezrajal.UltraEzrajal(_StubCommand(), options.UltraOptions(
-          players=("a", "b", "c", "d")), 1).rotation[0], 0)
-check("rotation: engineer starts on skill 0", eng.rotation[0], 0)
+          players=("a", "b", "c", "d")), 1).rotation, (1, 2, 3, 4))
+check("rotation: engineer's rotation has no 0", eng.rotation[0], 1)
 # VDK (strict) and KE (kings_echo) must cast skill 0 too, like every v1 daily.
 vdk = warden.build(_StubCommand(), options.UltraOptions(
     players=("a", "b", "c", "d"), composition="Reliable"), 1)
 ke = warden.build(_StubCommand(), options.UltraOptions(
     players=("a", "b", "c", "d"), composition="Stable"), 1)
-check("rotation: Verus DoomKnight keeps the literal 0", (vdk.rotation[0],
-                                                          vdk.preset.mode), (0, "strict"))
-check("rotation: King's Echo keeps the literal 0", (ke.rotation[0],
-                                                    ke.preset.mode), (0, "kings_echo"))
+check("rotation: Verus DoomKnight keeps the literal 0", (0 in vdk.rotation, vdk.preset.mode), (False, "strict"))
+check("rotation: King's Echo keeps the literal 0", (0 in ke.rotation, ke.preset.mode), (False, "kings_echo"))
 
 # Skill 0 is mandatory: a module that leaves it out gets it prepended.
 class _NoZero(warden.UltraWarden):
@@ -426,16 +424,16 @@ class _NoZero(warden.UltraWarden):
 
 forced = _NoZero(_StubCommand(), options.UltraOptions(
     players=("a", "b", "c", "d")), 1)
-check("rotation: skill 0 is put back when a module forgets it",
-      forced.rotation, (0, 1, 2, 3))
+check("rotation: skill 0 never appears in the rotation",
+      (0 in forced.rotation, forced.rotation), (False, (1, 2, 3)))
 
-check("rotation: all three use v1's string",
+check("rotation: all three keep v1's string minus the auto attack",
       [warden.build(_StubCommand(), options.UltraOptions(
            players=("a", "b", "c", "d")), 1).rotation,
        ezrajal.UltraEzrajal(_StubCommand(), options.UltraOptions(
            players=("a", "b", "c", "d")), 1).rotation,
        eng.rotation],
-      [(0, 1, 2, 0, 3, 4)] * 3)
+      [(1, 2, 3, 4)] * 3)
 
 # Heal check follows v1's ``support_slots`` default (slots 3 and 4), and the
 # heal **skill** is per class: AP and LoO cast 2, Legion Revenant casts 3.
@@ -465,7 +463,8 @@ ty2 = tyndarius.UltraTyndarius(_StubCommand(), options.UltraOptions(
     players=("a", "b", "c", "d")), 2)
 ty3 = tyndarius.UltraTyndarius(_StubCommand(), options.UltraOptions(
     players=("a", "b", "c", "d")), 3)
-check("tyndarius: v1's literal rotation", ty1.rotation, (0, 1, 2, 0, 3, 4))
+check("tyndarius: v1's rotation minus the auto attack", ty1.rotation,
+      (1, 2, 3, 4))
 check("tyndarius: priority is second add, first add, boss",
       [ty1.priority_target()], ["id.2"])
 check("tyndarius: taunter panes are slots 3 and 4",

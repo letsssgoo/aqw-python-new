@@ -262,6 +262,8 @@ class V2Core:
                and not self.sync.aborted()
                and self.cmd.is_monster_alive(self.pick_target(target))):
             target = self.pick_target(target)
+            if await self._auto_attack(target):
+                pass
             if await self._heal_step():
                 await self.cmd.sleep(self.poll_ms)
                 continue
@@ -284,12 +286,9 @@ class V2Core:
                 # casting its buff/heal slots (``buff_only``).
                 await self._buff_step(target)
                 await self.cmd.sleep(self.poll_ms)
-            elif self.skill_rotation:
-                # A literal rotation from the module (v1's "0 1 2 0 3 4") is
-                # used as-is for every class, mode engines included; that is how
-                # Verus DoomKnight and King's Echo keep the skill-0 auto attack.
-                await self._simple_step(target)
             elif preset.mode == KINGS_ECHO:
+                # King's Echo and Verus DoomKnight follow the reference's own
+                # skill engines; the auto attack above is still theirs.
                 await self._kings_echo_step(target, use_survival)
             elif preset.mode == STRICT:
                 index = await self._strict_step(target, index)
@@ -305,6 +304,18 @@ class V2Core:
             if await self.cmd.use_skill(slot, target_monsters=target,
                                        buff_only=True):
                 return
+
+    async def _auto_attack(self, target: str) -> bool:
+        """Press skill 0 whenever it is ready -- separate from the rotation.
+
+        v1 lists ``0`` inside its string, but the user's rule is stronger: the
+        auto attack must run on its own and never wait for another skill's
+        cooldown, so it is pressed here every pass and the rotation no longer
+        contains it.
+        """
+        if not self.bot.player.canUseSkill(0):
+            return False
+        return bool(await self.cmd.use_skill(0, target_monsters=target))
 
     async def _heal_step(self) -> bool:
         """Cast the heal when a party member is under the threshold.
@@ -332,16 +343,14 @@ class V2Core:
 
     @property
     def rotation(self) -> tuple:
-        """Slots the engine casts: the module's fixed order, else the preset's.
+        """The skill rotation, **without** skill 0.
 
-        Skill ``0`` is the auto attack and is **mandatory** in this engine: a
-        module that leaves it out gets it put back at the front rather than
-        silently fighting without it (v1's dailies always start on 0).
+        Skill 0 is the auto attack and is pressed by :meth:`_auto_attack`
+        independently of the rotation, so it never waits for another skill's
+        cooldown and never appears twice in one pass.
         """
         rotation = tuple(self.skill_rotation or self.preset.skills)
-        if 0 not in rotation:
-            rotation = (0,) + rotation
-        return rotation
+        return tuple(slot for slot in rotation if slot != 0)
 
     async def _simple_step(self, target: str) -> None:
         """Cast the first rotation skill the server says is ready."""

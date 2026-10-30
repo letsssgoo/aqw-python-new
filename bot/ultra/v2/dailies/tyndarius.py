@@ -176,6 +176,12 @@ class UltraTyndarius(V2Core):
                                             key=ARCH_PALADIN_SLOT,
                                             timeout=180)
                 await self.jump_boss()
+            # Nobody fights from the safe cell: prove every pane stands in
+            # Boss/Left before the party moves on.
+            if not await self.ensure_boss_room():
+                return False
+            if not await self.sync.step("BOSS_ROOM"):
+                return False
             await self.precast_buffs()
             if not await self.sync.step("BUFFS_DONE"):
                 return False
@@ -343,6 +349,21 @@ class UltraTyndarius(V2Core):
             return "stopped"
         self.log("confirmed Ultra Tyndarius defeated.")
         return "defeated"
+
+    async def ensure_boss_room(self) -> bool:
+        """Move into ``Boss/Left`` and wait until the pane is really there."""
+        waited = 0
+        while self.cmd.is_still_connected() and not self.sync.aborted():
+            if self.in_boss_room():
+                return True
+            await self.jump_boss()
+            await self.cmd.sleep(500)
+            waited += 500
+            if waited >= 20_000:
+                self.abort("could not reach Boss/Left; the party would fight "
+                           "a pane short")
+                return False
+        return False
 
     # ------------------------------------------------------------- helpers
     def taunt_signal(self, attempt: int, number: int) -> str:
