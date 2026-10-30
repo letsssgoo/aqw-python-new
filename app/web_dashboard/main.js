@@ -83,6 +83,10 @@ document.addEventListener('DOMContentLoaded', () => {
         weekly_doom: {
             title: "Weekly Doom",
             subtitle: "Turn in the Gear of Doom quest for one or many accounts"
+        },
+        ultra_v2_warden: {
+            title: "Ultra V2 - Ultra Warden",
+            subtitle: "Four-pane army port of UltraWarden_LW: Enrage taunt at 500k, one boss"
         }
     };
 

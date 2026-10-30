@@ -59,9 +59,9 @@ class _StubCommand:
 for ultra in ("warden", "ezrajal", "engineer", "tyndarius", "drakath", "drago",
               "nulgath", "dage", "darkon", "gramiel", "speaker"):
     table = options.compositions(ultra)
-    check(f"{ultra}: three compositions are ported",
-          sorted(table), ["Default", "Reliable", "Stable"]
-          if ultra != "speaker" else ["Default", "Reliable"])
+    expected = (["Default", "Reliable"] if ultra in ("gramiel", "speaker")
+                else ["Default", "Reliable", "Stable"])
+    check(f"{ultra}: ported compositions", sorted(table), expected)
     for name, slots in table.items():
         check(f"{ultra}/{name}: four slots", len(slots), 4)
         check(f"{ultra}/{name}: slot 2 is StoneCrusher", slots[1], "StoneCrusher")
@@ -128,6 +128,47 @@ try:
 except KeyError:
     raised = True
 check("preset: Pay2Win raises instead of guessing", raised, True)
+
+# --- per-ultra differences (each script has its own GetClassPreset) --------
+check("dage: slot 2 fights on StoneCrusher 2,4,1",
+      presets.preset_for("dage", "Default", 2).skills, (2, 4, 1))
+check("dage: slot 3 fights on ArchPaladin 3,1,4",
+      presets.preset_for("dage", "Default", 3).skills, (3, 1, 4))
+check("dage: slot 4 fights on Lord of Order 3,1,4",
+      presets.preset_for("dage", "Default", 4).skills, (3, 1, 4))
+check("warden: slot 2 keeps the preset rotation",
+      presets.preset_for("warden", "Default", 2).skills, (3, 2, 4, 1))
+check("darkon: Legion Revenant wears Penitence",
+      presets.preset_for("darkon", "Default", 1).cape, "Penitence")
+check("darkon: Lord of Order wears Absolution",
+      presets.preset_for("darkon", "Default", 4).cape, "Absolution")
+check("darkon: Lord of Order fights 3,1",
+      presets.preset_for("darkon", "Default", 4).skills, (3, 1))
+check("darkon: ArchPaladin fights 3,1,4",
+      presets.preset_for("darkon", "Default", 3).skills, (3, 1, 4))
+check("gramiel: Legion Revenant fights 3,4,2",
+      presets.preset_for("gramiel", "Default", 1).skills, (3, 4, 2))
+check("gramiel: ArchPaladin wears Penitence",
+      presets.preset_for("gramiel", "Default", 3).cape, "Penitence")
+check("gramiel: Reliable slot 1 is Verus DoomKnight",
+      presets.preset_for("gramiel", "Reliable", 1).cls, "Verus DoomKnight")
+check("speaker: StoneCrusher drinks the Divine Elixir",
+      presets.preset_for("speaker", "Default", 2).elixir, "Divine Elixir")
+check("speaker: Legion Revenant wears no helm",
+      presets.preset_for("speaker", "Default", 1).helm, None)
+check("speaker: ArchPaladin fights 2,1",
+      presets.preset_for("speaker", "Default", 3).skills, (2, 1))
+check("speaker: Lord of Order fights 2,3,1",
+      presets.preset_for("speaker", "Default", 4).skills, (2, 3, 1))
+check("speaker: brute force restores the preset rotation",
+      presets.preset_for("speaker", "Default", 3,
+                         {"brute_force": True}).skills, (3, 2, 1, 4))
+check("ezrajal: Stable's King's Echo wears no cape",
+      presets.preset_for("ezrajal", "Stable", 1).cape, None)
+check("warden: Stable's King's Echo keeps its cape",
+      presets.preset_for("warden", "Stable", 1).cape, "Vainglory")
+check("tooltip: gramiel lists two rows",
+      len(options.composition_tooltip("gramiel").splitlines()), 2)
 
 # --- potions ---------------------------------------------------------------
 check("potion: Sage Tonic is a 2-voucher, rank-8 alchemy recipe",

@@ -54,7 +54,7 @@ class V2Core:
         self.poll_ms = poll_ms
         self.sync = Sync(spec.id, self.slot, PARTY_SIZE)
         self.preset: Preset = presets.preset_for(spec.id, options.composition,
-                                                 self.slot)
+                                                 self.slot, options.extras)
         self.aborted = ""
         self.taunt_requested = False
         self._attempt_started = 0.0

@@ -1,19 +1,21 @@
-"""Option schema for Ultra V2: one table feeding the form, the tooltip and the log.
+"""Option schema for Ultra V2, and the army composition of **each** ultra.
 
-The army composition is a *level-style* option in the reference (a dropdown with
-a description that lists the four classes).  Here the same data drives three
-places so they cannot drift apart:
+The composition is a level-style option in the reference: a dropdown whose
+description lists the classes.  Here one table feeds the form, the tooltip and
+the log line, so they cannot drift.
 
-* the GUI form the hub renders (:func:`schema`),
-* the tooltip text under the composition dropdown (:func:`composition_tooltip`),
-* the line a run prints when it starts (:meth:`V2Core.describe`).
+The table is **per ultra**.  Every script builds its own ``GetClassPreset()``,
+and they are not the same -- Dage overrides the skill rotation of slots 2-4,
+Darkon swaps cape enhancements and trims two rotations, Gramiel has no ``Stable``
+column at all, Speaker forces Penitence capes and a Divine Elixir.  Those
+differences are read off the reference's code, not its option text.
 
-Only ``Default`` / ``Stable`` / ``Reliable`` exist -- the reference's other
-compositions are out of scope by decision, not by accident.
+Only ``Default`` / ``Stable`` / ``Reliable`` are ported; the reference's Pay2Win
+/ Optimized / Fast / Test tables are absent by decision.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Dict, List, Optional, Tuple
 
 #: Wipeout retries offered in the form.  ``MaxFightAttempts`` is a constant 3 in
@@ -31,22 +33,155 @@ SHORT_NAMES = {
     "Lord of Order": "LOO",
 }
 
-#: The three class columns, in slot order (1..4).
-DEFAULT_SLOTS = ("Legion Revenant", "StoneCrusher", "ArchPaladin", "Lord of Order")
-STABLE_SLOTS = ("King's Echo", "StoneCrusher", "ArchPaladin", "Lord of Order")
-RELIABLE_SLOTS = ("Verus DoomKnight", "StoneCrusher", "ArchPaladin", "Lord of Order")
+LR, SC, AP, LOO, KE, VDK = ("Legion Revenant", "StoneCrusher", "ArchPaladin",
+                            "Lord of Order", "King's Echo", "Verus DoomKnight")
 
-#: Ultras whose reference script never had a ``Stable`` column.
-NO_STABLE = {"speaker"}
+
+@dataclass(frozen=True)
+class SlotPlan:
+    """One slot of one composition: a class plus what that script changes on it.
+
+    The reference's ``GetClassPreset()`` starts from a shared ``ClassPreset``
+    factory and then overrides fields per boss.  Only the overridden fields are
+    named here; everything else comes from the base preset.  ``clear_cape`` /
+    ``clear_helm`` exist because the reference also *removes* an enhancement
+    (``CapeEnhancement = CapeSpecial.None``), which a ``None`` default cannot
+    express.
+    """
+
+    cls: str
+    skills: Optional[Tuple[int, ...]] = None
+    mode: Optional[str] = None
+    base: Optional[str] = None
+    cape: Optional[str] = None
+    helm: Optional[str] = None
+    weapon: Optional[str] = None
+    tonic: Optional[str] = None
+    elixir: Optional[str] = None
+    combat_potion: Optional[str] = None
+    clear_cape: bool = False
+    clear_helm: bool = False
+
+    def apply(self, preset):
+        """Return the base preset with this slot's overrides applied."""
+        changes = {key: value for key, value in (
+            ("skills", self.skills), ("mode", self.mode), ("base", self.base),
+            ("cape", self.cape), ("helm", self.helm), ("weapon", self.weapon),
+            ("tonic", self.tonic), ("elixir", self.elixir),
+            ("combat_potion", self.combat_potion),
+        ) if value is not None}
+        if self.clear_cape:
+            changes["cape"] = None
+        if self.clear_helm:
+            changes["helm"] = None
+        return replace(preset, **changes)
+
+
+def _standard(slot_one: Optional[SlotPlan] = None,
+              stable: Optional[SlotPlan] = None,
+              reliable: Optional[SlotPlan] = None) -> Dict[str, Tuple[SlotPlan, ...]]:
+    """The row most ultras share: ``s1 / SC / AP / LOO``, KE on Stable."""
+    return {
+        "Default": (slot_one or SlotPlan(LR), SlotPlan(SC), SlotPlan(AP),
+                    SlotPlan(LOO)),
+        "Stable": (stable or SlotPlan(KE), SlotPlan(SC), SlotPlan(AP),
+                   SlotPlan(LOO)),
+        "Reliable": (reliable or SlotPlan(VDK), SlotPlan(SC), SlotPlan(AP),
+                     SlotPlan(LOO)),
+    }
+
+
+#: ``ultra -> composition -> (slot 1..4)``.  Read off each script's
+#: ``GetClassPreset()``; anything not listed keeps the base preset factory.
+COMPOSITIONS: Dict[str, Dict[str, Tuple[SlotPlan, ...]]] = {
+    # --- daily ultras ---------------------------------------------------
+    "warden": _standard(),
+    "ezrajal": _standard(
+        # Stable's King's Echo goes without a cape in this fight
+        # (`preset.CapeEnhancement = CapeSpecial.None`).
+        stable=SlotPlan(KE, clear_cape=True),
+    ),
+    "engineer": _standard(),
+    # Tyndarius' Fast column is not ported; Default/Stable/Reliable are standard.
+    "tyndarius": _standard(),
+    # --- weeklies -------------------------------------------------------
+    "drakath": _standard(),
+    "drago": _standard(),
+    "nulgath": _standard(),
+    # Dage overrides the rotations of slots 2-4 (and slot 1 restates LR's own).
+    "dage": {
+        "Default": (SlotPlan(LR, skills=(3, 4, 2, 1)),
+                    SlotPlan(SC, skills=(2, 4, 1)),
+                    SlotPlan(AP, skills=(3, 1, 4)),
+                    SlotPlan(LOO, skills=(3, 1, 4))),
+        "Stable": (SlotPlan(KE),
+                   SlotPlan(SC, skills=(2, 4, 1)),
+                   SlotPlan(AP, skills=(3, 1, 4)),
+                   SlotPlan(LOO, skills=(3, 1, 4))),
+        "Reliable": (SlotPlan(VDK),
+                     SlotPlan(SC, skills=(2, 4, 1)),
+                     SlotPlan(AP, skills=(3, 1, 4)),
+                     SlotPlan(LOO, skills=(3, 1, 4))),
+    },
+    # Darkon: Lament is substituted by Penitence, Absolution on the two
+    # support slots, and slots 3-4 fight on short rotations.
+    "darkon": {
+        "Default": (SlotPlan(LR, cape="Penitence"),
+                    SlotPlan(SC, cape="Absolution"),
+                    SlotPlan(AP, skills=(3, 1, 4), cape="Penitence"),
+                    SlotPlan(LOO, skills=(3, 1), cape="Absolution")),
+        "Stable": (SlotPlan(KE, cape="Penitence", helm="Forge"),
+                   SlotPlan(SC, cape="Absolution"),
+                   SlotPlan(AP, skills=(3, 1, 4), cape="Penitence"),
+                   SlotPlan(LOO, skills=(3, 1), cape="Absolution")),
+        "Reliable": (SlotPlan(VDK, cape="Penitence"),
+                     SlotPlan(SC, cape="Absolution"),
+                     SlotPlan(AP, skills=(3, 1, 4), cape="Penitence"),
+                     SlotPlan(LOO, skills=(3, 1), cape="Absolution")),
+    },
+    # Gramiel has no Stable column: slot 1 is LR in both of its compositions.
+    "gramiel": {
+        "Default": (SlotPlan(LR, skills=(3, 4, 2), cape="Penitence"),
+                    SlotPlan(SC),
+                    SlotPlan(AP, cape="Penitence"),
+                    SlotPlan(LOO)),
+        "Reliable": (SlotPlan(VDK),
+                     SlotPlan(SC),
+                     SlotPlan(AP, cape="Penitence"),
+                     SlotPlan(LOO)),
+    },
+    # Speaker: Penitence everywhere, LR without a helm, StoneCrusher on the
+    # Divine Elixir, and two short rotations (2,1 / 2,3,1) for the non-brute
+    # force method -- Brute Force restores the presets' own rotations, which the
+    # Speaker module applies when the option is on.
+    "speaker": {
+        "Default": (SlotPlan(LR, cape="Penitence", clear_helm=True),
+                    SlotPlan(SC, cape="Penitence", elixir="Divine Elixir"),
+                    SlotPlan(AP, skills=(2, 1), cape="Penitence"),
+                    SlotPlan(LOO, skills=(2, 3, 1))),
+        "Reliable": (SlotPlan(VDK, cape="Penitence"),
+                     SlotPlan(SC, cape="Penitence", elixir="Divine Elixir"),
+                     SlotPlan(AP, skills=(2, 1), cape="Penitence"),
+                     SlotPlan(LOO, skills=(2, 3, 1))),
+    },
+}
+
+
+def slot_plans(ultra: str, composition: str) -> Tuple[SlotPlan, ...]:
+    """The four slot plans for one ultra's composition."""
+    table = COMPOSITIONS.get(ultra.lower())
+    if table is None:
+        raise KeyError(f"{ultra!r} is not a ported ultra")
+    if composition not in table:
+        raise KeyError(f"{ultra}: composition {composition!r} is not ported; "
+                       f"pick one of {', '.join(table)}")
+    return table[composition]
 
 
 def compositions(ultra: str) -> Dict[str, Tuple[str, ...]]:
     """``{composition: (class per slot 1..4)}`` for one ultra, in display order."""
-    table: Dict[str, Tuple[str, ...]] = {"Default": DEFAULT_SLOTS}
-    if ultra.lower() not in NO_STABLE:
-        table["Stable"] = STABLE_SLOTS
-    table["Reliable"] = RELIABLE_SLOTS
-    return table
+    return {name: tuple(plan.cls for plan in plans)
+            for name, plans in COMPOSITIONS[ultra.lower()].items()}
 
 
 def composition_tooltip(ultra: str) -> str:

@@ -141,13 +141,27 @@ def preset_for_class(class_name: str) -> Preset:
     return preset
 
 
-def preset_for(ultra: str, composition: str, slot: int) -> Preset:
-    """The preset one slot wears in one composition, straight from the table."""
-    from bot.ultra.v2.options import compositions
-    table = compositions(ultra)
-    if composition not in table:
-        raise KeyError(f"{ultra}: composition {composition!r} is not ported")
-    slots = table[composition]
-    if not 1 <= slot <= len(slots):
-        raise KeyError(f"{ultra}: slot {slot} is outside 1-{len(slots)}")
-    return preset_for_class(slots[slot - 1])
+def preset_for(ultra: str, composition: str, slot: int,
+               extras: Optional[dict] = None) -> Preset:
+    """The preset one slot wears in one composition, with that ultra's overrides.
+
+    The base preset comes from the shared factory (``LegionRevenant()``); the
+    script's own ``GetClassPreset()`` then changes fields on it, and those
+    changes are applied here -- Dage's short rotations, Darkon's cape swaps,
+    Speaker's Penitence capes.  Skipping this step is how two ultras end up
+    looking identical when their reference scripts are not.
+
+    ``extras`` carries the per-ultra toggles: Speaker's Brute Force method keeps
+    the presets' own ArchPaladin / Lord of Order rotations instead of the short
+    ones the table names.
+    """
+    from dataclasses import replace
+
+    from bot.ultra.v2.options import slot_plans
+    plans = slot_plans(ultra, composition)
+    if not 1 <= slot <= len(plans):
+        raise KeyError(f"{ultra}: slot {slot} is outside 1-{len(plans)}")
+    plan = plans[slot - 1]
+    if extras and extras.get("brute_force") and ultra.lower() == "speaker":
+        plan = replace(plan, skills=None)
+    return plan.apply(preset_for_class(plan.cls))
