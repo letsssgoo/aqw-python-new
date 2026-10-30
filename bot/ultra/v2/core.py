@@ -523,9 +523,14 @@ class V2Core:
                 return candidate
         return default
 
-    def target_aura_expiry(self, name: str):
-        """The target's aura expiry for ``name``, or None (``GetFocusExpiry``)."""
-        monster = self.cmd.get_monster(self._target_name())
+    def target_aura_expiry(self, name: str, target: str = ""):
+        """The target's aura expiry for ``name``, or None (``GetFocusExpiry``).
+
+        ``target`` names the monster to read; without it the pane's own boss is
+        used.  Ultra Drago reads Focus off a *guard* while the rotation is on a
+        different monster, so the two cannot share the boss id.
+        """
+        monster = self.cmd.get_monster(target or self._target_name())
         if monster is None:
             return None
         from core.utils import normalize
@@ -535,9 +540,9 @@ class V2Core:
                 return getattr(aura, "expires_at", None)
         return None
 
-    def target_aura(self, name: str) -> bool:
-        """True when the current target carries that aura (``Target.GetAura``)."""
-        monster = self.cmd.get_monster(self._target_name())
+    def target_aura(self, name: str, target: str = "") -> bool:
+        """True when ``target`` (default: the boss) carries that aura."""
+        monster = self.cmd.get_monster(target or self._target_name())
         if monster is None:
             return False
         from core.utils import normalize

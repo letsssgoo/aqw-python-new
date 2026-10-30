@@ -263,4 +263,104 @@ finally:
 check("nulgath: GenericPrebuff is 3, 2, 1 at 750 ms",
       (nulgath.PREBUFF_SKILLS, nulgath.PREBUFF_GAP_MS), ((3, 2, 1), 750))
 
+# --- Ultra Drago (weekly) --------------------------------------------------
+# Dene id.1 / Drago id.2 / Algie id.3.  Default and Reliable run the guard pair
+# on every pane (slots 1+4 Algie, 2+3 Dene, Focus taunts alternating between
+# partners); Stable splits off a damage dealer and an immediate Algie taunter.
+from bot.ultra.v2.weeklies import drago  # noqa: E402
+
+check("drago: quest 8397 in ultradrago",
+      (drago.SPEC.quest, drago.SPEC.map), (8397, "ultradrago"))
+check("drago: pulled from Boss/Left, boss id.2",
+      (drago.SPEC.boss_cell, drago.SPEC.boss_pad, drago.SPEC.monster_id),
+      ("Boss", "Left", 2))
+check("drago: level 80 gate", drago.SPEC.min_level, 80)
+check("drago: registered for the menu", "drago" in V2_ORDER, True)
+
+
+def _drago(slot, composition="Default"):
+    return drago.UltraDrago(_StubCommand(), options.UltraOptions(
+        players=("a", "b", "c", "d"), composition=composition), slot)
+
+
+check("drago: guards are Algie on 1/4 and Dene on 2/3",
+      [_drago(slot).guard_map_id() for slot in (1, 2, 3, 4)],
+      ["id.3", "id.1", "id.1", "id.3"])
+check("drago: the guard partners are 1<->4 and 2<->3",
+      [_drago(slot).partner_slot() for slot in (1, 2, 3, 4)],
+      [4, 3, 2, 1])
+check("drago: slots 1 and 3 open the taunt cycle",
+      [_drago(slot).is_opening_owner() for slot in (1, 2, 3, 4)],
+      [True, False, True, False])
+check("drago: the signal prefix follows the guard",
+      [_drago(slot).signal_prefix() for slot in (1, 2)],
+      ["ALGIE_TAUNT_", "DENIE_TAUNT_"])
+check("drago: odd signals belong to the opening owner",
+      (drago.UltraDrago.align_signal(2, True),
+       drago.UltraDrago.align_signal(2, False)),
+      (3, 2))
+check("drago: Default arms every pane as a taunter",
+      [_drago(slot).is_taunter for slot in (1, 2, 3, 4)],
+      [True, True, True, True])
+check("drago: Stable arms slots 2-4",
+      [_drago(slot, "Stable").is_taunter for slot in (1, 2, 3, 4)],
+      [False, True, True, True])
+check("drago: the ArchPaladin opens Dene, the rest Algie",
+      [_drago(slot).initial_target() for slot in (1, 2, 3, 4)],
+      ["id.3", "id.3", "id.1", "id.3"])
+check("drago: Stable slot 2 opens Dene",
+      _drago(2, "Stable").initial_target(), "id.1")
+
+
+class _GuardCommand(_StubCommand):
+    def __init__(self, alive=("id.1", "id.3")):
+        super().__init__()
+        self.alive = set(alive)
+
+    def is_monster_alive(self, target="*"):
+        return str(target) in self.alive
+
+
+def _drago_with(slot, alive, composition="Default"):
+    return drago.UltraDrago(_GuardCommand(alive), options.UltraOptions(
+        players=("a", "b", "c", "d"), composition=composition), slot)
+
+
+# GetNormalTarget: Default sends only slot 3 to Dene; Stable sends 1 and 4 to
+# Algie and 2/3 to Dene.
+check("drago/default: everyone but slot 3 hits Algie",
+      [_drago_with(slot, {"id.1", "id.3"}).normal_target()
+       for slot in (1, 2, 3, 4)],
+      ["id.3", "id.3", "id.1", "id.3"])
+check("drago/stable: 1 and 4 hit Algie, 2 and 3 hit Dene",
+      [_drago_with(slot, {"id.1", "id.3"}, "Stable").normal_target()
+       for slot in (1, 2, 3, 4)],
+      ["id.3", "id.1", "id.1", "id.3"])
+check("drago: a dead guard sends the pane to the other one",
+      _drago_with(1, {"id.1"}).normal_target(), "id.1")
+check("drago: with both guards down it hits Drago",
+      _drago_with(1, set()).normal_target(), "id.2")
+
+# The pull is a timestamp: slot 1 stamps it two seconds ahead, the rest read it.
+_drago_run = "test_v2_drago"
+_previous_drago = os.environ.get("AQW_RUN_ID")
+os.environ["AQW_RUN_ID"] = _drago_run
+try:
+    leader = _drago_with(1, {"id.1", "id.3"})
+    stamp = leader.publish_entry_time(1)
+    check("drago: slot 1 publishes a future entry timestamp",
+          stamp > 0, True)
+    follower = _drago_with(2, {"id.1", "id.3"})
+    check("drago: the others read the same timestamp",
+          run(follower.entry_time(1)), stamp)
+    check("drago: and the pull waits for it",
+          run(follower.wait_entry_time(stamp - 60)), True)
+finally:
+    shutil.rmtree(REPO_ROOT / "capture_logs" / "ultra" / _drago_run,
+                  ignore_errors=True)
+    if _previous_drago is None:
+        os.environ.pop("AQW_RUN_ID", None)
+    else:
+        os.environ["AQW_RUN_ID"] = _previous_drago
+
 finish('ultra v2 weekly tests')

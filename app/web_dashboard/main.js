@@ -107,6 +107,10 @@
         ultra_v2_nulgath: {
             title: "Ultra V2 - Ultra Nulgath",
             subtitle: "Weekly army port of UltraNulgath_LW: Blade id.1 / Nulgath id.2, Abyss! packet taunt relay"
+        },
+        ultra_v2_drago: {
+            title: "Ultra V2 - Ultra Drago",
+            subtitle: "Weekly army port of UltraDrago_LW: guards Dene id.1 / Algie id.3, guard-pair Focus taunts, counted pull"
         }
     };
 
