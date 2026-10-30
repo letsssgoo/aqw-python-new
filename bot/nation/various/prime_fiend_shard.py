@@ -24,6 +24,8 @@ from bot.nation.core_nation import (essence_of_nulgath, farm_dark_crystal_shard,
                                     farm_diamond_of_nulgath, farm_tainted_gem,
                                     farm_uni13_quest, supplies, uni)
 from bot.nation.merges.dirtlickers_merge import buy_iron_dreadsaw
+from bot.nation.merges.nulgath_diamond_merge import (buy_abyssal_priest,
+                                                     buy_storm_knight)
 from bot.nation.merges.temple_delve_merge import buy_void_nation_caster
 from bot.nation.merges.void_chasm_merge import buy_prime_fiend_shard
 from bot.nation.vhl.core_vhl import get_vhl, vhl_challenge
@@ -103,7 +105,19 @@ async def storyline(cmd: Command) -> bool:
         await _unbank_requirements(cmd, 9555)
         await cmd.ensure_turn_in_quest(9555)
 
-    cmd.bot.log("[pfs] quest 9555 is done; quests 9556-9559 are not ported "
+    # Quest 9556, up to the two scripts this repo does not have.
+    if not await quest_progression(cmd, 9556):
+        await cmd.ensure_accept_quest(9556)
+        await essence_of_nulgath(cmd, 40)
+        await buy_abyssal_priest(cmd)
+        await buy_storm_knight(cmd)
+        cmd.bot.log("[pfs] quest 9556 still needs "
+                    "VoidPaladin.DeeperandDeeperintoDarkness() and "
+                    "VoidSpartan.GetSpartan(); those scripts are not ported "
+                    "yet, so the chain stops here.")
+        return False
+
+    cmd.bot.log("[pfs] quest 9556 is done; quests 9557-9559 are not ported "
                 "yet.")
     return False
 

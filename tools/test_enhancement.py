@@ -604,6 +604,39 @@ def main() -> None:
     check("temple delve merge: Tainted Gem goes to the Nation farm",
           _e_calls == [("tainted", 50)])
 
+    # --- Nulgath Diamond Merge (9556's two items) --------------------------
+    from bot.nation.merges import nulgath_diamond_merge as _ndm
+
+    check("nulgath diamond: map, shop and the two 9556 items",
+          (_ndm.MAP, _ndm.SHOP_ID, _ndm.ABYSSAL_PRIEST, _ndm.STORM_KNIGHT)
+          == ("evilwarnul", 456, "Abyssal Priest of Nulgath", "Storm Knight"))
+    check("nulgath diamond: the unported cases are named",
+          set(_ndm.UNPORTED) == {"Taro's Manslayer", "Iron", "Bone Dust",
+                                 "Unidentified 27"})
+
+    async def _ndm_dispatch():
+        calls = []
+
+        async def _approval(cmd, approval, favor):
+            calls.append(("approval", approval, favor))
+
+        async def _blood(cmd, qty):
+            calls.append(("blood", qty))
+
+        _ndm.approval_and_favor = _approval
+        _ndm.farm_blood_gem = _blood
+        cmd = _MergeCommand()
+        await _ndm.find_ingredients(cmd, 0, "Archfiend's Favor", 30)
+        await _ndm.find_ingredients(cmd, 0, "Blood Gem of the Archfiend", 10)
+        await _ndm.find_ingredients(cmd, 0, "Iron", 5)
+        return calls, cmd.logs
+
+    _n_calls, _n_logs = _asyncio.run(_ndm_dispatch())
+    check("nulgath diamond: favor and blood gem reach the Nation farms",
+          _n_calls == [("approval", 0, 30), ("blood", 10)])
+    check("nulgath diamond: Iron is reported, not farmed",
+          any("does not have" in line for line in _n_logs))
+
     # --- Ravenous forge unlock ---------------------------------------------
     # UnlockForgeEnhancements.Ravenous: quest 9560 once the Gluttonous Maw
     # (shop 2411) is held; the daily Roentgenium line otherwise.
