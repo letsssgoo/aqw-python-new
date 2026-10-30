@@ -2371,11 +2371,12 @@ def _skill_cooldown_seconds(player) -> dict:
 
 
 def _monster_readout(bot) -> list:
-    """``[{name, hp, max_hp, alive}]`` for the monsters in this cell."""
+    """``[{id, name, hp, max_hp, alive}]`` for the monsters in this cell."""
     rows = []
     try:
         for monster in (getattr(bot, "monsters", None) or [])[:6]:
             rows.append({
+                "id": str(getattr(monster, "mon_map_id", "") or ""),
                 "name": getattr(monster, "mon_name", "") or
                         f"Monster {getattr(monster, 'mon_map_id', '?')}",
                 "hp": int(getattr(monster, "current_hp", 0) or 0),
@@ -2385,6 +2386,45 @@ def _monster_readout(bot) -> list:
     except Exception:
         return []
     return rows
+
+
+def _target_readout(bot) -> dict:
+    """The monster this pane is attacking right now, ``{}`` when none.
+
+    ``player.last_target`` is set by the engine on every hostile cast
+    (``use_skill_to_monster``), so it follows a retarget by itself -- the adds
+    fight and the boss cycle both show up without the fight code telling the
+    menu anything.  The live object from ``bot.monsters`` wins over the stored
+    reference so the HP is the current one.
+    """
+    try:
+        player = getattr(bot, "player", None)
+        monster = None
+        if player is not None:
+            getter = getattr(player, "getLastTarget", None)
+            monster = getter() if callable(getter) else \
+                getattr(player, "last_target", None)
+        if monster is None:
+            return {}
+        target_id = str(getattr(monster, "mon_map_id", "") or "")
+        try:
+            live = next(
+                (m for m in (getattr(bot, "monsters", None) or [])
+                 if str(getattr(m, "mon_map_id", "")) == target_id), None)
+        except Exception:
+            live = None
+        if live is not None:
+            monster = live
+        return {
+            "id": target_id,
+            "name": getattr(monster, "mon_name", "") or "",
+            "hp": int(getattr(monster, "current_hp", 0) or 0),
+            "max_hp": int(getattr(monster, "max_hp", 0) or 0),
+            "alive": bool(getattr(monster, "is_alive", False))
+                     and int(getattr(monster, "current_hp", 0) or 0) > 0,
+        }
+    except Exception:
+        return {}
 
 
 def _skill_cooldowns(player) -> list:
@@ -2724,6 +2764,9 @@ class UltraApi:
                 "skills": _skill_cooldowns(p),
                 # What the pane is fighting, like the solo/slavery telemetry.
                 "monsters": _monster_readout(b),
+                # Which monster the pane is hitting now, so the menu follows a
+                # retarget (add -> boss) instead of only listing the cell.
+                "target": _target_readout(b),
                 # Slot 5 is the potion/scroll slot; naming it lets the menu show
                 # what is supposed to fire there.
                 "scroll": _slot5_name(b),

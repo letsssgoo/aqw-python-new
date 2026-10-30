@@ -309,6 +309,47 @@ check("ui cooldown: a ready slot reads 0", readout[0]["ready_in"], 0)
 check("ui cooldown: a busy slot reports the wait",
       2000 < readout[1]["ready_in"] <= 2600, True)
 
+
+# --- which monster the pane is hitting -------------------------------------
+# The menu lists the cell's monsters; the fight also has to say which one it is
+# attacking *now*, so a retarget (add -> boss) is visible instead of guessed.
+class _Mon:
+    def __init__(self, mid, name, hp, hp_max):
+        self.mon_map_id = mid
+        self.mon_name = name
+        self.current_hp = hp
+        self.max_hp = hp_max
+        self.is_alive = hp > 0
+
+
+class _MonsterBot:
+    def __init__(self, monsters, last=None):
+        self.monsters = monsters
+        self.player = type("_P", (), {"last_target": last})()
+
+
+_cell = [_Mon("2", "ultra avatar tyndarius", 600, 1000),
+         _Mon("3", "ultra fire orb", 0, 700)]
+check("ui monsters: the row carries the map id",
+      hub._monster_readout(_MonsterBot(_cell))[0]["id"], "2")
+
+_stored = _Mon("2", "ultra avatar tyndarius", 600, 1000)
+_target = hub._target_readout(_MonsterBot(_cell, last=_stored))
+check("ui target: names the monster being attacked",
+      (_target.get("id"), _target.get("name")),
+      ("2", "ultra avatar tyndarius"))
+check("ui target: nothing attacked yet is an empty readout",
+      hub._target_readout(_MonsterBot(_cell)), {})
+
+_stored.current_hp = 999
+_live = hub._target_readout(_MonsterBot([_Mon("2", "ultra avatar tyndarius",
+                                              250, 1000)], last=_stored))
+check("ui target: the HP shown is the live one", _live["hp"], 250)
+
+_dead = _Mon("3", "ultra fire orb", 0, 700)
+check("ui target: a dead target is not shown as alive",
+      hub._target_readout(_MonsterBot([_dead], last=_dead))["alive"], False)
+
 # --- potion packets --------------------------------------------------------
 # Captured: an elixir is consumed with `serverUseItem`; a combat potion is
 # equipped into slot 5 (`geia ... potion`) and cast with `gar`.

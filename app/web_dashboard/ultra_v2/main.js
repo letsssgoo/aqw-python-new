@@ -171,14 +171,31 @@
                 }
             }
             var monsters = (s.monsters || []).filter(function (m) { return m.alive; })
-                .slice(0, 3).map(function (m) {
+                .slice(0, 4).map(function (m) {
                     var pct = m.max_hp ? Math.round(m.hp / m.max_hp * 100) : 0;
                     return '<span class="pill" style="display:inline-flex;' +
                         'align-items:center;gap:4px;padding:2px 8px;border-radius:6px;' +
                         'font-size:.72rem;border:1px solid rgba(148,163,184,.35);' +
                         'background:rgba(148,163,184,.12);color:#cbd5e1">' +
-                        esc(m.name) + ' ' + esc(String(pct)) + '%</span>';
+                        esc(m.name) + ' (id.' + esc(String(m.id || '?')) + ') ' +
+                        esc(String(pct)) + '%</span>';
                 }).join(' ');
+            // The pane's live target: the engine sets player.last_target on
+            // every hostile cast, so a retarget (add -> boss) shows up here
+            // without the fight code pushing anything.
+            var target = s.target || null;
+            var targetPill = '';
+            if (target && target.name) {
+                var tpct = target.max_hp ? Math.round(target.hp / target.max_hp * 100) : 0;
+                targetPill = '<span class="pill" title="Attacking now" ' +
+                    'style="display:inline-flex;align-items:center;gap:4px;' +
+                    'padding:2px 8px;border-radius:6px;font-size:.72rem;' +
+                    'border:1px solid rgba(251,191,36,.55);' +
+                    'background:rgba(251,191,36,.16);color:#fcd34d">' +
+                    'ATK ' + esc(target.name) + ' (id.' +
+                    esc(String(target.id || '?')) + ') ' +
+                    (target.alive ? esc(String(tpct)) + '%' : 'dead') + '</span>';
+            }
             el.innerHTML =
                 '<span class="pill">' + esc(s.username || '-') + '</span>' +
                 '<span class="pill">HP ' + hp + '%</span>' +
@@ -189,8 +206,8 @@
             // stay readable and the cooldown bar is one line, like the solo menu.
             var monRow = card.querySelector('[data-monsters]');
             if (monRow) {
-                monRow.innerHTML = monsters;
-                monRow.style.display = monsters ? 'flex' : 'none';
+                monRow.innerHTML = targetPill + monsters;
+                monRow.style.display = (targetPill || monsters) ? 'flex' : 'none';
             }
             var cdRow = card.querySelector('[data-skills]');
             if (cdRow) {
