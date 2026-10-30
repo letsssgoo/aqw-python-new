@@ -934,6 +934,30 @@ def _heal_policy(module, cls, slot):
         players=("a", "b", "c", "d")), slot)
 
 
+# Weapons: every ultra's Lord of Order carries Valiance, every ArchPaladin
+# carries Lacerate -- Darkon's ArchPaladin is the one exception, still Valiance.
+check("weapons: the base presets are Valiance / Lacerate",
+      (presets.preset_for_class("Lord of Order").weapon,
+       presets.preset_for_class("ArchPaladin").weapon),
+      ("Valiance", "Lacerate"))
+check("weapons: every other weekly's Lord of Order wears Valiance",
+      [presets.preset_for(ultra, "Default", 4).weapon
+       for ultra in ("drakath", "nulgath", "drago", "speaker",
+                     "gramiel", "darkon", "tyndarius", "warden")],
+      ["Valiance"] * 8)
+check("weapons: every other weekly's ArchPaladin wears Lacerate",
+      [presets.preset_for(ultra, "Default", 3).weapon
+       for ultra in ("drakath", "nulgath", "drago", "speaker",
+                     "gramiel", "tyndarius", "warden")],
+      ["Lacerate"] * 7)
+check("weapons: Darkon's ArchPaladin keeps Valiance",
+      presets.preset_for("darkon", "Default", 3).weapon, "Valiance")
+# Dage keeps Health Vamp on every pane: its own script overrides the weapon
+# and says the fight fails without it.
+check("weapons: Dage keeps Health Vamp on both healers",
+      [presets.preset_for("dage", "Default", slot).weapon
+       for slot in (3, 4)], ["Health Vamp", "Health Vamp"])
+
 check("heal policy: every weekly's ArchPaladin heals under 65",
       [(_heal_policy(module, cls, 3).heal_below)
        for module, cls in ((drakath, "UltraDrakath"),

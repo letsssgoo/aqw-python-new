@@ -78,8 +78,8 @@ check("preset: Verus DoomKnight is strict",
 check("preset: VDK rotation length", len(presets.VDK_ROTATION), 21)
 check("preset: stonecrusher wears Absolution on the cape",
       presets.preset_for("warden", "Default", 2).cape, "Absolution")
-check("preset: lord of order uses Awe Blast",
-      presets.preset_for("warden", "Default", 4).weapon, "Awe Blast")
+check("preset: lord of order uses Valiance",
+      presets.preset_for("warden", "Default", 4).weapon, "Valiance")
 try:
     presets.preset_for("warden", "Pay2Win", 1)
     raised = False
