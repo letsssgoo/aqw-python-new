@@ -90,8 +90,10 @@ class ZoneWatcher:
     Ultra Dage's boss room announces two walk zones ("A" and "B", empty for the
     middle) and the reference walks to a fixed spot for each; ``DrainZoneEvents``
     below turns those letters into ``WalkTo`` calls.  The engine has no Flash
-    event bus, so the same letter comes from the packet's ``args.zoneSet``,
-    chained like :class:`PacketDetector` so the previous handler still runs.
+    event bus, so the same letter comes from the ``event`` packet's
+    ``args.zoneSet`` -- the field ``bot/slavery/bot_slave.py`` already walks on
+    for Astral Empyrean -- chained like :class:`PacketDetector` so the previous
+    handler still runs.
     """
 
     def __init__(self, bot):
@@ -132,7 +134,7 @@ class ZoneWatcher:
             data = json.loads(msg.strip())["b"]["o"]
         except Exception:
             return
-        if data.get("cmd") != "ct":
+        if data.get("cmd") != "event":
             return
         zone = (data.get("args") or {}).get("zoneSet")
         if zone is None:

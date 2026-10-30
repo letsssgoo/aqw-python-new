@@ -481,9 +481,9 @@ class _WalkCommand(_StubCommand):
 async def _zone_watch():
     watcher = ZoneWatcher(_ZoneBot())
     started = watcher.start()
-    watcher.inspect('{"b":{"o":{"cmd":"ct","args":{"zoneSet":"A"}}}}')
-    watcher.inspect('{"b":{"o":{"cmd":"ct","args":{"zoneSet":"B"}}}}')
-    watcher.inspect('{"b":{"o":{"cmd":"ct"}}}')
+    watcher.inspect('{"b":{"o":{"cmd":"event","args":{"zoneSet":"A"}}}}')
+    watcher.inspect('{"b":{"o":{"cmd":"event","args":{"zoneSet":"B"}}}}')
+    watcher.inspect('{"b":{"o":{"cmd":"event","args":{}}}}')
     drained = watcher.drain()
     watcher.stop()
     return started, drained, watcher.running
@@ -505,9 +505,9 @@ async def _zone_walk():
 
     cmd.bot.handle_server_response = _handler
     runner.zones.start()
-    runner.zones.inspect('{"b":{"o":{"cmd":"ct","args":{"zoneSet":"A"}}}}')
-    runner.zones.inspect('{"b":{"o":{"cmd":"ct","args":{"zoneSet":"B"}}}}')
-    runner.zones.inspect('{"b":{"o":{"cmd":"ct","args":{"zoneSet":""}}}}')
+    runner.zones.inspect('{"b":{"o":{"cmd":"event","args":{"zoneSet":"A"}}}}')
+    runner.zones.inspect('{"b":{"o":{"cmd":"event","args":{"zoneSet":"B"}}}}')
+    runner.zones.inspect('{"b":{"o":{"cmd":"event","args":{"zoneSet":""}}}}')
     await runner.drain_zone_events(move=True)
     runner.zones.stop()
     return cmd.walks
