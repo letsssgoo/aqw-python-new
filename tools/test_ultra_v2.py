@@ -66,6 +66,10 @@ class _StubCommand:
     def is_in_inventory_or_bank(self, name, qty=1, operator=">=", isTemp=False):
         return True
 
+    def can_turnin_quest(self, quest_id):
+        # Default stub: the drop is still missing, so a retry is expected.
+        return getattr(self, "turnin_ready", False)
+
 
 # --- options ---------------------------------------------------------------
 for ultra in ("warden", "ezrajal", "engineer", "tyndarius", "drakath", "drago",
@@ -182,6 +186,19 @@ check("warden: Stable's King's Echo keeps its cape",
 check("tooltip: gramiel lists two rows",
       len(options.composition_tooltip("gramiel").splitlines()), 2)
 
+# --- base (class-slot) enhancement resolution ------------------------------
+# Skua resolves the base enhancement by *type* through fixed shop ids, not by a
+# registry name -- this is the table from ``GetNormalEnhancementShop``.
+check("base: Wizard uses shop 765 at level 50+",
+      enhancements.NORMAL_ENHANCEMENT_SHOPS["Wizard"], (765, 144))
+check("base: Lucky uses shop 763",
+      enhancements.NORMAL_ENHANCEMENT_SHOPS["Lucky"], (763, 147))
+check("base: the seven types the presets use",
+      sorted(enhancements.NORMAL_ENHANCEMENT_SHOPS),
+      ["Fighter", "Healer", "Hybrid", "Lucky", "SpellBreaker", "Thief",
+       "Wizard"])
+check("base: the class slot codes", enhancements.CLASS_SLOTS, ("ar", "co"))
+
 # --- Ezrajal ---------------------------------------------------------------
 from bot.ultra.v2.dailies import ezrajal  # noqa: E402
 from bot.ultra.v2.registry import ORDER as V2_ORDER, REGISTRY as V2_REGISTRY  # noqa: E402
@@ -295,6 +312,24 @@ check("turn-in: it gives up after the retries",
       run(stuck.defeat_and_turn_in()), False)
 check("turn-in: one pull per retry", tries["fight"], 2)
 check("turn-in: and it says why", "never became turnable" in stuck.aborted, True)
+
+# Items in hand but the server refused: no more pulls, just stop.
+ready = warden.build(_StubCommand(), options.UltraOptions(
+    players=("a", "b", "c", "d"), retries=3), 1)
+ready.cmd.turnin_ready = True
+pulls = {"n": 0}
+
+
+async def _fight3():
+    pulls["n"] += 1
+    return True
+
+
+ready.fight_attempts = _fight3
+ready.finish_quest = _never
+check("turn-in: a refusal with the items in hand is not retried",
+      run(ready.defeat_and_turn_in()), False)
+check("turn-in: exactly one pull", pulls["n"], 1)
 
 # --- potions ---------------------------------------------------------------
 check("potion: Sage Tonic is a 2-voucher, rank-8 alchemy recipe",

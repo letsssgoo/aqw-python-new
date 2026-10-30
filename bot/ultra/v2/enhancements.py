@@ -31,6 +31,24 @@ SLOTS: Tuple[Tuple[str, str], ...] = (
 #: How long to wait for a bought enhancement to land in the inventory.
 PURCHASE_WAIT_MS = 10_000
 
+#: ``GetNormalEnhancementShop`` from the reference: a base (class-slot)
+#: enhancement is named by its **type**, and applied from a fixed shop -- 765 is
+#: Wizard at level 50+, 144 below it.  Our registry only knows shop item names
+#: ("Lucky Armor Enhancement"), so "Wizard" never resolves there; this table is
+#: how the reference resolves it.
+NORMAL_ENHANCEMENT_SHOPS = {
+    "Fighter": (768, 141),
+    "Thief": (767, 142),
+    "Hybrid": (766, 143),
+    "Wizard": (765, 144),
+    "Healer": (762, 145),
+    "SpellBreaker": (764, 146),
+    "Lucky": (763, 147),
+}
+
+#: ``sES`` codes of the class/armor slot an enhancement of this kind fits.
+CLASS_SLOTS = ("ar", "co")
+
 
 async def prepare(cmd, preset: Preset) -> bool:
     """Wear every enhancement the preset names, buying a missing one."""
@@ -75,6 +93,14 @@ async def _apply_one(cmd, slot: str, candidates: Sequence[str]) -> bool:
             cmd.bot.log(f"[v2] {slot} enhancement: {candidate} (applied).")
             return True
 
+    if slot == "class":
+        # The reference's own path for a base enhancement: resolve the shop from
+        # the type name and apply it to the equipped class.
+        for candidate in candidates:
+            if await _apply_base(cmd, candidate):
+                cmd.bot.log(f"[v2] class enhancement: {candidate} (shop).")
+                return True
+
     for candidate in candidates:
         entry = best_entry(candidate, slot)
         if entry is None:
@@ -87,6 +113,48 @@ async def _apply_one(cmd, slot: str, candidates: Sequence[str]) -> bool:
             cmd.bot.log(f"[v2] {slot} enhancement: {candidate} (bought).")
             return True
     return False
+
+
+async def _apply_base(cmd, name: str) -> bool:
+    """Apply a class-slot enhancement the reference's way.
+
+    ``GetNormalEnhancementShop(type)`` gives the shop; the class slot's own shop
+    entry supplies the enhancement item id.  This is what makes ``Wizard`` work
+    even though no registry record is called that.
+    """
+    shops = NORMAL_ENHANCEMENT_SHOPS.get(name)
+    if shops is None:
+        return False
+    shop_id = shops[0] if int(getattr(cmd.bot.player, "LEVEL", 0) or 0) >= 50 \
+        else shops[1]
+    if not await cmd.ensure_load_shop(shop_id):
+        cmd.bot.log(f"[v2] class enhancement shop {shop_id} did not load "
+                    f"({name}).")
+        return False
+
+    shop = next((loaded for loaded in cmd.bot.loaded_shop_datas
+                 if str(getattr(loaded, "shop_id", "")) == str(shop_id)), None)
+    if shop is None:
+        return False
+
+    worn = next((item for item in cmd.bot.player.INVENTORY
+                 if getattr(item, "is_equipped", False)
+                 and str(getattr(item, "s_es", "")).lower() in CLASS_SLOTS),
+                None)
+    if worn is None:
+        cmd.bot.log(f"[v2] nothing is equipped in the class slot, so {name} "
+                    f"cannot be applied.")
+        return False
+
+    candidates = [item for item in shop.items
+                  if str(getattr(item, "s_type", "")).lower() == "enhancement"
+                  and str(getattr(item, "s_es", "")).lower() in CLASS_SLOTS]
+    if not candidates:
+        return False
+    best = max(candidates, key=lambda item: (int(getattr(item, "level", 0) or 0),
+                                             int(getattr(item, "rarity", 0) or 0)))
+    await cmd.enhance_item(worn.item_id, best.item_id, shop_id)
+    return True
 
 
 def best_entry(name: str, slot: str):

@@ -124,9 +124,6 @@ class V2Core:
             self.log(f"{self.preset.cls} is in neither the inventory nor the "
                      f"bank.")
             return self.abort(f"{self.preset.cls} is not owned")
-        self.log(f"prerequisite {self.spec.prereq_quest} "
-                 f"({self.spec.prereq_name}) is not probed; the quest's own "
-                 f"turn-in decides.")
         return True
 
     # ---------------------------------------------------------------- setup
@@ -391,13 +388,12 @@ class V2Core:
 
     # ---------------------------------------------------------------- quests
     async def defeat_and_turn_in(self) -> bool:
-        """Win, then turn in -- pulling again when the drop is still short.
+        """Win, then turn in -- pulling again only when the drop is missing.
 
-        The reference finishes with ``EnsureComplete`` once; a party that won
-        before every pane had its drop is left with a quest it cannot turn in.
-        That is the case this retries: one more pull per remaining attempt,
-        then it stops and says so.  A wipe is still handled inside
-        :meth:`fight_attempts`.
+        The requirement is the items, not the turn-in itself: with every item in
+        hand a refused turn-in is the server's answer, so the run stops there
+        instead of farming a quest it already fulfilled.  Without the items, one
+        more pull per remaining attempt, then it stops and says so.
         """
         rounds = max(1, int(self.options.retries))
         for round_number in range(1, rounds + 1):
@@ -405,6 +401,10 @@ class V2Core:
                 return False
             if await self.finish_quest():
                 return True
+            if self.cmd.can_turnin_quest(self.spec.quest):
+                self.log("every item the quest asks for is in hand, but the "
+                         "server refused the turn-in; stopping here.")
+                return False
             self.log(f"the turn-in is still short after round "
                      f"{round_number}/{rounds}; pulling again.")
         return self.abort("the quest never became turnable")
