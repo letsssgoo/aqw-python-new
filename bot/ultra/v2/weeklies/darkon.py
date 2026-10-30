@@ -101,6 +101,16 @@ class UltraDarkon(V2Core):
         self._ap_phase_three = False
         self._ap_blocked = False
         self._boss_seen = False
+        # Heal policy for this fight: the Lord of Order spams skill 2, the
+        # ArchPaladin keeps it for anyone under 65%.  The packet cycles drive
+        # the taunts, not the heals.
+        self.heal_slots = ()
+        if self.preset.cls == "Lord of Order":
+            self.spam_heal = True
+            self.heal_gap_ms = 0
+        elif self.preset.cls == "ArchPaladin":
+            self.heal_below = 65
+            self.heal_gap_ms = 0
 
     # ----------------------------------------------------------------- roles
     def uses_p1_p2_taunters(self) -> bool:
@@ -160,14 +170,10 @@ class UltraDarkon(V2Core):
                 continue
 
             if self.is_arch_paladin() and not self.uses_relayed_attack2():
-                self.schedule_heal("Attack2", cycle)
-                self.schedule_ap_heal(cycle)
                 continue
 
             if marker == ATTACK3 or self.uses_relayed_attack2():
                 self.handle_taunt_cycle(cycle)
-                if self.slot == 4 and (cycle == 1 or cycle % 2 == 0):
-                    self.schedule_heal("Attack3", cycle)
 
     def handle_taunt_cycle(self, cycle: int) -> None:
         if not self.is_taunter():
@@ -421,10 +427,7 @@ class UltraDarkon(V2Core):
             self.collect_cycles()
             if self.uses_relayed_attack2() and self.is_arch_paladin():
                 self.handle_attack2_signals()
-            self.try_delayed_heal()
             self.handle_arch_paladin()
-            if self.is_arch_paladin():
-                self.try_ap_extra_heal()
 
             if self._taunt_cycle and time.time() >= self._taunt_at:
                 self.request_taunt(BOSS)
@@ -451,8 +454,8 @@ class UltraDarkon(V2Core):
             self._next_signal = 1
         while self.sync.read(self.attack2_signal(self._attempt,
                                                  self._next_signal)).get(1):
-            self.schedule_heal("Attack2", self._next_signal)
-            self.schedule_ap_heal(self._next_signal)
+            # The heal is the class's own job now (LoO spam, AP under 65%);
+            # the relay only keeps the cycle count in step.
             self._next_signal += 1
 
     def boss_alive(self) -> bool:

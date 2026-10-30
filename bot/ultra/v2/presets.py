@@ -50,6 +50,8 @@ class Preset:
     tonic: Optional[str] = None
     elixir: Optional[str] = None
     combat_potion: Optional[str] = None
+    #: ``AlternateClassNames``: the same class under another item name.
+    alternates: Tuple[str, ...] = ()
 
     @property
     def short(self) -> str:
@@ -136,6 +138,9 @@ PRESETS: Dict[str, Preset] = {
     ),
     "chaos slayer berserker": Preset(
         cls="Chaos Slayer Berserker",
+        alternates=("Chaos Slayer Mystic", "Chaos Slayer Cleric",
+                    "Chaos Slayer Thief", "Chaos Champion Prime",
+                    "Dark Chaos Berserker"),
         # Skill 0 (the auto attack) is mandatory in every preset; the engine
         # presses it on its own tick and never lets a rotation wait on it.
         skills=(0, 3, 2, 4, 1),

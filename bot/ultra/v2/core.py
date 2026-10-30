@@ -148,6 +148,18 @@ class V2Core:
         except Exception:
             print(line)
 
+    def owned_class(self) -> str:
+        """The first class name this pane actually owns (alternates included)."""
+        for name in self.class_names:
+            if self.cmd.is_in_inventory_or_bank(name):
+                return name
+        return self.preset.cls
+
+    @property
+    def class_names(self) -> tuple:
+        """The preset's class plus its ``AlternateClassNames``."""
+        return (self.preset.cls,) + tuple(getattr(self.preset, "alternates", ()))
+
     def describe(self) -> str:
         """The line a run prints before it touches anything."""
         short = " / ".join(presets.preset_for_class(cls).short
@@ -204,9 +216,11 @@ class V2Core:
             self.log(f"level {level} is below the {self.spec.min_level} this "
                      f"ultra needs.")
             return self.abort(f"level {level} < {self.spec.min_level}")
-        if not self.cmd.is_in_inventory_or_bank(self.preset.cls):
-            self.log(f"{self.preset.cls} is in neither the inventory nor the "
-                     f"bank.")
+        owned = next((name for name in self.class_names
+                      if self.cmd.is_in_inventory_or_bank(name)), "")
+        if not owned:
+            self.log(f"{'/'.join(self.class_names)} is in neither the "
+                     f"inventory nor the bank.")
             return self.abort(f"{self.preset.cls} is not owned")
         return True
 
@@ -215,8 +229,9 @@ class V2Core:
                       drop_combat_potion: bool = False) -> bool:
         """Equip the class, wear the enhancements, stock the potions and scroll."""
         self.log(f"starting setup: {self.describe()}")
-        if not await self.cmd.equip_item(self.preset.cls):
-            return self.abort(f"could not equip {self.preset.cls}")
+        equipped = self.owned_class()
+        if not await self.cmd.equip_item(equipped):
+            return self.abort(f"could not equip {equipped}")
 
         if self.options.use_enhancements:
             self.log(f"enhancements: {enhancements.describe(self.preset)}")
@@ -445,8 +460,6 @@ class V2Core:
         tops the party up before its next rotation step.  This is what keeps a
         drone phase from turning into a wipe.
         """
-        if self.heal_below is None:
-            return False
         if self.heal_slots and self.slot not in self.heal_slots:
             return False
         if self.heal_skill is None:
@@ -462,6 +475,9 @@ class V2Core:
             if healed:
                 self._last_heal_at = _time.time()
             return healed
+        if self.heal_below is None:
+            # No threshold and no spam: this class does not heal proactively.
+            return False
         wounded = self.wounded_allies()
         if not wounded:
             return False

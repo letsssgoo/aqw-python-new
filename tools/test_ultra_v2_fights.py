@@ -302,6 +302,39 @@ async def _pending_taunt_keeps_casting():
     return runner.taunt_requested, any(slot in (1, 2, 3, 4) for slot in cmd.casts)
 
 
+# A spam healer (Darkon's Lord of Order) heals without any HP threshold.
+class _SpamHealCommand(_StubCommand):
+    def __init__(self):
+        super().__init__()
+        self.casts = []
+        self.bot.player.canUseSkill = lambda slot: True
+        self.bot.player.SKILLS = [dict(cd=0, tgt="h", tgtMax=1, anim="")
+                                  for _ in range(6)]
+        self.bot.player.getAura = lambda name: None
+
+    def is_monster_alive(self, target="*"):
+        return True
+
+    async def use_skill(self, slot, **kwargs):
+        self.casts.append(slot)
+        return True
+
+    async def sleep(self, ms):
+        await asyncio.sleep(0.001)
+
+
+async def _spam_heal():
+    cmd = _SpamHealCommand()
+    runner = warden.build(cmd, options.UltraOptions(
+        players=("a", "b", "c", "d")), 3)
+    runner.heal_skill = 2
+    runner.heal_below = None
+    runner.spam_heal = True
+    return await runner._heal_step()
+
+
+check("heal: a spam healer needs no threshold", run(_spam_heal()), True)
+
 check("taunt: a pending taunt keeps the rotation going",
       run(_pending_taunt_keeps_casting()), (True, True))
 

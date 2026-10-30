@@ -880,6 +880,62 @@ check("darkon: the ArchPaladin is slot 3 in every column",
       [_darkon(slot).is_arch_paladin() for slot in (1, 2, 3, 4)],
       [False, False, True, False])
 # ``kingsEchoManaThreshold: 25`` on Stable, 12 elsewhere.
+# AlternateClassNames: Chaos Slayer is the same class under other item names.
+from bot.ultra.v2 import presets as _presets  # noqa: E402
+
+check("presets: Chaos Slayer carries its alternate names",
+      "Chaos Slayer Mystic" in
+      _presets.preset_for_class("Chaos Slayer Berserker").alternates, True)
+check("presets: an alternate name resolves to the same preset",
+      _presets.preset_for_class("chaos slayer mystic").cls,
+      "Chaos Slayer Berserker")
+
+# GetDivineElixir: StoneCrusher prefers the Unstable Divine Elixir.
+class _ElixirCommand(_StubCommand):
+    def __init__(self, items, bank=()):
+        super().__init__()
+        self.items = set(items)
+        self.bank = set(bank)
+
+    async def has_item(self, name, qty=1, isTemp=False):
+        return name in self.items
+
+    def is_in_bank(self, name):
+        return name in self.bank
+
+    async def bank_to_inv(self, name):
+        self.bank.discard(name)
+        self.items.add(name)
+
+
+async def _speaker_elixir(items, bank=()):
+    runner = speaker.UltraSpeaker(_ElixirCommand(items, bank),
+                                  options.UltraOptions(
+                                      players=("a", "b", "c", "d")), 2)
+    await runner.choose_divine_elixir()
+    return runner.preset.elixir
+
+
+check("speaker: the Unstable Divine Elixir wins when owned",
+      run(_speaker_elixir({"Unstable Divine Elixir"})),
+      "Unstable Divine Elixir")
+check("speaker: it is pulled from the bank first",
+      run(_speaker_elixir(set(), {"Unstable Divine Elixir"})),
+      "Unstable Divine Elixir")
+check("speaker: otherwise the plain Divine Elixir is used",
+      run(_speaker_elixir(set())), "Divine Elixir")
+
+# Heal policy: the Lord of Order spams skill 2, the ArchPaladin heals under
+# 65%, and the packet cycles no longer schedule heals at all.
+check("darkon: the Lord of Order spams its heal",
+      (_darkon(4).spam_heal, _darkon(4).heal_gap_ms), (True, 0))
+check("darkon: the ArchPaladin heals under 65",
+      (_darkon(3).heal_below, _darkon(3).heal_gap_ms), (65, 0))
+check("darkon: every pane runs the heal check",
+      _darkon(3).heal_slots, ())
+check("darkon: a cycle leaves the heal timing alone",
+      (_darkon(3).collect_cycles() or _darkon(3)._heal_cycle), 0)
+
 check("darkon: Stable raises the King's Echo mana floor to 25",
       (_darkon(1, "Stable").kings_echo_mana_floor,
        _darkon(1).kings_echo_mana_floor), (25, 12))

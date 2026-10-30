@@ -362,6 +362,27 @@ class UltraSpeaker(V2Core):
         self._seal_queued = True
         self.log("queued skill 4 for Righteous Seal.")
 
+    async def choose_divine_elixir(self) -> None:
+        """``GetDivineElixir``: StoneCrusher prefers the Unstable Divine Elixir.
+
+        The reference checks the inventory, then the bank, and only then falls
+        back to the plain Divine Elixir.  (Its last resort -- farming quest
+        1854 -- is not ported; the plain elixir is used instead.)
+        """
+        from dataclasses import replace
+        if self.preset.cls != "StoneCrusher":
+            return
+        unstable, divine = "Unstable Divine Elixir", "Divine Elixir"
+        if self.cmd.is_in_bank(unstable) and not await self.cmd.has_item(unstable):
+            await self.cmd.bank_to_inv(unstable)
+        if await self.cmd.has_item(unstable):
+            self.preset = replace(self.preset, elixir=unstable)
+            self.log(f"{unstable} already available.")
+            return
+        if self.cmd.is_in_bank(divine) and not await self.cmd.has_item(divine):
+            await self.cmd.bank_to_inv(divine)
+        self.log(f"using {divine}.")
+
     # ---------------------------------------------------------------- flow
     async def run(self) -> bool:
         if not await self.require_step("PREFLIGHT"):
@@ -375,6 +396,7 @@ class UltraSpeaker(V2Core):
         await self.join()
         if not await self.accept_quest():
             return False
+        await self.choose_divine_elixir()
         if not await self.prepare(scroll=ENRAGE if self.is_taunter else None,
                                   drop_combat_potion=self.is_taunter):
             return False
