@@ -604,6 +604,16 @@ check("gramiel: Reliable's VDK blocks skill 4 under Safeguard",
       (_gramiel(1, "Reliable").blocked_skill,
        _gramiel(1, "Reliable").blocked_skill_target_aura),
       (4, "Safeguard"))
+# Phase 1 casts real skills -- the Shaman its 1-2-3, the VDK its strict list,
+# the Default Legion Revenant 3-4-2.  Only skill 0 is handled separately.
+check("gramiel: the Shaman casts 1-2-3 in Phase 1",
+      _gramiel(1, "Optimized").phase_one_rotation(), (1, 2, 3))
+check("gramiel: the VDK keeps its strict list in Phase 1",
+      _gramiel(1, "Reliable").phase_one_rotation(),
+      tuple(slot for slot in presets.VDK_ROTATION if slot != 0))
+check("gramiel: the Default Legion Revenant casts 3-4-2",
+      _gramiel(1, "Default").phase_one_rotation(), (3, 4, 2))
+
 check("gramiel: the Optimized Shaman is slot 1 only",
       ([_gramiel(1, "Optimized").is_shaman,
         _gramiel(2, "Optimized").is_shaman],

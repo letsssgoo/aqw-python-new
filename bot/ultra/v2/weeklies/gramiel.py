@@ -202,9 +202,19 @@ class UltraGramiel(V2Core):
         return False
 
     # --------------------------------------------------------------- phase 1
+    def phase_one_rotation(self) -> Tuple[int, ...]:
+        """The skills Phase 1 casts, without skill 0 (which has its own tick).
+
+        The Shaman runs the reference's short 1-2-3 (its engine adds skill 4
+        through ``maintain_shaman_skill_four``); everyone else keeps the class
+        preset -- Verus DoomKnight's strict list included, which the strict
+        engine walks from ``preset.skills``.
+        """
+        rotation = (1, 2, 3) if self.is_shaman else self.preset.skills
+        return tuple(slot for slot in rotation if slot != 0)
+
     async def phase_one(self, attempt: int) -> str:
-        rotation = (1, 2, 3) if self.is_shaman else tuple(self.preset.skills)
-        self.skill_rotation = tuple(s for s in rotation if s != 0)
+        self.skill_rotation = self.phase_one_rotation()
         await self.start_skills(GRAMIEL, taunter=True)
         self.next_cycle = 1
         self.crystal_balancing = False
