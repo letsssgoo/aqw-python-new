@@ -91,7 +91,10 @@
             var s = slots[sId] || {};
             if (s.username) card.querySelector('.slot-user').value = s.username;
             if (s.password) card.querySelector('.slot-pass').value = s.password;
+            // The log tabs are labelled by these, and lines are routed by them.
+            paneUsers[sId] = s.username || '';
         });
+        if (typeof buildLogTabs === 'function') { buildLogTabs(); renderLog(); }
     }
 
     function collect() {
@@ -147,17 +150,74 @@
         });
     }
 
-    window.addUltraLog = function (kind, key, user, html) {
+    // --- per-player logs ---------------------------------------------------
+    // Every line is tagged with the pane's username (each thread registers with
+    // the redirector under it), so the page can keep one console per player the
+    // way the temple and ultra v1 menus do.  "All" is the merged view.
+    var paneUsers = {};              // slot id -> username
+    var logBuffers = { all: [] };    // "all" | slot1..slot4 -> [html lines]
+    var activeLog = 'all';
+
+    function slotForUser(user) {
+        var wanted = String(user || '').trim().toLowerCase();
+        if (!wanted) return '';
+        for (var i = 0; i < SLOT_IDS.length; i++) {
+            if (String(paneUsers[SLOT_IDS[i]] || '').trim().toLowerCase() === wanted) {
+                return SLOT_IDS[i];
+            }
+        }
+        return '';
+    }
+
+    function buildLogTabs() {
+        var bar = document.getElementById('log-tabs');
+        if (!bar) return;
+        var buttons = ['<button class="console-tab' +
+            (activeLog === 'all' ? ' active' : '') + '" data-log="all">All</button>'];
+        SLOT_IDS.forEach(function (sId, index) {
+            var name = paneUsers[sId] || ('Slot ' + (index + 1));
+            if (!logBuffers[sId]) logBuffers[sId] = [];
+            buttons.push('<button class="console-tab' +
+                (activeLog === sId ? ' active' : '') + '" data-log="' + sId + '">' +
+                esc(name) + '</button>');
+        });
+        bar.innerHTML = buttons.join('');
+        Array.prototype.forEach.call(bar.querySelectorAll('[data-log]'),
+            function (btn) {
+                btn.onclick = function () {
+                    activeLog = btn.getAttribute('data-log');
+                    buildLogTabs();
+                    renderLog();
+                };
+            });
+    }
+
+    function renderLog() {
         var log = document.getElementById('log');
         if (!log) return;
-        var line = document.createElement('div');
-        line.innerHTML = '<span class="who">' + esc(user || '') + '</span> ' + html;
-        log.appendChild(line);
-        while (log.childNodes.length > 500) { log.removeChild(log.firstChild); }
+        log.innerHTML = (logBuffers[activeLog] || []).join('');
         var c = document.getElementById('chk-auto-scroll');
         if (!c || c.checked) { log.scrollTop = log.scrollHeight; }
+    }
+
+    function appendLog(user, html) {
+        var own = slotForUser(user);
+        var line = '<div><span class="who">' + esc(user || '') + '</span> ' +
+            html + '</div>';
+        logBuffers.all.push(line);
+        if (own) {
+            if (!logBuffers[own]) logBuffers[own] = [];
+            logBuffers[own].push(line);
+            while (logBuffers[own].length > 800) { logBuffers[own].shift(); }
+        }
+        while (logBuffers.all.length > 800) { logBuffers.all.shift(); }
+        if (activeLog === 'all' || activeLog === own) { renderLog(); }
+    }
+
+    window.addUltraLog = function (kind, key, user, html) {
+        appendLog(user, html);
     };
-    window.addSlaveLog = function (user, html) { window.addUltraLog('', '', user, html); };
+    window.addSlaveLog = function (user, html) { appendLog(user, html); };
 
     // One button: START while idle, STOP while the party runs.  The label is
     // driven by the same status poll the pane cards use, so a party that ends
@@ -213,7 +273,24 @@
 
         document.getElementById('btn-toggle').onclick = toggleParty;
         var clearBtn = document.getElementById('btn-clear-logs');
-        if (clearBtn) { clearBtn.onclick = function () { document.getElementById('log').innerHTML = ''; }; }
+        if (clearBtn) {
+            clearBtn.onclick = function () {
+                logBuffers = { all: [] };
+                SLOT_IDS.forEach(function (sId) { logBuffers[sId] = []; });
+                renderLog();
+            };
+        }
+
+        // Labels follow whatever is typed in the username boxes, so the tabs
+        // read like the temple menu even before a run has started.
+        SLOT_IDS.forEach(function (sId) {
+            var card = document.querySelector('.slot-card[data-slot="' + sId + '"]');
+            var field = card.querySelector('.slot-user');
+            field.addEventListener('input', function () {
+                paneUsers[sId] = field.value.trim();
+                buildLogTabs();
+            });
+        });
 
         setInterval(function () {
             a.get_status().then(renderStatus);
