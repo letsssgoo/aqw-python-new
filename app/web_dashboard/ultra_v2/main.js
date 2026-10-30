@@ -96,7 +96,7 @@
             // The log tabs are labelled by these, and lines are routed by them.
             paneUsers[sId] = s.username || '';
         });
-        if (typeof buildLogTabs === 'function') { buildLogTabs(); renderLog(); }
+        syncPaneUsers();
     }
 
     function collect() {
@@ -230,6 +230,26 @@
     var logBuffers = { all: [] };    // "all" | slot1..slot4 -> [html lines]
     var activeLog = 'all';
 
+    // Re-read the username boxes into the tab labels.  The players dropdown
+    // fills those boxes programmatically, which fires no `input` event -- that
+    // is why picking another account left the old tab names in place.
+    function syncPaneUsers() {
+        SLOT_IDS.forEach(function (sId) {
+            var card = document.querySelector('.slot-card[data-slot="' + sId + '"]');
+            if (!card) return;
+            var field = card.querySelector('.slot-user');
+            var name = (field && field.value || '').trim();
+            if (name && paneUsers[sId] && paneUsers[sId] !== name) {
+                // A different account in this slot: its old console is not its
+                // own any more, so start that tab clean.
+                logBuffers[sId] = [];
+            }
+            paneUsers[sId] = name;
+        });
+        buildLogTabs();
+        renderLog();
+    }
+
     function slotForUser(user) {
         var wanted = String(user || '').trim().toLowerCase();
         if (!wanted) return '';
@@ -327,6 +347,7 @@
             return;
         }
         msg('');
+        syncPaneUsers();          // labels and routing follow the form
         a.start_party(collect()).then(function (res) {
             if (!res || !res.success) {
                 msg((res && res.error) || 'Failed to start', false);
@@ -367,9 +388,8 @@
         SLOT_IDS.forEach(function (sId) {
             var card = document.querySelector('.slot-card[data-slot="' + sId + '"]');
             var field = card.querySelector('.slot-user');
-            field.addEventListener('input', function () {
-                paneUsers[sId] = field.value.trim();
-                buildLogTabs();
+            ['input', 'change', 'blur'].forEach(function (event) {
+                field.addEventListener(event, syncPaneUsers);
             });
         });
 
