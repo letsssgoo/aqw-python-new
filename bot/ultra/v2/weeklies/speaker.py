@@ -111,9 +111,13 @@ class UltraSpeaker(V2Core):
         self.brute_force = bool((options.extras or {}).get("brute_force"))
         # Default/Reliable arm every pane as a taunter, like the other weeklies.
         self.is_taunter = True
-        self.warnings = MarkerWatcher(self.bot, "ct", (TRUTH, LISTEN))
+        self.warnings = MarkerWatcher(self.bot, "ct", (TRUTH, LISTEN),
+                                      require_all=False, choice=True)
         self.zones = ZoneWatcher(self.bot)
         self._warning_queue: List[str] = []
+        #: ``pauseEveryChoice``: the skill engine holds while a fresh taunt is
+        #: being placed, and resumes for every other warning.
+        self._paused_for_taunt = False
         self._section = 0
         self._step = 0
         self._next_warning = 1
@@ -267,11 +271,18 @@ class UltraSpeaker(V2Core):
             fresh_owner = expected.fresh and self.slot == expected.owner
             if fresh_owner:
                 self.request_taunt(SPEAKER)
+                # The engine pauses until that taunt goes out (the reference
+                # resumes only when the pane is *not* the fresh owner).
+                self.suppress_rotation = True
+                self._paused_for_taunt = True
                 self.log(f"requested fresh {self.warning_name(expected.warning)} "
                          f"taunt.")
-            elif not expected.fresh:
-                self.log(f"processed covered "
-                         f"{self.warning_name(expected.warning)}.")
+            else:
+                self.suppress_rotation = False
+                self._paused_for_taunt = False
+                if not expected.fresh:
+                    self.log(f"processed covered "
+                             f"{self.warning_name(expected.warning)}.")
 
             if (not self.brute_force and expected.skill > 0
                     and self.slot == expected.skill_owner):
@@ -474,6 +485,10 @@ class UltraSpeaker(V2Core):
                     ok, mismatch = self.process_equalize(attempt, state)
                     if not ok:
                         await self.report_chart_failure(attempt, mismatch)
+
+            if self._paused_for_taunt and not self.taunt_requested:
+                self._paused_for_taunt = False
+                self.suppress_rotation = False
 
             self.publish_chart_reset(attempt)
             if self.has_chart_reset(attempt):

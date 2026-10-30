@@ -165,10 +165,15 @@ class MarkerWatcher:
     matching packet counts once, even when several markers overlap.
     """
 
-    def __init__(self, bot, command: str = "ct", markers=()):
+    def __init__(self, bot, command: str = "ct", markers=(),
+                 require_all: bool = True, choice: bool = False):
         self.bot = bot
         self.command = command
         self.markers = tuple(m for m in markers if m)
+        #: ``StartPacketDetector`` matches only when **every** marker is in the
+        #: packet; ``StartPacketChoiceDetector`` reports the first one it finds.
+        self.require_all = require_all
+        self.choice = choice
         self.count = 0
         self.running = False
         self.last = ""          # which marker matched most recently
@@ -208,14 +213,18 @@ class MarkerWatcher:
         flat = msg.replace(" ", "")
         if self.command and f'"cmd":"{self.command}"' not in flat:
             return
-        for marker in self.markers:
-            if marker.replace(" ", "") in flat:
-                # Ultra Speaker needs to know *which* warning arrived, not just
-                # that one did.
-                self.last = marker
-                self.history.append(marker)
-                self.count += 1
-                return
+        present = [marker for marker in self.markers
+                   if marker.replace(" ", "") in flat]
+        if not present:
+            return
+        if self.require_all and not self.choice and len(present) != len(self.markers):
+            return
+        # Speaker's choice detector wants the first warning it finds; the
+        # animation detectors want the animation marker itself, which is last.
+        matched = present[0] if self.choice else present[-1]
+        self.last = matched
+        self.history.append(matched)
+        self.count += 1
 
     def seen(self, detection: int) -> bool:
         return bool(self.running and detection > 0 and self.count >= detection)

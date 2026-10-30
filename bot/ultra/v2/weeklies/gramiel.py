@@ -210,7 +210,10 @@ class UltraGramiel(V2Core):
         preset -- Verus DoomKnight's strict list included, which the strict
         engine walks from ``preset.skills``.
         """
-        rotation = (1, 2, 3) if self.is_shaman else self.preset.skills
+        # The Shaman engine's mask is skills 1-2 plus 4 (and 3 while enabled),
+        # so the rotation carries all four; ``maintain_shaman_skill_four``
+        # targets skill 4 on Gramiel when the chart calls for it.
+        rotation = (1, 2, 3, 4) if self.is_shaman else self.preset.skills
         return tuple(slot for slot in rotation if slot != 0)
 
     async def phase_one(self, attempt: int) -> str:
@@ -261,7 +264,8 @@ class UltraGramiel(V2Core):
 
             both = a_hp > 0 and b_hp > 0
             self.handle_crystal_detections(both)
-            await self.maintain_phase_one_target(a_hp, b_hp)
+            if not self.has_pending_targeted_skill():
+                await self.maintain_phase_one_target(a_hp, b_hp)
             if self.is_shaman:
                 await self.maintain_shaman_skill_four(both)
             await self.cmd.sleep(self.poll_ms)
@@ -334,6 +338,10 @@ class UltraGramiel(V2Core):
             return
         self.target_priority = (CRYSTAL_A if a_hp >= b_hp else CRYSTAL_B,)
 
+    def has_pending_targeted_skill(self) -> bool:
+        """``HasPendingTargetedPrioritySkill``: a skill 4 is queued on Gramiel."""
+        return bool(self.priority_skill and self.priority_skill_target)
+
     async def maintain_shaman_skill_four(self, both_alive: bool) -> None:
         """``MaintainPhaseOneShamanSkillFour``: opening and Safeguard casts."""
         if not getattr(self, "_shaman_opening", False):
@@ -342,6 +350,7 @@ class UltraGramiel(V2Core):
         if not self.safeguard_active:
             self._shaman_safeguard = False
         if (not both_alive or datetime.now() < self.taunt_target_until
+                or self.has_pending_targeted_skill()
                 or not self.bot.player.canUseSkill(4)):
             return
         opening = not self._shaman_opening
@@ -349,13 +358,16 @@ class UltraGramiel(V2Core):
                      and not self._shaman_safeguard)
         if not opening and not safeguard:
             return
-        if await self.cmd.use_skill(4, target_monsters=GRAMIEL):
-            if opening:
-                self._shaman_opening = True
-                self.log("queued opening Phase 1 skill 4 on Gramiel.")
-            else:
-                self._shaman_safeguard = True
-                self.log("queued Safeguard Phase 1 skill 4 on Gramiel.")
+        # ``RequestTargetedPrioritySkill(4, Gramiel, Gramiel)``: queued, cast
+        # on the boss when the server allows, not fired blind at the crystal.
+        self.priority_skill = 4
+        self.priority_skill_target = GRAMIEL
+        if opening:
+            self._shaman_opening = True
+            self.log("queued opening Phase 1 skill 4 on Gramiel.")
+        else:
+            self._shaman_safeguard = True
+            self.log("queued Safeguard Phase 1 skill 4 on Gramiel.")
 
     # --------------------------------------------------------------- phase 2
     async def phase_two(self, attempt: int) -> str:
@@ -364,7 +376,7 @@ class UltraGramiel(V2Core):
                                    and self.options.composition == "Default")
                   else tuple(self.preset.skills))
         if self.is_shaman:
-            normal = (1, 2, 3)
+            normal = (1, 2, 3, 4)
         self.skill_rotation = tuple(s for s in normal if s != 0)
         self.auto_attack_enabled = True
         self.suppress_rotation = False
@@ -415,12 +427,12 @@ class UltraGramiel(V2Core):
                 invulnerable = self.target_aura(INVULNERABLE)
                 if invulnerable and not shaman_blocked:
                     shaman_blocked = True
-                    self.skill_rotation = (1, 2)
+                    self.skill_rotation = (1, 2, 4)
                     self.log("playerOne disabled skill 3 while Gramiel has "
                              "Invulnerable.")
                 elif not invulnerable and shaman_blocked:
                     shaman_blocked = False
-                    self.skill_rotation = (1, 2, 3)
+                    self.skill_rotation = (1, 2, 3, 4)
                     self.log("playerOne restored skill 3 after Gramiel's "
                              "Invulnerable ended.")
 

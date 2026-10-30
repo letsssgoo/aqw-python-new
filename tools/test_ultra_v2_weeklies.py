@@ -671,8 +671,8 @@ check("gramiel: Reliable's VDK blocks skill 4 under Safeguard",
       (4, "Safeguard"))
 # Phase 1 casts real skills -- the Shaman its 1-2-3, the VDK its strict list,
 # the Default Legion Revenant 3-4-2.  Only skill 0 is handled separately.
-check("gramiel: the Shaman casts 1-2-3 in Phase 1",
-      _gramiel(1, "Optimized").phase_one_rotation(), (1, 2, 3))
+check("gramiel: the Shaman mask is 1-2-3-4 in Phase 1",
+      _gramiel(1, "Optimized").phase_one_rotation(), (1, 2, 3, 4))
 check("gramiel: the VDK keeps its strict list in Phase 1",
       _gramiel(1, "Reliable").phase_one_rotation(),
       tuple(slot for slot in presets.VDK_ROTATION if slot != 0))
@@ -735,12 +735,15 @@ _shaman = gramiel.UltraGramiel(_ShamanCommand(), options.UltraOptions(
     players=("a", "b", "c", "d"), composition="Optimized"), 1)
 _shaman.taunt_target_until = __import__("datetime").datetime.min
 run(_shaman.maintain_shaman_skill_four(True))
-check("gramiel: the Shaman queues its opening skill 4",
-      (_shaman._shaman_opening, _shaman.cmd.casts), (True, [4]))
+check("gramiel: the Shaman queues its opening skill 4 on Gramiel",
+      (_shaman._shaman_opening, _shaman.priority_skill,
+       _shaman.priority_skill_target), (True, 4, "id.1"))
+_shaman.priority_skill = 0
+_shaman.priority_skill_target = ""
 _shaman.safeguard_active = True
 run(_shaman.maintain_shaman_skill_four(True))
 check("gramiel: and a second one after Safeguard",
-      (_shaman._shaman_safeguard, _shaman.cmd.casts), (True, [4, 4]))
+      (_shaman._shaman_safeguard, _shaman.priority_skill), (True, 4))
 
 # --- Ultra Speaker (weekly) ------------------------------------------------
 # The fight is a walking chart: Truth/Listen warnings in a fixed order per
@@ -876,6 +879,11 @@ check("darkon: only Stable relays Attack2",
 check("darkon: the ArchPaladin is slot 3 in every column",
       [_darkon(slot).is_arch_paladin() for slot in (1, 2, 3, 4)],
       [False, False, True, False])
+# ``kingsEchoManaThreshold: 25`` on Stable, 12 elsewhere.
+check("darkon: Stable raises the King's Echo mana floor to 25",
+      (_darkon(1, "Stable").kings_echo_mana_floor,
+       _darkon(1).kings_echo_mana_floor), (25, 12))
+
 check("darkon: the Attack2 relay signal is per attempt and cycle",
       _darkon(3, "Stable").attack2_signal(2, 5), "DARKON_ATTACK2_2_5")
 

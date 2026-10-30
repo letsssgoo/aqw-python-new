@@ -173,6 +173,25 @@ class UltraDage(V2Core):
                 self.sync.read(f"MYSTIFY_{attempt}").get(4))
         return True
 
+    def warn_if_no_health_vamp(self) -> None:
+        """``WarnIfHealthVampWeaponIsMissing``: say it before the pull.
+
+        The reference puts this in a message box; the engine has no per-pane
+        box, so it is a loud log line on the pane that will fail.
+        """
+        from bot.ultra.v2 import enhancements
+        record = enhancements.best_entry("Health Vamp", "weapon")
+        pattern = int(getattr(record, "pattern_id", 0) or 0)
+        for item in getattr(self.bot.player, "INVENTORY", []) or []:
+            if not getattr(item, "is_equipped", False):
+                continue
+            if str(getattr(item, "s_es", "")).lower() != "weapon":
+                continue
+            if pattern and int(getattr(item, "enh_pattern_id", 0) or 0) != pattern:
+                self.log("Health Vamp is not enhanced on the weapon. Ultra "
+                         "Dage will fail.")
+            return
+
     # ------------------------------------------------------------- the fight
     async def run(self) -> bool:
         if not await self.require_step("PREFLIGHT"):
@@ -188,6 +207,7 @@ class UltraDage(V2Core):
         if not await self.prepare(scroll=getattr(self, "scroll", None),
                                   drop_combat_potion=not self.uses_full_potions()):
             return False
+        self.warn_if_no_health_vamp()
         if not await self.require_step("SETUP_DONE"):
             return False
 
@@ -468,7 +488,9 @@ class UltraDage(V2Core):
             return False
         if self.safe_heal_used or self.bot.player.ISDEAD:
             return False
-        if not self.boss_alive():
+        # ``HandleSafeHeal`` only fires with **Dage as the target**: the heal
+        # belongs to the boss window, not to a random monster or none at all.
+        if not self.boss_alive() or self.pick_target(BOSS) != BOSS:
             return False
         if not self.bot.player.canUseSkill(2):
             return False

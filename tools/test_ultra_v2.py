@@ -523,6 +523,34 @@ check("scroll plan: an empty bag plans the whole stack",
 check("scroll plan: a small plan is left alone",
       run(scrolls._clamp_turns(_InkCommand(0), _Req(), 10, 1)), 10)
 
+# Packet detectors follow the reference exactly: plain detectors need **all**
+# their markers in the packet, the choice detector reports the first one.
+class _WatchedBot:
+    def __init__(self):
+        async def handler(msg):
+            return None
+        self.handle_server_response = handler
+
+
+from bot.ultra.v2.packets import MarkerWatcher  # noqa: E402
+
+_all = MarkerWatcher(_WatchedBot(), "ct", ('"animStr":"Attack3"',
+                                           '"cInf":"m:1"'))
+_all.start()
+_all.inspect('{"b":{"o":{"cmd":"ct","animStr":"Attack3"}}}')
+check("detector: a plain detector needs every marker", _all.count, 0)
+_all.inspect('{"b":{"o":{"cmd":"ct","animStr":"Attack3","cInf":"m:1"}}}')
+check("detector: and counts the packet that has them", _all.count, 1)
+_all.stop()
+
+_choice = MarkerWatcher(_WatchedBot(), "ct", ("truth", "listen"),
+                        require_all=False, choice=True)
+_choice.start()
+_choice.inspect('{"b":{"o":{"cmd":"ct","t":"listen: truth"}}}')
+check("detector: the choice detector reports the first match",
+      _choice.last, "truth")
+_choice.stop()
+
 # --- warden rules ----------------------------------------------------------
 check("warden: Default taunts from slot 1", warden.taunter_slot("Default"), 1)
 check("warden: Stable taunts from slot 2", warden.taunter_slot("Stable"), 2)

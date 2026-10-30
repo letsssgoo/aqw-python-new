@@ -123,6 +123,12 @@ class V2Core:
         #: One skill to cast as soon as the server allows it (the reference's
         #: ``RequestPrioritySkill``); cleared once it goes out.
         self.priority_skill: int = 0
+        #: Target for that skill (``RequestTargetedPrioritySkill``); empty keeps
+        #: whatever the rotation is aimed at.
+        self.priority_skill_target: str = ""
+        #: King's Echo only casts its upkeep skill above this mana percentage;
+        #: Ultra Darkon's Stable column raises it to 25 (``kingsEchoManaThreshold``).
+        self.kings_echo_mana_floor: float = KINGS_ECHO_MANA_FLOOR
         #: Diagnostics: when the rotation last cast something, and when it was
         #: last reported idle (a pane that only auto-attacks must say why).
         self._last_cast_at = 0.0
@@ -550,7 +556,7 @@ class V2Core:
         player = self.bot.player
         residual = self.self_aura_value("Residual Energy")
         if ((residual >= RESIDUAL_ENERGY_SKILL4
-             or player.MANA < KINGS_ECHO_MANA_FLOOR)
+             or _percent(player.MANA, player.MAX_MP) < self.kings_echo_mana_floor)
                 and player.canUseSkill(4)):
             if await self.cmd.use_skill(4, target_monsters=target):
                 return

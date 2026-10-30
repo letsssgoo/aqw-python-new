@@ -82,6 +82,8 @@ class UltraDarkon(V2Core):
     def __init__(self, cmd, options: UltraOptions, slot: int = 1):
         super().__init__(cmd, SPEC, options, slot)
         self.composition = options.composition
+        # ``kingsEchoManaThreshold: armyComposition == Stable ? 25 : 12``.
+        self.kings_echo_mana_floor = 25 if self.composition == STABLE else 12
         self.detector = MarkerWatcher(
             self.bot, "ct",
             (BOSS_CASTER, ATTACK2 if self.detects_attack2()
@@ -123,6 +125,21 @@ class UltraDarkon(V2Core):
 
     def attack2_signal(self, attempt: int, cycle: int) -> str:
         return f"DARKON_ATTACK2_{attempt}_{cycle}"
+
+    def warn_if_vainglory_cape(self) -> None:
+        """``WarnIfVaingloryCapeIsEquipped``: Vainglory on the cape fails Dage."""
+        from bot.ultra.v2 import enhancements
+        record = enhancements.best_entry("Vainglory", "cape")
+        pattern = int(getattr(record, "pattern_id", 0) or 0)
+        for item in getattr(self.bot.player, "INVENTORY", []) or []:
+            if not getattr(item, "is_equipped", False):
+                continue
+            if str(getattr(item, "s_es", "")).lower() != "ba":
+                continue
+            if pattern and int(getattr(item, "enh_pattern_id", 0) or 0) == pattern:
+                self.log("Vainglory is enhanced on the cape. Ultra Darkon "
+                         "will fail.")
+            return
 
     # ---------------------------------------------------------------- auras
     def boss_aura(self, name: str) -> bool:
@@ -287,6 +304,7 @@ class UltraDarkon(V2Core):
         if not await self.prepare(scroll=ENRAGE if self.is_taunter() else None,
                                   drop_combat_potion=self.is_taunter()):
             return False
+        self.warn_if_vainglory_cape()
         if not await self.require_step("SETUP_DONE"):
             return False
 
