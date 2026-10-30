@@ -5,6 +5,7 @@ from core.utils import normalize
 import json
 import os
 import pathlib
+import re
 import sys
 import zlib
 import base64
@@ -1929,8 +1930,17 @@ class Bot:
         return self.get_loaded_quest(quest_id) is None
 
     def _daily_ledger_path(self):
-        """``daily_state.json`` beside the engine, next to the other configs."""
-        return pathlib.Path(__file__).resolve().parent.parent / "daily_state.json"
+        """One ledger file **per account**, beside the engine.
+
+        A four-pane ultra run is four processes writing this state at the same
+        moment; a shared file meant ``os.replace`` on Windows failing with
+        WinError 32 ("being used by another process").  Every pane only writes
+        its own account's rows, so there is nothing to share: each account gets
+        its own file and the race is gone.
+        """
+        safe = re.sub(r"[^A-Za-z0-9_-]", "_", self._daily_account() or "default")
+        return (pathlib.Path(__file__).resolve().parent.parent
+                / f"daily_state_{safe.lower()}.json")
 
     def _load_daily_ledger(self) -> dict:
         """Read the per-account daily ledger once: ``{account: {quest: date}}``."""
@@ -2000,12 +2010,12 @@ class Bot:
         except OSError as error:
             print(f"[daily] could not stage {path.name}: {error}")
             return
-        for attempt in range(10):
+        for attempt in range(5):
             try:
                 os.replace(temporary, path)
                 return
             except OSError:
-                # Another pane is mid-write; a short wait settles it.
+                # A virus scanner or the app's reader can hold it briefly.
                 time.sleep(0.05 * (attempt + 1))
         try:
             temporary.unlink()

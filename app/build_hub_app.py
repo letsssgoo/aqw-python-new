@@ -2304,6 +2304,31 @@ def _spec_name(spec):
     return getattr(spec, "name", spec)
 
 
+def _skill_cooldown_seconds(player) -> dict:
+    """``{slot: seconds_left}`` for the solo menu's skill badges."""
+    out = {}
+    for row in _skill_cooldowns(player):
+        out[row["slot"]] = round(row["ready_in"] / 1000.0, 1)
+    return out
+
+
+def _monster_readout(bot) -> list:
+    """``[{name, hp, max_hp, alive}]`` for the monsters in this cell."""
+    rows = []
+    try:
+        for monster in (getattr(bot, "monsters", None) or [])[:6]:
+            rows.append({
+                "name": getattr(monster, "mon_name", "") or
+                        f"Monster {getattr(monster, 'mon_map_id', '?')}",
+                "hp": int(getattr(monster, "current_hp", 0) or 0),
+                "max_hp": int(getattr(monster, "max_hp", 0) or 0),
+                "alive": bool(getattr(monster, "is_alive", False)),
+            })
+    except Exception:
+        return []
+    return rows
+
+
 def _skill_cooldowns(player) -> list:
     """``[{slot, ready_in}]`` for skill slots 0-4, ready_in in milliseconds.
 
@@ -2628,10 +2653,13 @@ class UltraApi:
                 "map": getattr(b, "strMapName", "") or "-",
                 "cell": p.CELL,
                 "pad": p.PAD,
-                # Cooldown readout for the menu: the server's own deadline per
-                # skill slot, as milliseconds from now.  0 = ready.  This is a
-                # display only; the fight code does its own pacing.
+                # Cooldown readout for the menu, in the solo menu's shape
+                # (``cooldowns[index] = seconds``), plus the raw millisecond
+                # list.  Display only: the fight code paces itself.
+                "cooldowns": _skill_cooldown_seconds(p),
                 "skills": _skill_cooldowns(p),
+                # What the pane is fighting, like the solo/slavery telemetry.
+                "monsters": _monster_readout(b),
             }
         except Exception as e:
             return {"running": True, "username": thread.username, "role": thread.role, "error": str(e)}

@@ -66,6 +66,13 @@ class V2Core:
         self.respect_counter_attack = False
         #: Extra targets tried before the boss, in order (Engineer's two adds).
         self.target_priority: tuple = ()
+        #: Party healing, the way v1's ``attack_loop`` does it: cast
+        #: ``heal_skill`` when an ally is under ``heal_below`` percent.  When
+        #: ``heal_slot_classes`` is non-empty only those classes heal (v1's
+        #: support slots); every other class keeps dpsing.
+        self.heal_below: Optional[float] = None
+        self.heal_skill: int = 2
+        self.heal_slot_classes: tuple = ()
 
     # ------------------------------------------------------------------ log
     @property
@@ -232,13 +239,19 @@ class V2Core:
                and not self.sync.aborted()
                and self.cmd.is_monster_alive(self.pick_target(target))):
             target = self.pick_target(target)
+            if await self._heal_step():
+                await self.cmd.sleep(self.poll_ms)
+                continue
             if self.taunt_requested:
                 self.taunt_requested = False
                 if taunter and await self.cmd.use_skill(5, target_monsters=target):
                     self.log("taunt cast (skill 5).")
             elif (self.respect_counter_attack
                   and self.counter_attack_active(target)):
-                # Attacking into the counter attack is what kills the party.
+                # Attacking into the counter attack kills the party, but the
+                # buffs must keep going: v1 holds the rotation and keeps
+                # casting its buff/heal slots (``buff_only``).
+                await self._buff_step(target)
                 await self.cmd.sleep(self.poll_ms)
             elif preset.mode == KINGS_ECHO:
                 await self._kings_echo_step(target, use_survival)
@@ -247,6 +260,36 @@ class V2Core:
             else:
                 await self._simple_step(target)
             await self.cmd.sleep(self.poll_ms)
+
+    async def _buff_step(self, target: str) -> None:
+        """Cast whichever rotation slot is a buff -- no damage while holding."""
+        for slot in self.preset.skills:
+            if not self.bot.player.canUseSkill(slot):
+                continue
+            if await self.cmd.use_skill(slot, target_monsters=target,
+                                       buff_only=True):
+                return
+
+    async def _heal_step(self) -> bool:
+        """Cast the heal when a party member is under the threshold.
+
+        v1's ``attack_loop(..., heal_below=60, heal_skill=2)``: a support slot
+        tops the party up before its next rotation step.  This is what keeps a
+        drone phase from turning into a wipe.
+        """
+        if self.heal_below is None:
+            return False
+        if self.heal_slot_classes and self.preset.cls not in self.heal_slot_classes:
+            return False
+        if not self.bot.player.canUseSkill(self.heal_skill):
+            return False
+        for player in getattr(self.bot, "player_in_area", []) or []:
+            try:
+                if player.is_hp_below(self.heal_below):
+                    return bool(await self.cmd.use_skill(self.heal_skill))
+            except Exception:
+                continue
+        return False
 
     async def _simple_step(self, target: str) -> None:
         """Cast the first rotation skill the server says is ready."""

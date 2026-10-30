@@ -137,22 +137,43 @@
             }
             badge.textContent = 'Online'; badge.style.color = '#34d399';
             var hp = s.max_hp ? Math.round(s.hp / s.max_hp * 100) : 0;
-            var cooldowns = (s.skills || []).map(function (skill) {
-                var label = 'S' + (skill.slot === 0 ? 'A' : skill.slot);
-                var ready = (skill.ready_in || 0) <= 0;
-                return '<span class="pill" style="' +
-                    (ready ? 'opacity:.55' : '') + '">' + label + ' ' +
-                    (ready ? '✓' : (skill.ready_in / 1000).toFixed(1) + 's') +
-                    '</span>';
-            }).join(' ');
+            // Same badge markup/classes as the solo menu (skill-cd-badge,
+            // on-cooldown / ready), fed by the server deadline per slot.
+            var cds = s.cooldowns || {};
+            var badges = '';
+            if (Object.keys(cds).length) {
+                for (var i = 0; i < 6; i++) {
+                    var cd = Number(cds[i] || 0);
+                    var label = i === 0 ? 'A' : String(i);
+                    var extra = i === 5 ? ' skill-5-badge' :
+                        (i === 0 ? ' skill-0-badge' : '');
+                    if (cd > 0) {
+                        badges += '<span class="skill-cd-badge on-cooldown' + extra +
+                            '" title="Skill ' + label + ' on cooldown">' +
+                            '<span class="skill-idx">' + label + '</span>' +
+                            '<span class="skill-cd-val">' + cd.toFixed(1) + 's</span></span>';
+                    } else {
+                        badges += '<span class="skill-cd-badge ready' + extra +
+                            '" title="Skill ' + label + ' ready">' +
+                            '<span class="skill-idx">' + label + '</span>' +
+                            '<span class="skill-cd-val">&#10003;</span></span>';
+                    }
+                }
+            }
+            var monsters = (s.monsters || []).filter(function (m) { return m.alive; })
+                .slice(0, 3).map(function (m) {
+                    var pct = m.max_hp ? Math.round(m.hp / m.max_hp * 100) : 0;
+                    return '<span class="pill">' + esc(m.name) + ' ' + pct + '%</span>';
+                }).join(' ');
             el.innerHTML =
                 '<span class="pill">' + esc(s.username || '-') + '</span>' +
                 '<span class="pill">HP ' + hp + '%</span>' +
                 '<span class="pill">MP ' + (s.mp || 0) + '</span>' +
                 '<span class="pill">' + esc(s.map || '-') + ' / ' + esc(s.cell || '-') + '</span>' +
                 (s.is_dead ? '<span class="pill" style="color:#f87171">dead</span>' : '') +
-                (cooldowns ? '<div class="skill-cd" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">' +
-                    cooldowns + '</div>' : '');
+                (monsters ? '<div class="monster-row" style="margin-top:6px">' + monsters + '</div>' : '') +
+                (badges ? '<div class="skill-row" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">' +
+                    badges + '</div>' : '');
             if (s.role) {
                 var cls = card.querySelector('.slot-class');
                 if (cls) cls.textContent = s.role;
@@ -174,6 +195,15 @@
         for (var i = 0; i < SLOT_IDS.length; i++) {
             if (String(paneUsers[SLOT_IDS[i]] || '').trim().toLowerCase() === wanted) {
                 return SLOT_IDS[i];
+            }
+        }
+        // Not in the saved config (a run started before the form was saved):
+        // claim the first free tab, so every pane still gets its own console.
+        for (var j = 0; j < SLOT_IDS.length; j++) {
+            if (!String(paneUsers[SLOT_IDS[j]] || '').trim()) {
+                paneUsers[SLOT_IDS[j]] = String(user).trim();
+                buildLogTabs();
+                return SLOT_IDS[j];
             }
         }
         return '';

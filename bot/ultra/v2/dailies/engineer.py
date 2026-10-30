@@ -30,9 +30,17 @@ SPEC = UltraSpec(
     monster_id=3,                 # MainBossMapId
 )
 
-#: The two adds, in the order the reference kills them.
-FIRST_TARGET = "id.2"
-SECOND_TARGET = "id.1"
+#: The two drones, in the reference's order.  v1 targets them **by name**
+#: ("Attack Drone,Defense Drone"); the boss is only the fallback.
+FIRST_TARGET = "Attack Drone"
+SECOND_TARGET = "Defense Drone"
+BOSS_NAME = "Ultra Engineer"
+
+#: Support classes heal the party while the drones are up (v1: below 60% with
+#: skill 2).  Without it the party simply dies to the boss during the add phase.
+SUPPORT_CLASSES = ("StoneCrusher", "ArchPaladin", "Lord of Order")
+HEAL_BELOW = 60
+HEAL_SKILL = 2
 
 
 class UltraEngineer(V2Core):
@@ -40,8 +48,12 @@ class UltraEngineer(V2Core):
 
     def __init__(self, cmd, options: UltraOptions, slot: int = 1):
         super().__init__(cmd, SPEC, options, slot)
-        # Boss is the default; the adds are tried first while they live.
+        # Boss is the fallback; the drones are tried first while they live.
         self.target_priority = (FIRST_TARGET, SECOND_TARGET)
+        # v1 heals below 60% with skill 2 on the support classes.
+        self.heal_below = HEAL_BELOW
+        self.heal_skill = HEAL_SKILL
+        self.heal_slot_classes = SUPPORT_CLASSES
 
     async def run(self) -> bool:
         if not await self.sync.step("PREFLIGHT"):
@@ -104,7 +116,7 @@ class UltraEngineer(V2Core):
         return False
 
     async def fight(self, attempt: int) -> str:
-        boss = f"id.{self.spec.monster_id}"
+        boss = BOSS_NAME
         waited = 0
         while (self.cmd.is_still_connected()
                and not self.cmd.is_monster_alive(boss) and waited < 10_000):

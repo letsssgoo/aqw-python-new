@@ -377,13 +377,14 @@ check("engineer: quest 8154 in ultraengineer",
       (engineer.SPEC.quest, engineer.SPEC.map), (8154, "ultraengineer"))
 check("engineer: the main boss is id.3", engineer.SPEC.monster_id, 3)
 check("engineer: adds come first, in the reference's order",
-      (engineer.FIRST_TARGET, engineer.SECOND_TARGET), ("id.2", "id.1"))
+      (engineer.FIRST_TARGET, engineer.SECOND_TARGET),
+      ("Attack Drone", "Defense Drone"))
 check("engineer: it is registered", V2_ORDER,
       ("warden", "ezrajal", "engineer"))
 eng = engineer.UltraEngineer(_StubCommand(), options.UltraOptions(
     players=("a", "b", "c", "d")), 1)
 check("engineer: the engine tries the adds before the boss",
-      eng.target_priority, ("id.2", "id.1"))
+      eng.target_priority, ("Attack Drone", "Defense Drone"))
 check("engineer: it uses the standard composition",
       eng.preset.cls, "Legion Revenant")
 

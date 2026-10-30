@@ -133,6 +133,7 @@ class UltraEzrajal(V2Core):
 
         await self.start_skills(target, use_survival=True)
         self.log("started fighting.")
+        holding = False
 
         while self.cmd.is_still_connected() and not self.sync.aborted():
             if not self.cmd.is_monster_alive(target):
@@ -157,8 +158,13 @@ class UltraEzrajal(V2Core):
                 await self.precast_buffs()
                 continue
 
-            if self.counter_attack_active(target):
-                self.log("counter attack is up; holding the rotation.")
+            active = self.counter_attack_active(target)
+            if active and not holding:
+                self.log("counter attack is up; holding the rotation "
+                         "(buffs only).")
+            elif not active and holding:
+                self.log("counter attack is over; back on the rotation.")
+            holding = active
             await self.cmd.sleep(self.poll_ms)
 
         await self.stop_skills()
