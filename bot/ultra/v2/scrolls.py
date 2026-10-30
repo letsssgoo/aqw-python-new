@@ -400,7 +400,10 @@ async def _buy_until(cmd, shop: int, name: str, quantity: int,
     if item is None:
         cmd.bot.log(f"[v2] {name!r} is not in shop {shop}.")
         return False
-    if getattr(item, "is_acs", False):
+    # ``bCoins`` alone does not mean an AC price: the quill entries carry
+    # ``"bCoins":true`` with ``"iCost":0`` because they are merge entries, paid
+    # with a voucher.  Only a positive cost with the AC flag is AC-only.
+    if getattr(item, "is_acs", False) and int(getattr(item, "cost", 0) or 0) > 0:
         cmd.bot.log(f"[v2] {name!r} is sold for Adventure Coins in shop "
                     f"{shop}; the gold route cannot buy it.")
         return False

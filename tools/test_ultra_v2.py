@@ -416,6 +416,10 @@ check("scroll buy: the shop entry is found by name",
       scrolls._shop_item(_BuyCommand([_ShopItem("Zealous Ink")]), 693,
                          "Zealous Ink") is not None, True)
 _ac = _BuyCommand([_ShopItem("Zealous Ink", cost=10, is_acs=True)])
+# bCoins with iCost 0 is a merge entry, not an AC price.
+_merge_flag = _BuyCommand([_ShopItem("Arcane Quill", cost=0, is_acs=True)])
+check("scroll buy: bCoins with cost 0 is not an AC price",
+      scrolls._shop_item(_merge_flag, 693, "Arcane Quill").cost, 0)
 check("scroll buy: an AC entry is refused with a reason",
       run(scrolls._buy_until(_ac, 693, "Zealous Ink", 99)), False)
 check("scroll buy: and says so", "Adventure Coins" in _ac.logs[-1], True)
