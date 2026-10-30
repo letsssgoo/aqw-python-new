@@ -80,7 +80,10 @@ def barrier(name: str, key: str, size: int = 4, timeout: int = 60) -> bool:
     anyway -- a missing pane must not wedge the run).
     """
     directory = _dir()
-    safe_key = "".join(c for c in (key or "x") if c.isalnum() or c in "-_") or "x"
+    # ``key`` is a slot number for Ultra V2 and a username for v1; ``_safe_key``
+    # stringifies both.  Joining it inline raised "'int' object is not iterable"
+    # on every V2 run.
+    safe_key = _safe_key(key)
     try:
         (directory / f"{name}.{safe_key}.ready").write_text(str(time.time()),
                                                             encoding="utf-8")

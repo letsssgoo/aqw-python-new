@@ -426,6 +426,30 @@ class _NoRankCommand(_ScrollCommand):
 check("scroll: a low SpellCrafting rank refuses",
       run(scrolls.prepare(_NoRankCommand(), scrolls.ENRAGE)), False)
 
+# --- party barrier with a slot number --------------------------------------
+# ``barrier`` was built for v1's usernames; Ultra V2 passes the slot number, and
+# joining an int inline raised "'int' object is not iterable" on every run.
+import os      # noqa: E402
+import shutil  # noqa: E402
+
+from bot.ultra import party as ultra_party  # noqa: E402
+
+_barrier_run = "test_v2_barrier"
+_previous = os.environ.get("AQW_RUN_ID")
+os.environ["AQW_RUN_ID"] = _barrier_run
+try:
+    key_ok = isinstance(
+        ultra_party.barrier("v2_test", 4, 1, timeout=0.2), bool)
+finally:
+    ultra_party.clear_abort("v2_test")
+    shutil.rmtree(REPO_ROOT / "capture_logs" / "ultra" / _barrier_run,
+                  ignore_errors=True)
+    if _previous is None:
+        os.environ.pop("AQW_RUN_ID", None)
+    else:
+        os.environ["AQW_RUN_ID"] = _previous
+check("party: a slot number works as a barrier key", key_ok, True)
+
 # --- one pane stops -> the whole party stops -------------------------------
 # The reference's StopArmySync publishes the abort for every pane; a party that
 # keeps fighting after one member gave up is a wasted pull.

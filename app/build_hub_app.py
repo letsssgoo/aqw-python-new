@@ -683,6 +683,10 @@ class UltraBotThread(threading.Thread):
             isScriptable=True,
             followPlayer=(self.leader or "").lower(),
             slavesPlayer=self.slaves,
+            # An ultra is a fixed four-pane pull: a pane that drops stays down
+            # so the party stops together.  Relogin would put a half party back
+            # into the same fight, which is what the app watchdog used to do.
+            autoRelogin=self.ultra is None,
             soloClass=self.role or None,
             muteSpamWarning=True,
         )
@@ -2311,6 +2315,10 @@ class UltraApi:
     kind = ""
     DEFAULT_SERVER = "Alteon"
     SLOT_IDS = ("slot1", "slot2", "slot3", "slot4")
+    #: Whether the party is brought back automatically after a pane stops.
+    #: Ultra V2 turns this off: a wipe is reported, not retried behind the
+    #: user's back.
+    relogin_on_stop = True
 
     def __init__(self, config_name):
         self.active_threads = {}
@@ -2388,6 +2396,12 @@ class UltraApi:
                     return
                 if finished and not self._manual_stop:
                     print(f"[{self.tab_id()}] all panes finished (no relogin)")
+                    return
+                if not self.relogin_on_stop:
+                    # Ultra V2: a failed pull stays failed.  The menu keeps the
+                    # panes stopped and the next attempt is a deliberate START.
+                    print(f"[{self.tab_id()}] stopped; this menu does not "
+                          f"relogin automatically.")
                     return
                 if gen != self._party_gen or self._manual_stop:
                     return
@@ -2665,6 +2679,10 @@ class UltraV2Api(UltraApi):
     run's own log line come from, so a composition can never be described one
     way in the menu and fought another way in the game.
     """
+
+    kind = "v2"
+    #: No automatic relogin: the party stops where it stopped.
+    relogin_on_stop = False
 
     def __init__(self, ultra):
         from bot.ultra.v2.registry import spec as v2_spec
