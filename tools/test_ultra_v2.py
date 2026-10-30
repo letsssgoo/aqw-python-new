@@ -474,12 +474,61 @@ loo = tyndarius.UltraTyndarius(_StubCommand(), options.UltraOptions(
     players=("a", "b", "c", "d")), 4)
 check("tyndarius: Lord of Order heals on cooldown, no HP gate",
       (loo.spam_heal, loo.heal_gap_ms), (True, 0))
-check("tyndarius: ArchPaladin keeps its heal for under 60",
-      (ty3.spam_heal, ty3.heal_gap_ms), (False, 1500))
+check("tyndarius: ArchPaladin keeps its heal for under 60, no extra gap",
+      (ty3.spam_heal, ty3.heal_gap_ms), (False, 0))
 check("tyndarius: and skill 2 is not in the ArchPaladin rotation",
       2 in ty3.rotation, False)
 check("tyndarius: every pane heals below 60",
       (ty1.heal_below, ty1.heal_slots), (60, ()))
+
+# --- the heal guard reads live HP, and only the living ---------------------
+# ``player_in_area``'s self entry is written once when the map loads, so a
+# healer that trusted it never saw itself drop; a dead member at 0 HP is not
+# wounded, and treating it as one spent the heal away from the party.
+class _AreaPlayer:
+    def __init__(self, name, hp, hp_max):
+        self.str_username = name
+        self.int_hp = hp
+        self.int_hp_max = hp_max
+
+    def is_hp_below(self, percent):
+        if self.int_hp_max <= 0:
+            return False
+        return (self.int_hp / self.int_hp_max) * 100 < percent
+
+
+class _HealBot:
+    def __init__(self, user, hp, hp_max, area):
+        self.player = type("_P", (), {"USER": user, "CURRENT_HP": hp,
+                                      "MAX_HP": hp_max})()
+        self.player_in_area = area
+
+
+class _HealCommand(_StubCommand):
+    def __init__(self, bot):
+        super().__init__()
+        self.bot = bot
+
+
+def _healer(hp):
+    area = [_AreaPlayer("ap_player", hp, 1000),   # stale self entry: full HP
+            _AreaPlayer("low_ally", 300, 1000),
+            _AreaPlayer("dead_ally", 0, 1000),
+            _AreaPlayer("fine_ally", 900, 1000)]
+    bot = _HealBot("ap_player", hp, 1000, area)
+    runner = tyndarius.UltraTyndarius(_HealCommand(bot), options.UltraOptions(
+        players=("a", "b", "c", "d")), 4)
+    return runner
+
+
+check("heal: a wounded ally is found", _healer(1000).wounded_allies(),
+      ["low_ally"])
+check("heal: the pane's own live HP counts, not the stale area entry",
+      _healer(500).wounded_allies(), ["ap_player", "low_ally"])
+check("heal: a dead member is not a heal target",
+      "dead_ally" in _healer(1000).wounded_allies(), False)
+check("heal: nobody wounded means no cast", _healer(1000).wounded_allies() != [],
+      True)
 
 # RequestImmediateTaunt only succeeds when skill 5 is ready (LW returns false).
 class _TauntCommand(_StubCommand):

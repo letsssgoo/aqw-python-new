@@ -73,10 +73,12 @@ class UltraTyndarius(V2Core):
             self.spam_heal = True
             self.heal_gap_ms = 0
         elif self.preset.cls == "ArchPaladin":
-            # AP keeps skill 2 for the emergency heal (below 60%, with a gap),
-            # so it is taken out of the rotation -- otherwise the rotation
-            # itself casts it and it is not "held" at all.
-            self.heal_gap_ms = 1500
+            # AP keeps skill 2 for the emergency heal (below 60%), so it is
+            # taken out of the rotation -- otherwise the rotation itself casts
+            # it and it is not "held" at all.  No extra gap: the 60% gate is
+            # the guard, and a second delay on top of it is what made the heal
+            # land late.
+            self.heal_gap_ms = 0
             self.skill_rotation = tuple(
                 slot for slot in self.skill_rotation if slot != self.heal_skill)
         self.is_taunter = self.slot >= 3          # IsTaunterRole

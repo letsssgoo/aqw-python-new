@@ -1040,6 +1040,19 @@ class Bot:
                     self.player.setIsInCombat(data["o"].get("intState"))
                     if self.player.IS_IN_COMBAT == False:
                         self.player.setLastTarget(None)
+                    # Keep our own entry in ``player_in_area`` in step with the
+                    # rest of the party.  It is built once when the map loads
+                    # and nothing else touched it, so a support check that read
+                    # it never saw us drop below the heal line.
+                    for _entry in self.player_in_area:
+                        if _entry.str_username.lower() == str(self.player.USER).lower():
+                            for _key, _attr in (("intHP", "int_hp"),
+                                                ("intHPMax", "int_hp_max"),
+                                                ("intMP", "int_mp"),
+                                                ("intMPMax", "int_mp_max")):
+                                if _key in data["o"]:
+                                    setattr(_entry, _attr, int(data["o"][_key]))
+                            break
                 else:
                     player_name: str = data['unm']
                     player_found = False

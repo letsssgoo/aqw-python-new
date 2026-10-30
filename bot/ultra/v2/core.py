@@ -301,11 +301,13 @@ class V2Core:
                and not self.sync.aborted()
                and self.cmd.is_monster_alive(self.pick_target(target))):
             target = self.pick_target(target)
-            if await self._auto_attack(target):
-                pass
+            # The heal goes first: a rotation cast or an auto attack in front
+            # of it is exactly the delay that made it look late.
             if await self._heal_step():
                 await self.cmd.sleep(self.poll_ms)
                 continue
+            if await self._auto_attack(target):
+                pass
             if self.combat_equipped and self.bot.player.canUseSkill(5):
                 # A combat potion lives in slot 5; the rotation never lists it,
                 # so it is pressed here on the server's own cooldown.
@@ -380,16 +382,48 @@ class V2Core:
             if healed:
                 self._last_heal_at = _time.time()
             return healed
-        for player in getattr(self.bot, "player_in_area", []) or []:
+        wounded = self.wounded_allies()
+        if not wounded:
+            return False
+        healed = bool(await self.cmd.use_skill(self.heal_skill))
+        if healed:
+            self._last_heal_at = _time.time()
+            self.log(f"heal (skill {self.heal_skill}) for "
+                     f"{', '.join(wounded)}")
+        return healed
+
+    def wounded_allies(self) -> list:
+        """Names of party members under :attr:`heal_below`, with live HP.
+
+        Our own HP comes from the player model: ``player_in_area``'s self entry
+        was written once when the map loaded and never updated, so a guard that
+        trusted it never saw the pane itself drop.  A member at 0 HP is dead --
+        a heal cannot help there, and treating it as wounded latched the guard
+        onto a corpse and spent the heal away from the living.
+        """
+        threshold = self.heal_below
+        if threshold is None:
+            return []
+        player = self.bot.player
+        wounded = []
+        try:
+            if player.MAX_HP and (player.CURRENT_HP / player.MAX_HP) * 100 < threshold:
+                wounded.append(str(getattr(player, "USER", "self")))
+        except Exception:
+            pass
+        me = str(getattr(player, "USER", "") or "").lower()
+        for other in getattr(self.bot, "player_in_area", []) or []:
             try:
-                if player.is_hp_below(self.heal_below):
-                    healed = bool(await self.cmd.use_skill(self.heal_skill))
-                    if healed:
-                        self._last_heal_at = _time.time()
-                    return healed
+                name = str(getattr(other, "str_username", "") or "")
+                if name.lower() == me:
+                    continue
+                if int(getattr(other, "int_hp", 0) or 0) <= 0:
+                    continue
+                if other.is_hp_below(threshold):
+                    wounded.append(name)
             except Exception:
                 continue
-        return False
+        return wounded
 
     @property
     def rotation(self) -> tuple:
