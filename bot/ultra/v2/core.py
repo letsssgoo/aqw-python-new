@@ -64,6 +64,8 @@ class V2Core:
         #: When True the rotation pauses while the target's counter-attack aura
         #: is up.  Ezrajal is the boss that needs it (v1: ``respect_counter_attack``).
         self.respect_counter_attack = False
+        #: Extra targets tried before the boss, in order (Engineer's two adds).
+        self.target_priority: tuple = ()
 
     # ------------------------------------------------------------------ log
     @property
@@ -205,7 +207,8 @@ class V2Core:
         while (self.cmd.is_still_connected()
                and not self.bot.player.ISDEAD
                and not self.sync.aborted()
-               and self.cmd.is_monster_alive(target)):
+               and self.cmd.is_monster_alive(self.pick_target(target))):
+            target = self.pick_target(target)
             if self.taunt_requested:
                 self.taunt_requested = False
                 if taunter and await self.cmd.use_skill(5, target_monsters=target):
@@ -273,6 +276,18 @@ class V2Core:
     def self_aura_value(self, name: str) -> int:
         aura = self.self_aura(name)
         return int(getattr(aura, "value", 0) or 0) if aura else 0
+
+    def pick_target(self, default: str) -> str:
+        """The first alive target from :attr:`target_priority`, else ``default``.
+
+        Engineer is the boss that needs it: two adds (``id.2``, ``id.1``) come
+        before the main boss (``id.3``), and the reference re-reads that order
+        every pass of the fight loop.
+        """
+        for candidate in self.target_priority:
+            if self.cmd.is_monster_alive(candidate):
+                return candidate
+        return default
 
     def target_aura(self, name: str) -> bool:
         """True when the current target carries that aura (``Target.GetAura``)."""

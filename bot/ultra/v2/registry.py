@@ -1,4 +1,4 @@
-"""Which Ultra V2 fights exist, and how the hub builds one.
+﻿"""Which Ultra V2 fights exist, and how the hub builds one.
 
 One entry per ported ultra: its :class:`~bot.ultra.v2.options.UltraSpec` and the
 runner class.  Adding the next ultra means adding a module and one line here --
@@ -8,17 +8,18 @@ from __future__ import annotations
 
 from typing import Any, Dict, Tuple, Type
 
-from bot.ultra.v2.dailies import ezrajal, warden
+from bot.ultra.v2.dailies import engineer, ezrajal, warden
 from bot.ultra.v2.options import UltraOptions, UltraSpec
 
 #: ``ultra id -> (spec, runner class)``.
 REGISTRY: Dict[str, Tuple[UltraSpec, Type[Any]]] = {
     "warden": (warden.SPEC, warden.UltraWarden),
     "ezrajal": (ezrajal.SPEC, ezrajal.UltraEzrajal),
+    "engineer": (engineer.SPEC, engineer.UltraEngineer),
 }
 
 #: Menu order: dailies first, weeklies after (as they land).
-ORDER: Tuple[str, ...] = ("warden", "ezrajal")
+ORDER: Tuple[str, ...] = ("warden", "ezrajal", "engineer")
 
 
 def spec(ultra: str) -> UltraSpec:

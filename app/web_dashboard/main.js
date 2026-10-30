@@ -1,4 +1,4 @@
-document.addEventListener('DOMContentLoaded', () => {
+﻿document.addEventListener('DOMContentLoaded', () => {
     let statusInterval = null;
     let currentTheme = localStorage.getItem("global-theme") || "default";
 
@@ -91,6 +91,10 @@ document.addEventListener('DOMContentLoaded', () => {
         ultra_v2_ezrajal: {
             title: "Ultra V2 - Ultra Ezrajal",
             subtitle: "Four-pane army port of UltraEzrajal_LW: buffs first, hold the rotation on Counter Attack"
+        },
+        ultra_v2_engineer: {
+            title: "Ultra V2 - Ultra Engineer",
+            subtitle: "Four-pane army port of UltraEngineer_LW: two adds (id.2, id.1) before the boss (id.3)"
         }
     };
 

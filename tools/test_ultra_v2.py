@@ -181,7 +181,7 @@ check("ezrajal: Skip Mana Lock is on by default",
       ezrajal.SPEC.extra_options[0]["default"], True)
 check("ezrajal: it is registered", "ezrajal" in V2_ORDER, True)
 check("ezrajal: the registry has a runner", sorted(V2_REGISTRY),
-      ["ezrajal", "warden"])
+      ["engineer", "ezrajal", "warden"])
 ezr = ezrajal.UltraEzrajal(_StubCommand(), options.UltraOptions(
     players=("a", "b", "c", "d")), 1)
 check("ezrajal: the rotation respects the counter attack",
@@ -196,6 +196,23 @@ check("ezrajal: asking for the mana lock is honoured as a value",
       off.skip_mana_lock, False)
 check("ezrajal: a wipe needs two panes, same as every ultra",
       ezr.should_reset(1), False)
+
+# --- Engineer -------------------------------------------------------------
+from bot.ultra.v2.dailies import engineer  # noqa: E402
+
+check("engineer: quest 8154 in ultraengineer",
+      (engineer.SPEC.quest, engineer.SPEC.map), (8154, "ultraengineer"))
+check("engineer: the main boss is id.3", engineer.SPEC.monster_id, 3)
+check("engineer: adds come first, in the reference's order",
+      (engineer.FIRST_TARGET, engineer.SECOND_TARGET), ("id.2", "id.1"))
+check("engineer: it is registered", V2_ORDER,
+      ("warden", "ezrajal", "engineer"))
+eng = engineer.UltraEngineer(_StubCommand(), options.UltraOptions(
+    players=("a", "b", "c", "d")), 1)
+check("engineer: the engine tries the adds before the boss",
+      eng.target_priority, ("id.2", "id.1"))
+check("engineer: it uses the standard composition",
+      eng.preset.cls, "Legion Revenant")
 
 # --- potions ---------------------------------------------------------------
 check("potion: Sage Tonic is a 2-voucher, rank-8 alchemy recipe",

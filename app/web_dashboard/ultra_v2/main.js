@@ -29,31 +29,12 @@
         var sel = document.getElementById('composition');
         var spec = field('composition');
         if (!spec) return;
+        // The composition detail belongs *inside* the option label; the hint
+        // line under the dropdown was the thing removed, not this.
         sel.innerHTML = (spec.choices || []).map(function (c) {
-            return '<option value="' + esc(c.value) + '">' + esc(c.label) + ' \u2014 ' +
-                esc(c.help || '') + '</option>';
+            return '<option value="' + esc(c.value) + '">' + esc(c.label) +
+                (c.help ? ' \u2014 ' + esc(c.help) : '') + '</option>';
         }).join('');
-        // The tooltip text the backend uses for the whole table, so the dropdown
-        // and the run's own log line can never disagree.
-        var hint = document.getElementById('composition-hint');
-        if (hint) {
-            hint.innerHTML = (spec.help || '').split('\n')
-                .map(esc).join('<br>');
-        }
-        sel.onchange = refreshPreview;
-    }
-
-    function refreshPreview() {
-        var sel = document.getElementById('composition');
-        if (!api() || !api().summary) return;
-        api().summary().then(function (data) {
-            var box = document.getElementById('composition-preview');
-            if (!box || !data) return;
-            var rows = (data.slots || []).map(function (s) {
-                return '<span class="pill">slot ' + s.slot + ': ' + esc(s.cls) + '</span>';
-            }).join(' ');
-            box.innerHTML = 'This composition wears: ' + rows;
-        });
     }
 
     function fillRetries() {
@@ -101,7 +82,6 @@
         document.getElementById('server').value = config.server || 'Alteon';
         document.getElementById('room').value = config.room_number || 9099;
         if (config.composition) document.getElementById('composition').value = config.composition;
-        document.getElementById('private-room').value = config.private_room || 0;
         if (config.retries) document.getElementById('retries').value = String(config.retries);
         document.getElementById('use-potions').checked = config.use_potions !== false;
         document.getElementById('use-enhancements').checked = config.use_enhancements !== false;
@@ -112,15 +92,17 @@
             if (s.username) card.querySelector('.slot-user').value = s.username;
             if (s.password) card.querySelector('.slot-pass').value = s.password;
         });
-        refreshPreview();
     }
 
     function collect() {
+        var room = parseInt(document.getElementById('room').value || '9099', 10);
         var config = {
             server: document.getElementById('server').value || 'Alteon',
-            room_number: parseInt(document.getElementById('room').value || '9099', 10),
+            // One room field: the header's.  A number in the private range is
+            // the private map room; anything lower is the public map (0).
+            room_number: room,
+            private_room: room >= 1001 ? room : 0,
             composition: document.getElementById('composition').value,
-            private_room: parseInt(document.getElementById('private-room').value || '0', 10),
             retries: parseInt(document.getElementById('retries').value || '3', 10),
             use_potions: document.getElementById('use-potions').checked,
             use_enhancements: document.getElementById('use-enhancements').checked,
@@ -138,6 +120,8 @@
 
     function renderStatus(status) {
         var slots = (status && status.slots) || {};
+        var running = !!(status && status.running);
+        setButton(running);
         SLOT_IDS.forEach(function (sId) {
             var card = document.querySelector('.slot-card[data-slot="' + sId + '"]');
             if (!card) return;
@@ -175,6 +159,43 @@
     };
     window.addSlaveLog = function (user, html) { window.addUltraLog('', '', user, html); };
 
+    // One button: START while idle, STOP while the party runs.  The label is
+    // driven by the same status poll the pane cards use, so a party that ends
+    // on its own turns the button back to START by itself.
+    var partyRunning = false;
+
+    function setButton(running) {
+        var btn = document.getElementById('btn-toggle');
+        if (!btn) return;
+        partyRunning = running;
+        btn.textContent = running ? 'STOP' : 'START';
+        btn.className = 'btn ' + (running ? 'btn-danger' : 'btn-success');
+    }
+
+    function toggleParty() {
+        var a = api();
+        if (!a) return;
+        var btn = document.getElementById('btn-toggle');
+        if (btn) btn.disabled = true;
+        var done = function () { if (btn) btn.disabled = false; };
+        if (partyRunning) {
+            a.stop_party().then(function () {
+                msg('Stopped.', true);
+                setButton(false);
+            }).then(done, done);
+            return;
+        }
+        msg('');
+        a.start_party(collect()).then(function (res) {
+            if (!res || !res.success) {
+                msg((res && res.error) || 'Failed to start', false);
+                return;
+            }
+            msg('Party starting...', true);
+            setButton(true);
+        }).then(done, done);
+    }
+
     window.whenApiReady(function (a) {
         var container = document.getElementById('slots');
         SLOT_IDS.forEach(function (sId, i) { container.appendChild(buildSlot(i, sId)); });
@@ -188,24 +209,14 @@
             return a.load_config();
         }).then(function (config) {
             applyConfig(config || {});
-            // The saved values win over the schema defaults; only then does the
-            // preview know which composition is really selected.
-            refreshPreview();
         });
 
-        document.getElementById('btn-start').onclick = function () {
-            msg('');
-            a.start_party(collect()).then(function (res) {
-                if (!res || !res.success) { msg((res && res.error) || 'Failed to start', false); return; }
-                msg('Party starting...', true);
-            });
-        };
-        document.getElementById('btn-stop').onclick = function () {
-            a.stop_party().then(function () { msg('Stopped.', true); });
-        };
+        document.getElementById('btn-toggle').onclick = toggleParty;
         var clearBtn = document.getElementById('btn-clear-logs');
         if (clearBtn) { clearBtn.onclick = function () { document.getElementById('log').innerHTML = ''; }; }
 
-        setInterval(function () { a.get_status().then(renderStatus); }, 1500);
+        setInterval(function () {
+            a.get_status().then(renderStatus);
+        }, 1500);
     });
 })();
