@@ -365,7 +365,7 @@ check("ezrajal: Skip Mana Lock is on by default",
       ezrajal.SPEC.extra_options[0]["default"], True)
 check("ezrajal: it is registered", "ezrajal" in V2_ORDER, True)
 check("ezrajal: the registry has a runner", sorted(V2_REGISTRY),
-      ["engineer", "ezrajal", "tyndarius", "warden"])
+      ["engineer", "ezrajal", "warden"])
 ezr = ezrajal.UltraEzrajal(_StubCommand(), options.UltraOptions(
     players=("a", "b", "c", "d")), 1)
 check("ezrajal: the rotation respects the counter attack",
@@ -391,7 +391,7 @@ check("engineer: adds come first, in the reference's order",
       (engineer.FIRST_TARGET, engineer.SECOND_TARGET),
       ("Attack Drone", "Defense Drone"))
 check("engineer: it is registered", V2_ORDER,
-      ("warden", "ezrajal", "engineer", "tyndarius"))
+      ("warden", "ezrajal", "engineer"))
 eng = engineer.UltraEngineer(_StubCommand(), options.UltraOptions(
     players=("a", "b", "c", "d")), 1)
 check("engineer: the engine tries the adds before the boss",
@@ -457,7 +457,8 @@ from bot.ultra.v2.dailies import tyndarius  # noqa: E402
 check("tyndarius: quest 8245 in ultratyndarius",
       (tyndarius.SPEC.quest, tyndarius.SPEC.map), (8245, "ultratyndarius"))
 check("tyndarius: the boss is id.2", tyndarius.BOSS, "id.2")
-check("tyndarius: it is registered", "tyndarius" in V2_ORDER, True)
+check("tyndarius: hidden until the LW port is done",
+      "tyndarius" in V2_ORDER, False)
 ty1 = tyndarius.UltraTyndarius(_StubCommand(), options.UltraOptions(
     players=("a", "b", "c", "d")), 1)
 ty2 = tyndarius.UltraTyndarius(_StubCommand(), options.UltraOptions(
