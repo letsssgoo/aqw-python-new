@@ -90,14 +90,21 @@ async def meet_shop_requirements(cmd: Command, entry, qty: int = 1) -> bool:
                     f"member-only; not bought.")
         return False
 
-    if getattr(entry, "is_acs", False):
-        # The reference never spends AdventureCoins from a script either; saying
-        # so beats a packet the server declines.
-        cmd.bot.log(f"[core] {getattr(entry, 'item_name', 'the item')!r} costs "
-                    f"AC; leaving that purchase to the account owner.")
-        return False
-
     cost = int(getattr(entry, "cost", 0) or 0)
+    if getattr(entry, "is_acs", False):
+        if cost > 0:
+            # The reference never spends AdventureCoins from a script either;
+            # saying so beats a packet the server declines.
+            cmd.bot.log(f"[core] {getattr(entry, 'item_name', 'the item')!r} "
+                        f"costs {cost} AC; leaving that purchase to the account "
+                        f"owner.")
+            return False
+        # Priced in AC but at **0** -- a free reward entry, common in event
+        # shops: refusing it left items the account could take for nothing
+        # unbought ("awethur's accoutrements" was exactly that).
+        cmd.bot.log(f"[core] {getattr(entry, 'item_name', 'the item')!r} is "
+                    f"priced in AC at 0; buying it.")
+
     if cost > 0 and not getattr(entry, "is_acs", False):
         await farm_gold(cmd, min(cost * qty, GOLD_FARM_CAP))
 

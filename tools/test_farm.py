@@ -846,6 +846,30 @@ def main() -> None:
     assert "register_quest" not in plain.kinds(), plain.calls
     print("advbuy     : an entry with no requirements farms nothing")
 
+    # An AC-priced entry is refused only when it actually costs AC.  A 0-AC
+    # entry is free and must go through: refusing it left event-shop items the
+    # account could take for nothing unbought.
+    free_acs = Stub()
+    free_acs.bot.loaded_shop_datas.append(
+        _Shop(2210, [_ShopItem("Awethur's Accoutrements", cost=0,
+                               is_acs=True)]))
+    assert asyncio.run(adv_buy_item(free_acs, 2210,
+                                    "Awethur's Accoutrements")) is True
+    assert any("priced in AC at 0" in line for line in free_acs.bot.logs), \
+        free_acs.bot.logs
+    print("advbuy     : a 0-AC entry is bought like a free item")
+
+    paid_acs = Stub()
+    paid_acs.bot.loaded_shop_datas.append(
+        _Shop(2210, [_ShopItem("Awethur's Accoutrements", cost=250,
+                               is_acs=True)]))
+    assert asyncio.run(adv_buy_item(paid_acs, 2210,
+                                    "Awethur's Accoutrements")) is False
+    assert not any(c[0] == "buy" for c in paid_acs.calls), paid_acs.calls
+    assert any("costs 250 AC" in line for line in paid_acs.bot.logs), \
+        paid_acs.bot.logs
+    print("advbuy     : a real AC price is still left to the account owner")
+
     # --- SandseaREP: the farm Adv.BuyItem reaches for --------------------
     from bot.core_farms import sandsea_rep
 
