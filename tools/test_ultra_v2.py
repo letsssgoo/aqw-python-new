@@ -384,7 +384,7 @@ check("engineer: it is registered", V2_ORDER,
 eng = engineer.UltraEngineer(_StubCommand(), options.UltraOptions(
     players=("a", "b", "c", "d")), 1)
 check("engineer: the engine tries the adds before the boss",
-      eng.target_priority, ("Attack Drone", "Defense Drone"))
+      eng.target_priority, ("Attack Drone", "Defense Drone", "id.3"))
 check("engineer: it uses the standard composition",
       eng.preset.cls, "Legion Revenant")
 

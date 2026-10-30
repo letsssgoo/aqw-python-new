@@ -69,8 +69,8 @@
             '    <div class="form-group"><label>Username</label><input type="text" class="slot-user" placeholder="Username" autocomplete="off"></div>' +
             '    <div class="form-group"><label>Password</label><div class="password-wrapper"><input type="password" class="slot-pass" placeholder="Password" autocomplete="off"></div></div>' +
             '    <div class="slot-status" data-status><span class="pill">idle</span></div>' +
-            '    <div class="monster-row" data-monsters style="display:none;gap:4px;flex-wrap:wrap;margin-top:6px"></div>' +
-            '    <div class="skill-row" data-skills style="display:none;gap:4px;flex-wrap:nowrap;overflow-x:auto;margin-top:6px"></div>' +
+            '    <div class="monster-row" data-monsters style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px"><span class="pill">no monsters yet</span></div>' +
+            '    <div class="skill-row" data-skills style="display:flex;gap:4px;flex-wrap:nowrap;overflow-x:auto;margin-top:6px"><span class="pill">no skills yet</span></div>' +
             '  </div>' +
             '</div>';
         attachPlayersDropdown(card.querySelector('.slot-player'), function (user, pass) {
@@ -165,7 +165,8 @@
             var monsters = (s.monsters || []).filter(function (m) { return m.alive; })
                 .slice(0, 3).map(function (m) {
                     var pct = m.max_hp ? Math.round(m.hp / m.max_hp * 100) : 0;
-                    return '<span class="pill">' + esc(m.name) + ' ' + pct + '%</span>';
+                    return '<span class="pill">' + esc(m.name) + ' ' +
+                        esc(String(pct)) + '%</span>';
                 }).join(' ');
             el.innerHTML =
                 '<span class="pill">' + esc(s.username || '-') + '</span>' +

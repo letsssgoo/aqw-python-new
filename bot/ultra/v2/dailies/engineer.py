@@ -49,7 +49,8 @@ class UltraEngineer(V2Core):
     def __init__(self, cmd, options: UltraOptions, slot: int = 1):
         super().__init__(cmd, SPEC, options, slot)
         # Boss is the fallback; the drones are tried first while they live.
-        self.target_priority = (FIRST_TARGET, SECOND_TARGET)
+        self.target_priority = (FIRST_TARGET, SECOND_TARGET,
+                                f"id.{SPEC.monster_id}")
         # v1: ``attack_loop([0, 1, 2, 0, 3, 4], heal_below=60, heal_skill=2)``
         # -- the literal rotation; the heal check runs on slots 3 and 4 only
         # (v1's ``support_slots``), each with its own heal skill.
@@ -119,25 +120,35 @@ class UltraEngineer(V2Core):
                 return self.abort(f"the party wiped {retries} time(s)")
         return False
 
+    def boss_alive(self) -> bool:
+        """The boss is alive -- by name, or by its map id.
+
+        v1 checks ``monster="Ultra Engineer"``; this engine only fills a
+        monster's name once the definition packet has been matched, so the name
+        can read empty for a moment and a name-only check then waits forever.
+        The map id (``MainBossMapId = 3``) is always there.
+        """
+        return (self.cmd.is_monster_alive(BOSS_NAME)
+                or self.cmd.is_monster_alive(f"id.{self.spec.monster_id}"))
+
     async def fight(self, attempt: int) -> str:
-        boss = BOSS_NAME
         waited = 0
         while (self.cmd.is_still_connected()
-               and not self.cmd.is_monster_alive(boss) and waited < 10_000):
+               and not self.boss_alive() and waited < 10_000):
             await self.cmd.sleep(200)
             waited += 200
-        if not self.cmd.is_monster_alive(boss):
+        if not self.boss_alive():
             # Never appeared: the fight cannot be called a win.  Reporting
             # "defeated" here is how a run turns in a quest it never did.
-            self.abort(f"{boss} never appeared in "
+            self.abort(f"{BOSS_NAME} never appeared in "
                        f"{self.spec.boss_cell}/{self.spec.boss_pad}")
             return "stopped"
 
-        await self.start_skills(boss)
+        await self.start_skills(BOSS_NAME)
         self.log("started fighting.")
 
         while self.cmd.is_still_connected() and not self.sync.aborted():
-            if not self.cmd.is_monster_alive(boss):
+            if not self.boss_alive():
                 # v1 wraps this loop in ``fight_until_party_ready``: the boss
                 # leaving the cell between drone phases is not a kill, so keep
                 # the party in the ring until the quest is actually turnable.
