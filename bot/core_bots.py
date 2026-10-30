@@ -217,6 +217,10 @@ async def buy_item(cmd: Command, shop_id: int, item: Union[int, str],
     if not await cmd.ensure_load_shop(shop_id):
         cmd.bot.log(f"[core] shop {shop_id} never loaded; {item!r} was not bought.")
         return False
+    # AQW counts loading a shop and buying from it as one action each, so a
+    # buyItem sent right after loadShop is dropped.  Skua waits for the action
+    # cooldown here; this is the same wait.
+    await cmd.sleep(1500)
     wanted = _resolve_shop_item(cmd, _find_shop(cmd, shop_id), item, shop_item_id)
     if wanted is None:
         return False

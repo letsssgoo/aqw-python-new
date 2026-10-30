@@ -374,22 +374,33 @@ async def _buy_until(cmd, shop: int, name: str, quantity: int,
                         f"{gold} in hand, {need} short of {quantity}).")
             break
 
-        await core_buy(cmd, shop, name, chunk, map_name=SPELLCRAFT_MAP,
-                       shop_item_id=shop_item_id)
-        deadline = _time.time() + wait_ms / 1000.0
+        # Never ask for more than one stack; the server drops the rest.
+        stack = int(getattr(item, "stackable", 0) or 0) if item is not None else 0
+        if stack > 0:
+            chunk = min(chunk, stack)
+
         moved = False
-        while _time.time() < deadline:
-            await cmd.sleep(500)
-            now = await _quantity(cmd, name)
-            if now >= quantity:
-                return True
-            if now != have:
-                have = now
-                moved = True
+        for _try in range(3):
+            await core_buy(cmd, shop, name, chunk, map_name=SPELLCRAFT_MAP,
+                           shop_item_id=shop_item_id)
+            deadline = _time.time() + wait_ms / 1000.0
+            while _time.time() < deadline:
+                await cmd.sleep(500)
+                now = await _quantity(cmd, name)
+                if now >= quantity:
+                    return True
+                if now != have:
+                    have = now
+                    moved = True
+                    break
+            if moved:
                 break
+            # The server throttles repeated buys; wait it out and try again.
+            await cmd.sleep(3000)
         if not moved:
             cmd.bot.log(f"[v2] {name!r}: the shop accepted nothing for "
-                        f"{chunk} (price {price}, {gold} gold).")
+                        f"{chunk} after 3 tries (price {price}, {gold} gold, "
+                        f"stack {stack or '?'}, {have}/{quantity}).")
             break
     return have >= quantity
 
