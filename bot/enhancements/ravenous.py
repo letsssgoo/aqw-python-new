@@ -45,6 +45,7 @@ from typing import Optional
 
 from bot.core_farms import farm_experience
 from bot.nation.various.prime_fiend_shard import storyline as pfs_storyline
+from core.command import Command
 
 #: ``Ravenous``'s forge quest (``sQuest`` in the forge shop entry, iQSindex 544).
 RAVENOUS_QUEST = 9560
@@ -55,7 +56,7 @@ ROENTGENIUM = "Roentgenium of Nulgath"
 ROENTGENIUM_REQUIRED = 10
 
 
-async def unlock(cmd) -> bool:
+async def unlock(cmd: Command) -> bool:
     """Buy the Maw and complete quest 9560, exactly like the reference."""
     if await cmd.has_item(GLUTTONOUS_MAW):
         return await _complete(cmd)
@@ -85,7 +86,7 @@ async def unlock(cmd) -> bool:
     return False
 
 
-async def _complete(cmd) -> bool:
+async def _complete(cmd: Command) -> bool:
     """``ChainComplete(9560)``: accept the quest and turn it in."""
     if not await cmd.ensure_accept_quest(RAVENOUS_QUEST):
         cmd.bot.log(f"[forge] quest {RAVENOUS_QUEST} could not be accepted "
@@ -98,12 +99,12 @@ async def _complete(cmd) -> bool:
     return True
 
 
-async def _quantity(cmd, name: str) -> int:
+async def _quantity(cmd: Command, name: str) -> int:
     item = cmd.bot.player.get_item_inventory(name)
     return int(getattr(item, "qty", 0) or 0) if item else 0
 
 
-async def main(cmd, options: Optional[dict] = None) -> None:
+async def main(cmd: Command, options: Optional[dict] = None) -> None:
     """Run the unlock standalone (``python -m bot.enhancements.ravenous``)."""
     okay = await unlock(cmd)
     if not okay:
