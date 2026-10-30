@@ -103,6 +103,9 @@ class V2Core:
         #: A dedicated healer (Tyndarius' Lord of Order) heals on cooldown
         #: instead of waiting for somebody to drop under ``heal_below``.
         self.spam_heal = False
+        #: While a wounded ally is waiting for the heal, the rotation is held
+        #: so the heal is the next cast rather than one rotation later.
+        self._heal_hold_until = 0.0
         #: A fixed rotation, for the fights that copy v1's literal skill string
         #: (Engineer's ``0 1 2 0 3 4``) instead of the class preset.
         self.skill_rotation: tuple = ()
@@ -480,13 +483,26 @@ class V2Core:
             return False
         wounded = self.wounded_allies()
         if not wounded:
+            self._heal_hold_until = 0.0
             return False
         healed = bool(await self.cmd.use_skill(self.heal_skill))
         if healed:
             self._last_heal_at = _time.time()
+            self._heal_hold_until = 0.0
             self.log(f"heal (skill {self.heal_skill}) for "
                      f"{', '.join(wounded)}")
-        return healed
+            return True
+        # The heal is needed but did not go out: hold the rotation for a moment
+        # so the retry is the very next cast (the reference's heal takes the
+        # engine's next slot), instead of a rotation skill taking it.
+        if self._heal_hold_until == 0.0:
+            self._heal_hold_until = _time.time() + 1.0
+            self.log(f"heal pending for {', '.join(wounded)}; holding the "
+                     f"rotation.")
+        if _time.time() < self._heal_hold_until:
+            return True
+        self._heal_hold_until = 0.0
+        return False
 
     def wounded_allies(self) -> list:
         """Names of party members under :attr:`heal_below`, with live HP.

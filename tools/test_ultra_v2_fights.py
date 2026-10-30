@@ -334,6 +334,26 @@ async def _spam_heal():
 
 
 check("heal: a spam healer needs no threshold", run(_spam_heal()), True)
+# A heal that is needed but does not land holds the rotation so the retry is
+# the next cast, not one rotation later.
+class _FailingHealCommand(_HealOrderCommand):
+    async def use_skill(self, slot, **kwargs):
+        self.casts.append(slot)
+        return slot != 2
+
+
+async def _heal_holds():
+    from bot.ultra.v2.weeklies import darkon  # noqa: F401
+    cmd = _FailingHealCommand()
+    runner = darkon.UltraDarkon(cmd, options.UltraOptions(
+        players=("a", "b", "c", "d")), 3)      # ArchPaladin: heal under 65
+    held = await runner._heal_step()
+    return held, runner._heal_hold_until > 0, any(
+        "holding the rotation" in line for line in cmd.bot.logs)
+
+
+check("heal: a pending heal holds the rotation",
+      run(_heal_holds()), (True, True, True))
 
 check("taunt: a pending taunt keeps the rotation going",
       run(_pending_taunt_keeps_casting()), (True, True))
