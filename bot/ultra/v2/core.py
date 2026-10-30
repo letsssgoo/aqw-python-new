@@ -336,7 +336,6 @@ class V2Core:
             # potion or the rotation.  The heal comes right after, so it is
             # never more than one auto attack behind either.
             if await self._auto_attack(target):
-                self._last_cast_at = __import__("time").time()
                 pass
             if await self._heal_step():
                 await self.cmd.sleep(self.poll_ms)
@@ -517,6 +516,7 @@ class V2Core:
             if not self.bot.player.canUseSkill(slot):
                 continue
             if await self.cmd.use_skill(slot, target_monsters=target):
+                self._last_cast_at = __import__("time").time()
                 return
         await self.cmd.sleep(100)
 
@@ -541,6 +541,7 @@ class V2Core:
             # the aura forbids.
             return (index + 1) % len(rotation)
         if await self.cmd.use_skill(slot, target_monsters=target):
+            self._last_cast_at = __import__("time").time()
             return (index + 1) % len(rotation)
         return index
 
@@ -567,6 +568,7 @@ class V2Core:
                 continue      # the auto attack has its own tick
             if player.canUseSkill(slot):
                 if await self.cmd.use_skill(slot, target_monsters=target):
+                    self._last_cast_at = __import__("time").time()
                     return
         await self.cmd.sleep(100)
 
