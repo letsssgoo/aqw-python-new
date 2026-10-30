@@ -11,6 +11,7 @@ import importlib
 import platform
 import subprocess
 import shutil
+import pathlib
 import hashlib
 try:
     import webview  # only needed for the desktop window; absent on headless servers
@@ -347,6 +348,42 @@ def _stop_panes(active_threads: dict, timeout_s: float = 20.0,
     alive_ids = {id(thread) for thread in alive}
     return {key: thread for key, thread in active_threads.items()
             if id(thread) in alive_ids}
+
+
+def _ultra_run_folder():
+    """``capture_logs/ultra/<run id>`` for the run the panes are in, or None."""
+    run_id = os.environ.get("AQW_RUN_ID", "").strip()
+    if not run_id or run_id == "manual":
+        return None
+    if not all(c.isalnum() or c in "-_" for c in run_id):
+        return None
+    return pathlib.Path(__file__).resolve().parents[1] / "capture_logs" / "ultra" / run_id
+
+
+def _clear_run_folder(threads, tag=""):
+    """Close the panes' telemetry and delete this run's folder.
+
+    The folder holds the party markers *and* the telemetry jsonl of one run.
+    The user asked for it to go on every stop, whatever caused it: markers left
+    behind are exactly what let a later run's barriers pass on their own, and
+    the panes are stopped by the time this runs, so nothing is still writing.
+    """
+    for thread in threads:
+        telemetry = getattr(getattr(thread, "bot_instance", None),
+                            "telemetry", None)
+        try:
+            if telemetry is not None:
+                telemetry.close()
+        except Exception:
+            pass
+    folder = _ultra_run_folder()
+    if folder is None or not folder.exists():
+        return
+    try:
+        shutil.rmtree(folder, ignore_errors=True)
+        print(f"[{tag or 'app'}] run folder cleared: {folder.name}")
+    except Exception:
+        pass
 
 
 class _WebLogs:
@@ -2643,8 +2680,12 @@ class UltraApi:
         if user_triggered:
             self._manual_stop = True
         self.start_time = None
+        threads = list(self.active_threads.values())
         self.active_threads = _stop_panes(self.active_threads,
                                           tag=self.tab_id())
+        # Every stop -- the button, a finished run, an error, a dropped pane,
+        # the watchdog -- tears the run folder down once the panes are down.
+        _clear_run_folder(threads, tag=self.tab_id())
         return {"success": True}
 
     def get_status(self):

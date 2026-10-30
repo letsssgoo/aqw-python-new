@@ -879,6 +879,42 @@ finally:
     else:
         os.environ["AQW_RUN_ID"] = _previous_fresh
 
+# --- every stop deletes the run folder -------------------------------------
+# The markers left behind are what let a later run's barriers pass on their
+# own; the user asked for the whole run folder to go on any stop condition.
+_run_clean = "test_v2_clean"
+_previous_clean = os.environ.get("AQW_RUN_ID")
+os.environ["AQW_RUN_ID"] = _run_clean
+try:
+    _folder = REPO_ROOT / "capture_logs" / "ultra" / _run_clean
+    (_folder / "party").mkdir(parents=True, exist_ok=True)
+    (_folder / "party" / "v2_test.STEP.1.ready").write_text("1",
+                                                            encoding="utf-8")
+    (_folder / "slot1_acc.jsonl").write_text("{}", encoding="utf-8")
+
+    class _Telemetry:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    class _Thread:
+        def __init__(self):
+            self.bot_instance = type("_B", (), {"telemetry": _Telemetry()})()
+
+    _thread = _Thread()
+    hub._clear_run_folder([_thread], tag="test")
+    check("stop: the whole run folder is deleted", _folder.exists(), False)
+    check("stop: each pane's telemetry is closed first",
+          _thread.bot_instance.telemetry.closed, True)
+finally:
+    shutil.rmtree(REPO_ROOT / "capture_logs" / "ultra" / _run_clean,
+                  ignore_errors=True)
+    if _previous_clean is None:
+        os.environ.pop("AQW_RUN_ID", None)
+    else:
+        os.environ["AQW_RUN_ID"] = _previous_clean
+
 print(f"passed {passed}   failed {len(failures)}")
 if failures:
     for line in failures:
