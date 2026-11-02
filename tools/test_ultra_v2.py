@@ -247,6 +247,37 @@ class _Player:
 readout = hub._skill_cooldowns(_Player())
 check("ui cooldown: one row per skill slot", [row["slot"] for row in readout],
       [0, 1, 2])
+
+# A pane thread that died on an exception stays in ``active_threads``; the old
+# truthiness guard then refused the next START with "Party is already
+# running!" while nothing was alive.  Reaping keeps the live panes and closes
+# what is left of the dead one's bot.
+class _FakePaneThread:
+    def __init__(self, alive, username, bot=None):
+        self._alive = alive
+        self.username = username
+        self.bot_instance = bot
+
+    def is_alive(self):
+        return self._alive
+
+
+class _DeadPaneBot:
+    def __init__(self):
+        self.auto_relogin = True
+        self.stopped = False
+
+    def stop_bot(self):
+        self.stopped = True
+
+
+_dead_bot = _DeadPaneBot()
+_kept = hub._reap_ended_panes({
+    "slot1": _FakePaneThread(True, "alive"),
+    "slot2": _FakePaneThread(False, "dead", _dead_bot),
+}, tag="test")
+check("hub: a dead pane thread is reaped", list(_kept), ["slot1"])
+check("hub: reaping closes the dead pane's bot", _dead_bot.stopped, True)
 check("ui cooldown: a ready slot reads 0", readout[0]["ready_in"], 0)
 check("ui cooldown: a busy slot reports the wait",
       2000 < readout[1]["ready_in"] <= 2600, True)

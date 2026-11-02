@@ -350,6 +350,25 @@ def _stop_panes(active_threads: dict, timeout_s: float = 20.0,
             if id(thread) in alive_ids}
 
 
+def _reap_ended_panes(active_threads: dict, tag: str = "") -> dict:
+    """Drop panes whose thread already ended; keep the ones still running.
+
+    A thread that dies on an exception -- or simply finishes its run -- stayed
+    in ``active_threads`` forever, and a truthiness check then answered "Party
+    is already running!" on the next START with nothing actually running.
+    Anything still alive is kept, so a pane that is only unwinding still
+    blocks a second spawn on the same account.
+    """
+    ended = {key: thread for key, thread in active_threads.items()
+             if not thread.is_alive()}
+    for key, thread in ended.items():
+        _stop_pane(getattr(thread, "bot_instance", None))
+        name = getattr(thread, "username", None) or key
+        print(f"[{tag or 'app'}] {name}: pane thread ended; clearing it.")
+    return {key: thread for key, thread in active_threads.items()
+            if thread.is_alive()}
+
+
 def _ultra_run_folder():
     """``capture_logs/ultra/<run id>`` for the run the panes are in, or None."""
     run_id = os.environ.get("AQW_RUN_ID", "").strip()
@@ -608,7 +627,11 @@ class TempleBotThread(threading.Thread):
         try:
             loop.run_until_complete(b.start_bot(run_bot))
         except Exception as e:
-            print(f"[{self.username}] Thread Exception: {e}")
+            # The hub log needs the line, not only the message: a bare
+            # "object has no attribute 'bot'" says nothing about where.
+            import traceback
+            print(f"[{self.username}] Thread Exception: {e}\n"
+                  f"{traceback.format_exc()}")
         finally:
             unified_redirector_out.unregister_thread(thread_id)
             unified_redirector_err.unregister_thread(thread_id)
@@ -669,7 +692,9 @@ class EclipseBotThread(threading.Thread):
         try:
             loop.run_until_complete(b.start_bot(run_bot))
         except Exception as e:
-            print(f"[{self.username}] Thread Exception: {e}")
+            import traceback
+            print(f"[{self.username}] Thread Exception: {e}\n"
+                  f"{traceback.format_exc()}")
         finally:
             unified_redirector_out.unregister_thread(thread_id)
             unified_redirector_err.unregister_thread(thread_id)
@@ -1824,6 +1849,11 @@ class TempleApi:
         return self.load_config()
 
     def start_party(self, config):
+        # A crashed pane thread stays in the mapping, so the old truthiness
+        # check answered "Party is already running!" with nothing alive.  Drop
+        # the ended ones first; a pane still unwinding still blocks the start.
+        self.active_threads = _reap_ended_panes(self.active_threads,
+                                               tag="temple")
         if self.active_threads:
             return {"success": False, "error": "Party is already running!"}
             
@@ -2114,6 +2144,10 @@ class EclipseApi:
         return self.load_config()
 
     def start_party(self, config):
+        # Same stale-thread guard as the temple party: a thread that died on an
+        # exception must not keep the next START blocked.
+        self.active_threads = _reap_ended_panes(self.active_threads,
+                                               tag="eclipse")
         if self.active_threads:
             return {"success": False, "error": "Party is already running!"}
             
