@@ -449,6 +449,19 @@ async def _absolute_taunt():
 check("taunt: the absolute priority taunt casts and clears itself",
       run(_absolute_taunt()), (None, True))
 
+
+async def _priority_skill_lane():
+    cmd = _TauntCommand(ready=True)
+    runner = warden.build(cmd, options.UltraOptions(
+        players=("a", "b", "c", "d")), 3)
+    runner.priority_skill = 3
+    handled = await runner._priority_lane("id.3")
+    return handled, runner.priority_skill, ("cast", 3, "id.3") in cmd.events
+
+
+check("priority skill: the queued slot is cast and then cleared",
+      run(_priority_skill_lane()), (True, 0, True))
+
 check("bill: the auto attack fires before the heal",
       run(_auto_before_heal()), [0, 2])
 

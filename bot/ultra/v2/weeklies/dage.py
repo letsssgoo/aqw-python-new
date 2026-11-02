@@ -85,6 +85,14 @@ class UltraDage(V2Core):
         self.next_decay_cycle = 1
         self.safe_heal_used = False
         self._decay_logged = False
+        # Ultra Dage has exactly one heal in the reference: ``HandleSafeHeal``,
+        # once per window and never while Noxious Decay is up.  The shared heal
+        # lane (Lord of Order spam, ArchPaladin under 65%) is not in the source
+        # and fired skill 2 outside the safe window, so it is switched off here
+        # and the heal happens only through :meth:`handle_safe_heal`.
+        self.spam_heal = False
+        self.heal_below = None
+        self.heal_skill = None
         # Reliable's Verus DoomKnight must not touch skill 2 while the boss's
         # Unleashed Doom aura is up (the reference's ``blockedStrictSkill``).
         if self.options.composition == "Reliable" and self.slot == 1:

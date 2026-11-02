@@ -15,15 +15,18 @@ for ultra in ("warden", "ezrajal", "engineer", "tyndarius", "drakath", "drago",
     extra = {"drakath": ["Optimized"],
              "nulgath": ["Optimized"],
              "gramiel": ["Optimized"],
-             "speaker": []}.get(ultra, [])
+             "speaker": ["3 Man Taunt"]}.get(ultra, [])
     check(f"{ultra}: ported compositions", sorted(table), sorted(base + extra))
     # Slot 2 and slot 4 are not always the same class in the extra columns.
-    exceptions = {("nulgath", "Optimized"): "Dragon of Time"}
+    exceptions = {("nulgath", "Optimized"): "Dragon of Time",
+                  ("speaker", "3 Man Taunt"): "ArchPaladin"}
+    last_slots = {("speaker", "3 Man Taunt"): "Verus DoomKnight"}
     for name, slots in table.items():
         check(f"{ultra}/{name}: four slots", len(slots), 4)
         check(f"{ultra}/{name}: slot 2 is StoneCrusher", slots[1],
               exceptions.get((ultra, name), "StoneCrusher"))
-        check(f"{ultra}/{name}: slot 4 is Lord of Order", slots[3], "Lord of Order")
+        check(f"{ultra}/{name}: slot 4 is Lord of Order", slots[3],
+              last_slots.get((ultra, name), "Lord of Order"))
 
 check("default: slot 1 is Legion Revenant",
       options.compositions("warden")["Default"][0], "Legion Revenant")

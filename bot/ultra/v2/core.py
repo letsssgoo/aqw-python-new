@@ -666,6 +666,17 @@ class V2Core:
             if await self._slot_five_lane(target):
                 await self.cmd.sleep(self.poll_ms)
                 continue
+            if self.suppress_rotation:
+                # ``SetOrdinarySkillsSuppressed``: every ordinary lane is held,
+                # priority skills and the potion press included.  Only the
+                # slot-5 taunt lanes above may act.
+                await self.cmd.sleep(self.poll_ms)
+                continue
+            if await self._priority_lane(target):
+                # A pending priority skill owns this pass: ``SkillEngineLoop``
+                # never falls through to the rotation while one is queued.
+                await self.cmd.sleep(self.poll_ms)
+                continue
             if self.combat_equipped and self.bot.player.canUseSkill(5):
                 # A combat potion lives in slot 5; the rotation never lists it,
                 # so it is pressed here on the server's own cooldown.
@@ -678,8 +689,6 @@ class V2Core:
                 # buffs must keep going: v1 holds the rotation and keeps
                 # casting its buff/heal slots (``buff_only``).
                 await self._buff_step(target)
-                await self.cmd.sleep(self.poll_ms)
-            elif self.suppress_rotation:
                 await self.cmd.sleep(self.poll_ms)
             elif preset.mode == KINGS_ECHO:
                 # King's Echo and Verus DoomKnight follow the reference's own
@@ -836,6 +845,26 @@ class V2Core:
                 self._last_cast_at = __import__("time").time()
                 return
         await self.cmd.sleep(100)
+
+    async def _priority_lane(self, target: str) -> bool:
+        """``RequestPrioritySkill``: one queued slot, ahead of the rotation.
+
+        The reference arms this for a skill that must go out on a specific
+        packet (Speaker's chart skills, Gramiel's skill 4, Darkon's heal) and
+        **holds the rotation** until it lands -- ``prioritySkillPending`` skips
+        the ordinary engine on that pass.  Without this lane the requests were
+        set and never read, so those skills never fired at all.
+        """
+        if not self.priority_skill:
+            return False
+        slot = self.priority_skill
+        aimed = self.priority_skill_target or target
+        if await self.cmd.use_skill(slot, target_monsters=aimed):
+            self.priority_skill = 0
+            self.priority_skill_target = ""
+            self._last_cast_at = time.time()
+            self.log(f"used priority skill {slot} on {aimed}.")
+        return True
 
     async def _strict_step(self, target: str, index: int) -> int:
         """Walk the fixed rotation, advancing only on a cast (``Strict``)."""

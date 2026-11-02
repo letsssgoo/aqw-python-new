@@ -3,6 +3,7 @@
     python tools/test_ultra_v2_weeklies.py
 """
 from _ultra_v2_support import *  # noqa: F401,F403
+import json     # noqa: E402
 import os      # noqa: E402
 import shutil  # noqa: E402
 
@@ -606,6 +607,9 @@ class _HealCommand(_StubCommand):
 
 _clean = dage.UltraDage(_HealCommand(), options.UltraOptions(
     players=("a", "b", "c", "d")), 3)
+check("dage: the only heal is the safe-window one",
+      (_clean.spam_heal, _clean.heal_below, _clean.heal_skill),
+      (False, None, None))
 check("dage: the safe heal fires once", run(_clean.handle_safe_heal()), True)
 check("dage: and not twice in the same window",
       run(_clean.handle_safe_heal()), False)
@@ -833,6 +837,48 @@ async def _speaker_respawn():
 
 check("speaker: a respawn restarts the skill engine before anything else",
       run(_speaker_respawn()), ["resume", "jump", "zone"])
+
+# --- Ultra Speaker: 3 Man Taunt (the v1 ``ultra_speaker`` port) --------------
+check("speaker/3man: the composition is v1's four roles",
+      options.compositions("speaker")["3 Man Taunt"],
+      ("Legion Revenant", "ArchPaladin", "Lord of Order", "Verus DoomKnight"))
+check("speaker/3man: step 0 taunts with the Legion Revenant",
+      speaker.UltraSpeaker.malgor_step(0)[:3],
+      ("Legion Revenant", None, None))
+check("speaker/3man: step 15 has the DoomKnight walk IN",
+      speaker.UltraSpeaker.malgor_step(15)[:3],
+      ("Lord Of Order", "Verus DoomKnight", "IN"))
+check("speaker/3man: step 5 zones the Legion Revenant OUT",
+      speaker.UltraSpeaker.malgor_step(5)[:3],
+      ("Legion Revenant", "Legion Revenant", "OUT"))
+
+
+def _malgor_counter():
+    runner = _speaker(1)
+    runner._tm_counter = 15
+    answer = runner.malgor_handler()
+    return answer[:3], runner._tm_counter
+
+
+check("speaker/3man: the counter resets at 15 and resumes at 2",
+      _malgor_counter(), (("Lord Of Order", "Verus DoomKnight", "IN"), 2))
+
+
+def _three_man_packet():
+    runner = _speaker(1)        # Legion Revenant: heals with 3
+    runner._three_man_packet(json.dumps(
+        {"b": {"o": {"cmd": "ct", "p": {"1": {"intHP": 1500}}}}}))
+    heal = (runner._tm_force_heal, runner._tm_heal_skill)
+    runner._three_man_packet(json.dumps(
+        {"b": {"o": {"cmd": "ct", "anims": [{"msg": "truth"}]}}}))
+    step = (runner._tm_taunter, runner._tm_counter)
+    runner._three_man_packet(json.dumps(
+        {"b": {"o": {"cmd": "event", "args": {"zoneSet": "A"}}}}))
+    return heal, step, runner._tm_force_skill
+
+
+check("speaker/3man: the ct packet drives the heal, the counter and the zone",
+      _three_man_packet(), ((True, 3), ("Legion Revenant", 1), True))
 check("speaker: every pane carries the scroll on Default",
       [_speaker(slot).is_taunter for slot in (1, 2, 3, 4)],
       [True, True, True, True])

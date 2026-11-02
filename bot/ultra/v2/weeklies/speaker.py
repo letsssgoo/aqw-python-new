@@ -20,6 +20,7 @@ zone and ignores the whole chart -- the script's own emergency switch.
 """
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
@@ -28,6 +29,7 @@ from bot.ultra.v2 import scrolls
 from bot.ultra.v2.core import V2Core
 from bot.ultra.v2.options import UltraOptions, UltraSpec
 from bot.ultra.v2.packets import MarkerWatcher, ZoneWatcher
+from core.utils import is_valid_json
 
 SPEC = UltraSpec(
     id="speaker",
@@ -71,6 +73,30 @@ SEAL_WINDOW_MS = 1000
 #: ``ZoneOwners``: cycle 1 -> slot 2, then 1, 3, 4.
 ZONE_OWNERS = (2, 1, 3, 4)
 AP_PLAYER = 3
+
+#: The v1 port (``bot/ultra/ultra_speaker.py``) is a composition of its own:
+#: the three taunt classes rotate the boss's steps and Verus DoomKnight walks
+#: the zone.  It keeps the same map, quest and watchers; only the fight loop
+#: changes.
+THREE_MAN = "3 Man Taunt"
+#: v1's zone coordinates inside ``Boss/Left``.
+TM_IN_ZONE = (203, 301)
+TM_OUT_ZONE = (100, 321)
+#: v1 turns a ``ct`` packet with an ally at or under this HP into a forced heal.
+TM_LOW_HP = 2000
+#: v1's own heal threshold, independent of the v2 heal lane.
+TM_HEAL_BELOW = 60
+#: ``skill_list`` per class from v1; slot 0 is pressed by ``_auto_attack``.
+TM_SKILLS = {
+    "legion revenant": (2, 3, 4),
+}
+TM_DEFAULT_SKILLS = (1, 2, 3, 4)
+#: Which slot each class heals with in v1 (``HEAL_SKILL_BY_CLASS`` in v2 terms).
+TM_HEAL_SKILL = {
+    "archpaladin": 2,
+    "lord of order": 2,
+    "legion revenant": 3,
+}
 
 
 @dataclass(frozen=True)
@@ -129,6 +155,18 @@ class UltraSpeaker(V2Core):
         self._next_failure_sender = 1
         self._seal_queued = False
         self._boss_seen = False
+        # 3 Man Taunt state (the v1 ``malgor_handler`` counter), reset per fight.
+        self._tm_counter = 0
+        self._tm_taunter: Optional[str] = None
+        self._tm_zone = ""
+        self._tm_what = ""
+        self._tm_force_taunt = False
+        self._tm_force_heal = False
+        self._tm_force_skill = False
+        self._tm_heal_skill = -1
+        self._tm_in_zone = False
+        self._tm_index = 0
+        self._tm_dead = False
 
     # --------------------------------------------------------------- chart
     @staticmethod
@@ -466,6 +504,8 @@ class UltraSpeaker(V2Core):
 
     async def fight(self, attempt: int) -> str:
         """``Fight``: the warning chart, the zone walk, the seal."""
+        if self.options.composition == THREE_MAN:
+            return await self.fight_three_man(attempt)
         self._section = 0
         self._step = 0
         self._next_warning = 1
@@ -542,6 +582,205 @@ class UltraSpeaker(V2Core):
             await self.cmd.sleep(self.poll_ms)
 
         return await self.finish_fight("stopped")
+
+    # ------------------------------------------------ 3 Man Taunt (v1 port)
+    def is_three_man(self) -> bool:
+        """True when this pane runs the v1 ``ultra_speaker`` fight."""
+        return self.options.composition == THREE_MAN
+
+    @staticmethod
+    def malgor_step(step: int) -> Tuple[Optional[str], Optional[str],
+                                        Optional[str], int]:
+        """v1's ``_malgor_step``: which class taunts, zones, and where.
+
+        The step counter is advanced by :meth:`malgor_handler`; the mapping is
+        copied verbatim from ``bot/ultra/core_ultra.py`` so the v1 behaviour is
+        preserved (including the reset at step 15).
+        """
+        if step == 0:
+            return ("Legion Revenant", None, None, 0)
+        if step == 1:
+            return ("Lord Of Order", "Verus DoomKnight", "IN", 0)
+        if step == 2:
+            return ("ArchPaladin", "Verus DoomKnight", "OUT", 0)
+        if step in (3, 7):
+            return ("Lord Of Order", None, None, 500)
+        if step == 4:
+            return (None, "Legion Revenant", "IN", 0)
+        if step == 5:
+            return ("Legion Revenant", "Legion Revenant", "OUT", 500)
+        if step == 8:
+            return (None, "ArchPaladin", "IN", 0)
+        if step == 9:
+            return ("ArchPaladin", "ArchPaladin", "OUT", 0)
+        if step == 10:
+            return ("Legion Revenant", None, None, 500)
+        if step == 11:
+            return (None, "Lord Of Order", "IN", 0)
+        if step == 12:
+            return ("Lord Of Order", "Lord Of Order", "OUT", 500)
+        if step == 14:
+            return ("Legion Revenant", None, None, 0)
+        if step == 15:
+            return ("Lord Of Order", "Verus DoomKnight", "IN", 500)
+        return (None, None, None, 0)
+
+    def malgor_handler(self) -> Tuple[Optional[str], Optional[str],
+                                      Optional[str], int]:
+        """v1's counter: read the step, answer it, reset at 15, then advance."""
+        step = self._tm_counter
+        answer = self.malgor_step(step)
+        if step == 15:
+            self._tm_counter = 1
+        self._tm_counter += 1
+        return answer
+
+    def _three_man_packet(self, message) -> None:
+        """v1's ``message_handler``: low-HP heal, the step counter, zone "A"."""
+        if not message or not is_valid_json(message):
+            return
+        try:
+            data = json.loads(message)["b"]["o"]
+        except Exception:
+            return
+        if not isinstance(data, dict):
+            return
+        command = data.get("cmd")
+        if command == "ct":
+            for player in (data.get("p") or {}).values():
+                if not player:
+                    continue
+                hp = player.get("intHP")
+                if hp and hp <= TM_LOW_HP:
+                    skill = TM_HEAL_SKILL.get(self.preset.cls.lower())
+                    if skill:
+                        self._tm_heal_skill = skill
+                        self._tm_force_heal = True
+            for anim in data.get("anims") or []:
+                msg = anim.get("msg")
+                if not msg:
+                    continue
+                if "truth" in msg or "listen" in msg:
+                    taunt, zone, what, _delay = self.malgor_handler()
+                    self._tm_taunter = taunt
+                    self._tm_zone = zone or ""
+                    self._tm_what = what or ""
+        elif command == "event":
+            if (data.get("args") or {}).get("zoneSet") == "A":
+                self._tm_force_skill = True
+
+    async def fight_three_man(self, attempt: int) -> str:
+        """``ultra_speaker.py``'s fight loop, on the v2 potions and watchers.
+
+        v1 is a counter, not a chart: the ``ct`` telegraph names the class that
+        taunts next and the class that walks IN/OUT of the zone, and the pane
+        acts only when its own class is named.  Potions come from the v2
+        helpers (``use_potions`` in ``fight_attempts``); everything else --
+        classes, scroll, rotations, heal thresholds -- is v1's.
+        """
+        self._tm_counter = 0
+        self._tm_taunter: Optional[str] = None
+        self._tm_zone = ""
+        self._tm_what = ""
+        self._tm_force_taunt = False
+        self._tm_force_heal = False
+        self._tm_force_skill = False
+        self._tm_heal_skill = -1
+        self._tm_in_zone = False
+        self._tm_index = 0
+        self._tm_dead = False
+        self._boss_seen = self.cmd.is_monster_alive(SPEAKER)
+
+        self.bot.subscribe(self._three_man_packet)
+        try:
+            if not self.in_boss_room():
+                await self.jump_boss()
+            self.log(f"started 3 Man Taunt attempt {attempt}; "
+                     f"{self.preset.cls} on slot {self.slot}.")
+
+            while self.cmd.is_still_connected() and not self.sync.aborted():
+                if self.should_reset(attempt):
+                    return await self.finish_fight("reset")
+
+                if self.in_boss_room():
+                    if self.cmd.is_monster_alive(SPEAKER):
+                        self._boss_seen = True
+                    elif self._boss_seen:
+                        return await self.finish_fight("defeated")
+
+                if self.bot.player.ISDEAD:
+                    if not self._tm_dead:
+                        self._tm_dead = True
+                        self.note_death()
+                    await self.cmd.sleep(self.poll_ms)
+                    continue
+                if self._tm_dead:
+                    self._tm_dead = False
+                    self.log("respawned.")
+                    if not self.in_boss_room():
+                        await self.jump_boss()
+
+                equipped = self.equipped_class_name()
+
+                # 1. v1's taunt assignment: only the named class answers.
+                if self._tm_taunter:
+                    if (not self._tm_force_taunt
+                            and equipped == self._tm_taunter.lower()):
+                        self._tm_force_taunt = True
+                        await self.cmd.sleep(self.poll_ms)
+                        continue
+                if self._tm_force_taunt:
+                    if not self.bot.player.canUseSkill(5):
+                        await self.cmd.sleep(100)
+                        continue
+                    self._tm_force_taunt = False
+                    self._tm_taunter = None
+                    await self.cmd.use_skill(5, target_monsters=SPEAKER)
+
+                # 2. v1's forced heal (the ``ct`` packet saw an ally <= 2000).
+                if self._tm_force_heal:
+                    self._tm_force_heal = False
+                    await self.cmd.sleep(500)
+                    if self._tm_heal_skill != -1:
+                        await self.cmd.use_skill(self._tm_heal_skill)
+                        self._tm_heal_skill = -1
+
+                # 3. v1's forced skill on Equalize (Legion Revenant's skill 1).
+                if self._tm_force_skill and equipped == "legion revenant":
+                    await self.cmd.use_skill(1, target_monsters=SPEAKER)
+                    self._tm_force_skill = False
+
+                # 4. v1's zone walk: the named class steps IN or OUT.
+                if self._tm_zone:
+                    if self._tm_zone.lower() == equipped:
+                        if self._tm_what == "IN":
+                            self._tm_in_zone = True
+                        elif self._tm_what == "OUT":
+                            self._tm_in_zone = False
+                        self._tm_zone = ""
+                x = int(getattr(self.bot.player, "X", 0) or 0)
+                if self._tm_in_zone:
+                    if x != TM_IN_ZONE[0]:
+                        await self.cmd.walk_to(*TM_IN_ZONE)
+                elif x != TM_OUT_ZONE[0]:
+                    await self.cmd.walk_to(*TM_OUT_ZONE)
+
+                # 5. v1's heal threshold, then its rotation (auto attack on its
+                #    own tick, like every other v2 fight).
+                if self.cmd.hp_below_percentage(TM_HEAL_BELOW):
+                    heal = TM_HEAL_SKILL.get(equipped)
+                    if heal:
+                        await self.cmd.use_skill(heal)
+                await self._auto_attack(SPEAKER)
+                rotation = TM_SKILLS.get(equipped, TM_DEFAULT_SKILLS)
+                await self.cmd.use_skill(rotation[self._tm_index],
+                                         target_monsters=SPEAKER)
+                self._tm_index = (self._tm_index + 1) % len(rotation)
+                await self.cmd.sleep(100)
+
+            return await self.finish_fight("stopped")
+        finally:
+            self.bot.unsubscribe(self._three_man_packet)
 
     async def on_respawn(self, state, attempt: int) -> None:
         """Back from a death: restart the skill engine, then re-enter the room.

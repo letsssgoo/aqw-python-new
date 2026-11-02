@@ -223,6 +223,14 @@ COMPOSITIONS: Dict[str, Dict[str, Tuple[SlotPlan, ...]]] = {
                      SlotPlan(SC, cape="Penitence", elixir="Divine Elixir"),
                      SlotPlan(AP, skills=(2, 1), cape="Penitence"),
                      SlotPlan(LOO, skills=(2, 3, 1))),
+        # Port of ``bot/ultra/ultra_speaker.py``: the three taunt classes rotate
+        # the boss's malgor steps and Verus DoomKnight covers the zone walk.
+        # Gear follows the v2 speaker rules (Penitence capes); the fight itself
+        # is the v1 counter, not the Truth/Listen chart.
+        "3 Man Taunt": (SlotPlan(LR, cape="Penitence", clear_helm=True),
+                        SlotPlan(AP, cape="Penitence"),
+                        SlotPlan(LOO, cape="Penitence"),
+                        SlotPlan(VDK, cape="Penitence")),
     },
 }
 
