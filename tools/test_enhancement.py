@@ -739,6 +739,59 @@ def main() -> None:
     check("eclipse: ...and says why",
           "Rite of Ascension" in _ecmd.stopped, _ecmd.stopped)
 
+    # --- class enhancements from the V2 presets ---------------------------
+    # The class comes from the menu, so a known class gets its preset's gear
+    # and an unknown one is left alone instead of stopping the pane.
+    from bot.templeshrine import auto_enhance
+
+    from bot.ultra.v2 import enhancements
+
+    _gear_calls = []
+    _real_enh_prepare = enhancements.prepare
+
+    async def _fake_enh_prepare(cmd, preset):
+        _gear_calls.append(preset.cls)
+        return True
+
+    enhancements.prepare = _fake_enh_prepare
+    try:
+        _known = asyncio.run(auto_enhance.apply(_TCmd(), "ArchPaladin"))
+        _unknown = asyncio.run(auto_enhance.apply(_TCmd(), "No Such Class"))
+    finally:
+        enhancements.prepare = _real_enh_prepare
+    check("temple: a known class gets its preset enhancements", _known)
+    check("temple: ...from the class preset", _gear_calls, ["ArchPaladin"])
+    check("temple: an unknown class is skipped, not stopped", _unknown)
+
+    # --- the shared Scroll of Enrage gate ---------------------------------
+    from bot.templeshrine.party_scrolls import PartyScrollGate
+    import threading as _threading
+
+    def _gate_meeting(counts):
+        gate = PartyScrollGate(len(counts))
+        answers = {}
+
+        def pane(key, qty):
+            answers[key] = gate.report(key, qty, timeout=5.0)
+
+        threads = [_threading.Thread(target=pane, args=(key, qty))
+                   for key, qty in counts.items()]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        return answers
+
+    _short = _gate_meeting({"a": 10, "b": 80, "c": 80, "d": 80})
+    check("gate: one pane under 50 makes the whole party craft",
+          sorted(answer[1] for answer in _short.values()),
+          [True, True, True, True])
+    check("gate: all panes share one decision epoch",
+          len({answer[0] for answer in _short.values()}), 1)
+    _fine = _gate_meeting({"a": 50, "b": 80, "c": 60, "d": 100})
+    check("gate: 50 or more everywhere keeps the party in",
+          [answer[1] for answer in _fine.values()], [False] * 4)
+
     # --- class enhancement without registry rows --------------------------
     # A stock basic_enhancement.jsonl has no class-slot rows; the class
     # enhancement then has to come from the normal enhancement shop, which is

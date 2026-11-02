@@ -9,6 +9,7 @@ from colorama import Fore
 import colorama
 
 from handlers.death_handler import death_handler_task
+from bot.templeshrine import auto_enhance, party_scrolls
 
 class AscendEclipseBot:
     def __init__(self, cmd: Command, 
@@ -103,11 +104,14 @@ class AscendEclipseBot:
             return
         minimalScroll = 50
         if self.cmd.get_quant_item("Scroll of Enrage") < minimalScroll:
-            self.cmd.stop_bot(f"Not enough Scroll of Enrage. Minimum {minimalScroll} scrolls is required.")
-            return
+            # The party gate crafts before the next dungeon iteration; stopping
+            # here would keep the party from ever reaching it.
+            self.print_debug(f"Scroll of Enrage is under {minimalScroll}; the "
+                             f"scroll gate will craft it before the next run.")
         farm_class = self.cmd.get_farm_class()
         if farm_class:
             await self.cmd.equip_item(farm_class)
+            await auto_enhance.apply(self.cmd, farm_class)
         await self.cmd.equip_scroll("Scroll of Enrage")
         await self.cmd.sleep(3000)
 
@@ -263,6 +267,10 @@ class AscendEclipseBot:
                 if getattr(self, "was_paused", False):
                     self.print_debug("Resuming bot.")
                 self.was_paused = False
+
+            # Before each dungeon iteration: every pane needs its taunt scroll.
+            # One short pane sends the whole party out to craft.
+            await party_scrolls.ensure(self.cmd)
 
             if self.role == "master" and not self.cmd.is_monster_alive():
                 await self.to_next_cell()

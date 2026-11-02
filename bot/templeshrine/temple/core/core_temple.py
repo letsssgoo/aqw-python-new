@@ -5,6 +5,7 @@ from datetime import datetime
 from colorama import Fore
 from core.command import Command, SkillMode
 from core.utils import is_valid_json
+from bot.templeshrine import auto_enhance, party_scrolls
 
 
 class CoreTempleBot:
@@ -154,6 +155,10 @@ class CoreTempleBot:
     async def attack_loop(self):
         skill_mode = SkillMode.ALL
         while self.cmd.is_still_connected():
+            # Before each dungeon iteration: every pane needs its taunt scroll.
+            # One short pane sends the whole party out to craft, so an
+            # iteration never starts with a taunter that will run dry.
+            await party_scrolls.ensure(self.cmd)
             if self.role == "master":
                 await self.to_next_cell()
             if self.role == "slave":
@@ -222,6 +227,7 @@ class CoreTempleBot:
 
     async def start(self):
         await self.cmd.equip_item(self.cmd.get_farm_class())
+        await auto_enhance.apply(self.cmd, self.cmd.get_farm_class())
         if self.is_taunter:
             await self.cmd.equip_scroll("Scroll of Enrage")
 
