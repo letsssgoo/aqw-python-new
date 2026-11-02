@@ -91,6 +91,10 @@ V1_CRYSTAL_TAUNT_MS = 1000
 V1_BOSS_TAUNT_MS = 1200
 V1_WAIT_TAUNT_S = 4
 V1_TELEGRAPH = "The Grace Crystal prepares a defense shattering attack!"
+#: The two crystals are meant to die together.  When their HP percentages are
+#: further apart than this, the pane assigned to the lagging crystal crosses
+#: over to the one that is ahead until the gap closes again.
+CRYSTAL_BALANCE_TOLERANCE = 3.0
 
 
 class UltraGramiel(V2Core):
@@ -119,6 +123,8 @@ class UltraGramiel(V2Core):
         self._v1_wait = False
         self._v1_at = 0.0
         self._v1_dead = False
+        self._v1_target = ""
+        self._v1_attack = ""
         if self.is_vdk:
             # Verus DoomKnight's skill 4 is off-limits while Safeguard is up.
             self.blocked_skill = 4
@@ -245,6 +251,34 @@ class UltraGramiel(V2Core):
             return "obsidian paladin chronomancer"
         return cls
 
+    def crystal_percent(self, target: str) -> float:
+        """Current HP of one crystal, in percent of its maximum."""
+        monster = self.cmd.get_monster(target)
+        if monster is None:
+            return 0.0
+        maximum = int(getattr(monster, "max_hp", 0) or 0)
+        if maximum <= 0:
+            return 0.0
+        return int(getattr(monster, "current_hp", 0) or 0) * 100.0 / maximum
+
+    def balanced_crystal_target(self, assigned: str) -> str:
+        """Keep the crystals dying together: focus whichever one is ahead.
+
+        The pane assigned to the *ahead* crystal already hits it, so it stays.
+        The pane assigned to the *lagging* one crosses over until the two
+        percentages are within :data:`CRYSTAL_BALANCE_TOLERANCE`, then returns
+        to its own crystal.  With either crystal gone -- or the gap already
+        small enough -- the assigned target is returned unchanged.
+        """
+        if not (self.cmd.is_monster_alive(CRYSTAL_A)
+                and self.cmd.is_monster_alive(CRYSTAL_B)):
+            return assigned
+        a = self.crystal_percent(CRYSTAL_A)
+        b = self.crystal_percent(CRYSTAL_B)
+        if abs(a - b) <= CRYSTAL_BALANCE_TOLERANCE:
+            return assigned
+        return CRYSTAL_A if a > b else CRYSTAL_B
+
     def _crystal_packet(self, message) -> None:
         """v1's ``_on_gramiel_taunt``: arm taunts from the ``ct`` telegraphs."""
         if not message or not is_valid_json(message):
@@ -266,12 +300,14 @@ class UltraGramiel(V2Core):
             if msg and isinstance(msg, str) and msg.lower() == V1_TELEGRAPH.lower():
                 if target == "m:3":
                     self._v1_right += 1
+                    self._v1_target = CRYSTAL_B
                     if self._v1_right % 2 == 0 and role == "lord of order":
                         self._v1_force = True
                     elif self._v1_right % 2 == 1 and role == "lightcaster":
                         self._v1_force = True
                 if target == "m:2":
                     self._v1_left += 1
+                    self._v1_target = CRYSTAL_A
                     if (self._v1_left % 2 == 0
                             and role == "obsidian paladin chronomancer"):
                         self._v1_force = True
@@ -337,6 +373,8 @@ class UltraGramiel(V2Core):
             self._v1_force = False
             self._v1_wait = False
             self._v1_dead = False
+            self._v1_target = ""
+            self._v1_attack = ""
             self.bot.subscribe(self._crystal_packet)
             try:
                 result = await self.crystal_taunt_fight(attempt)
@@ -379,12 +417,21 @@ class UltraGramiel(V2Core):
                 await self.v1_party_heal()
                 if self._v1_force:
                     await self.cmd.sleep(V1_CRYSTAL_TAUNT_MS)
-                    await self.cmd.use_skill(5, target_monsters=prio)
+                    taunt_on = self._v1_target or prio
+                    await self.cmd.use_skill(5, target_monsters=taunt_on)
                     self._v1_force = False
-                    self.log(f"taunted {prio}.")
+                    self.log(f"taunted {taunt_on}.")
                     continue
-                await self._auto_attack(prio)
-                await self.cmd.use_skill(rotation[index], target_monsters=prio)
+                target = self.balanced_crystal_target(prio)
+                if target != self._v1_attack:
+                    self._v1_attack = target
+                    self.log(
+                        f"balancing crystals: {CRYSTAL_A} "
+                        f"{self.crystal_percent(CRYSTAL_A):.0f}% / "
+                        f"{CRYSTAL_B} {self.crystal_percent(CRYSTAL_B):.0f}% "
+                        f"-> attacking {target}.")
+                await self._auto_attack(target)
+                await self.cmd.use_skill(rotation[index], target_monsters=target)
                 index = (index + 1) % len(rotation)
                 await self.cmd.sleep(100)
 

@@ -756,6 +756,44 @@ check("gramiel/crystal: Obsidian Paladin Chronomancer the even one",
       _left_telegraphs("obsidian paladin chronomancer"), [False, True])
 
 
+def _balanced(assigned, a_hp, b_hp):
+    class _BalanceCommand(_StubCommand):
+        def __init__(self):
+            super().__init__()
+            self.hp = {"id.2": a_hp, "id.3": b_hp}
+
+        def is_monster_alive(self, target="*"):
+            return self.hp.get(str(target), 1) > 0
+
+        def get_monster(self, target="*"):
+            value = self.hp.get(str(target), 0)
+            return type("M", (), {"current_hp": value, "max_hp": 1000})()
+
+    runner = gramiel.UltraGramiel(
+        _BalanceCommand(),
+        options.UltraOptions(players=("a", "b", "c", "d"),
+                             composition=gramiel.CRYSTAL_TAUNT), 1)
+    return runner.balanced_crystal_target(assigned)
+
+
+check("gramiel/crystal: a 7% gap sends the lagging side to the crystal ahead",
+      _balanced("id.3", 970, 900), "id.2")
+check("gramiel/crystal: the pane already on the ahead crystal stays there",
+      _balanced("id.2", 970, 900), "id.2")
+check("gramiel/crystal: the same rule works in the other direction",
+      _balanced("id.2", 900, 970), "id.3")
+check("gramiel/crystal: a 3% gap is inside the window",
+      _balanced("id.2", 930, 900), "id.2")
+check("gramiel/crystal: a dead crystal leaves the assigned target alone",
+      _balanced("id.2", 0, 900), "id.2")
+
+_telegraph_runner = _crystal_runner("lord of order")
+_telegraph_runner._crystal_packet(json.dumps({"b": {"o": {
+    "cmd": "ct", "anims": [{"tInf": "m:3", "msg": gramiel.V1_TELEGRAPH}]}}}))
+check("gramiel/crystal: the taunt remembers which crystal telegraphed",
+      _telegraph_runner._v1_target, "id.3")
+
+
 def _point_taunt(role):
     runner = _crystal_runner(role)
     runner._crystal_packet(json.dumps({"b": {"o": {
