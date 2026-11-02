@@ -660,6 +660,28 @@ check("enhancements: every preset field has a slot",
       [slot for _field, slot in enhancements.SLOTS],
       ["class", "cape", "helm", "weapon"])
 
+
+class _ClassCmd(_StubCommand):
+    """A command whose equipped class is whatever the test says."""
+
+    def __init__(self, name):
+        super().__init__()
+        self._class_name = name
+
+    def get_equipped_class(self):
+        if not self._class_name:
+            return None
+        return type("I", (), {"item_name": self._class_name})()
+
+
+check("core: the equipped class is read back lower-cased",
+      warden.build(_ClassCmd("Legion Revenant"),
+                   options.UltraOptions(), 1).equipped_class_name(),
+      "legion revenant")
+check("core: no equipped class reads as empty",
+      warden.build(_ClassCmd(None), options.UltraOptions(), 1)
+      .equipped_class_name(), "")
+
 # --- enhancement buying ----------------------------------------------------
 # Wear what is owned; only when nothing carries it does the module buy it.  A
 # *basic* enhancement exists at every level, so the highest tier is the buy.

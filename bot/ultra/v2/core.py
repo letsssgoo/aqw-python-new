@@ -188,6 +188,20 @@ class V2Core:
                 return name
         return self.preset.cls
 
+    def equipped_class_name(self) -> str:
+        """Lower-cased name of the class actually on, or ``""`` when none.
+
+        ``preset.cls`` is what the loadout *asked for*; an alternate class can
+        be worn instead.  v1's Speaker compares the class it is wearing against
+        the class the malgor step names, so it needs the real one -- looked up
+        the same way ``CoreUltra.equipped_class_name`` does it.
+        """
+        try:
+            item = self.cmd.get_equipped_class()
+        except Exception:
+            return ""
+        return item.item_name.lower() if item else ""
+
     @property
     def class_names(self) -> tuple:
         """The preset's class plus its ``AlternateClassNames``."""
