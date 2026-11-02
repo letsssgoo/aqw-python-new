@@ -655,6 +655,115 @@ def main() -> None:
           (_vs.QUEST, _vs.DROP, _vs.CLOAK, _vs.GOLD)
           == (5982, "Zee's Red Jasper", "Fiend Cloak of Nulgath", 500_000))
 
+    # --- Temple / Eclipse logging ------------------------------------------
+    # Both cores logged through ``self.bot`` while only ``self.cmd`` exists,
+    # which raised "'SolsticeMoonBot' object has no attribute 'bot'".
+    from bot.templeshrine.eclipse.core.core_eclipse import AscendEclipseBot
+    from bot.templeshrine.temple.core.core_temple import SolsticeMoonBot
+
+    class _TPlayer:
+        CELL, PAD, USER, user_id = "Enter", "Spawn", "u", "1"
+
+    class _TBot:
+        def __init__(self):
+            self.player = _TPlayer()
+            self.logs = []
+            self.taunt_error = False
+
+        def log(self, *args):
+            self.logs.append(" ".join(map(str, args)))
+
+        def subscribe(self, callback):
+            self.handler = callback
+
+    class _TCmd:
+        def __init__(self):
+            self.bot = _TBot()
+
+        def get_player(self):
+            return self.bot.player
+
+        def subscribe(self, callback):
+            self.bot.handler = callback
+
+    _tcmd = _TCmd()
+    _moon = SolsticeMoonBot(_tcmd, "master")
+    _moon.print_debug("temple log")
+    check("temple: print_debug writes through the command's bot",
+          _moon and "temple log" in _tcmd.bot.logs[-1])
+
+    _ecmd = _TCmd()
+    _eclipse = AscendEclipseBot(_ecmd, "master", "Ascended Solstice")
+    _eclipse.print_debug("eclipse log")
+    check("eclipse: print_debug writes through the command's bot",
+          "eclipse log" in _ecmd.bot.logs[-1])
+
+    # --- class enhancement without registry rows --------------------------
+    # A stock basic_enhancement.jsonl has no class-slot rows; the class
+    # enhancement then has to come from the normal enhancement shop, which is
+    # what the reference reads.
+    class _BaseItem:
+        item_id = "1"
+        is_equipped = True
+        s_es = "ar"
+        enh_id = 0
+        enh_pattern_id = 0
+        enh_rarity = 0
+
+    class _ShopBaseItem:
+        def __init__(self):
+            self.s_name = "Fighter Armor Enhancement"
+            self.item_id = "52382"
+            self.level = 100
+            self.rarity = 6
+            self.enh_pattern_id = 0
+            self.is_upgrade = False
+
+    class _BaseShop:
+        shop_id = "768"
+        def __init__(self):
+            self.items = [_ShopBaseItem()]
+
+    class _BaseCmd:
+        def __init__(self):
+            self.calls = []
+            self.bot = type("B", (), {
+                "player": type("P", (), {
+                    "LEVEL": 100, "is_member": False,
+                    "INVENTORY": [_BaseItem()]})(),
+                "loaded_shop_datas": [_BaseShop()],
+                "log": lambda _s, line: None,
+            })()
+
+        def is_not_in_map(self, name):
+            return False
+
+        async def join_map(self, name, room=None):
+            return None
+
+        async def ensure_load_shop(self, shop_id):
+            return True
+
+        async def enhance_item(self, item_id, enh_id, shop_id):
+            self.calls.append((item_id, enh_id, shop_id))
+
+    from bot.ultra.v2 import enhancements
+
+    _orig_base = enhancements.best_base
+    enhancements.best_base = lambda *a, **k: None
+    try:
+        _bcmd = _BaseCmd()
+
+        async def _apply_base_once():
+            return await enhancements._apply_base(_bcmd, "Fighter")
+
+        check("class enhancement: falls back to the shop entry",
+              _asyncio.run(_apply_base_once()), True)
+        check("class enhancement: socketed with the shop's id",
+              _bcmd.calls == [("1", 52382, 768)], str(_bcmd.calls))
+    finally:
+        enhancements.best_base = _orig_base
+
     # --- Ravenous forge unlock ---------------------------------------------
     # UnlockForgeEnhancements.Ravenous: quest 9560 once the Gluttonous Maw
     # (shop 2411) is held; the daily Roentgenium line otherwise.

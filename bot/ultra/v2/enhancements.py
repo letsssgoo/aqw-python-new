@@ -148,10 +148,16 @@ async def _apply_base(cmd, name: str) -> bool:
                     f"cannot be applied.")
         return False
 
-    record = best_base(name, int(getattr(cmd.bot.player, "LEVEL", 0) or 0),
-                       bool(getattr(cmd.bot.player, "is_member", False)))
+    level = int(getattr(cmd.bot.player, "LEVEL", 0) or 0)
+    is_member = bool(getattr(cmd.bot.player, "is_member", False))
+    record = best_base(name, level, is_member)
     if record is None:
-        cmd.bot.log(f"[v2] no class enhancement is registered for {name!r}.")
+        # ``basic_enhancement.jsonl`` may ship without class-slot rows (the
+        # stock file does); the shop is the reference's own source.
+        record = await _base_from_shop(cmd, name, level, is_member)
+    if record is None:
+        cmd.bot.log(f"[v2] no class enhancement for {name!r} is registered "
+                    f"or sold by its shop.")
         return False
 
     if _carries(worn, record):
@@ -200,6 +206,62 @@ def best_base(name: str, level: int = 0, is_member: bool = False):
         # Fallback is the highest tier the account can actually take (the
         # reference's behaviour), never one above its level.
         return max(fit or rows, key=lambda row: (row.level, row.rarity))
+    return None
+
+
+class _ShopBase:
+    """A class enhancement read off the normal enhancement shop itself.
+
+    The registry comes from ``basic_enhancement.jsonl``; a deployment that ships
+    the stock file has no class-slot rows in it, and then every class-slot
+    enhancement looked "unregistered".  The reference never needs that file: it
+    loads ``GetNormalEnhancementShop`` and reads the shop's own items.
+    """
+
+    def __init__(self, name: str, item_id: int, pattern_id: int, rarity: int,
+                 level: int, shop_id: int):
+        self.name = name
+        self.item_id = int(item_id)
+        self.pattern_id = int(pattern_id)
+        self.rarity = int(rarity)
+        self.level = int(level)
+        self.shop_id = int(shop_id)
+
+
+async def _base_from_shop(cmd, name: str, level: int, is_member: bool):
+    """The class enhancement the shop sells at or under ``level``."""
+    shops = NORMAL_ENHANCEMENT_SHOPS.get(name)
+    if not shops:
+        return None
+    high, low = shops
+    order = [high if level >= 50 else low, low, high]
+    seen = []
+    for shop_id in order:
+        if shop_id in seen:
+            continue
+        seen.append(shop_id)
+        if cmd.is_not_in_map(ENHANCEMENT_MAP):
+            await cmd.join_map(ENHANCEMENT_MAP)
+        if not await cmd.ensure_load_shop(shop_id):
+            continue
+        wanted = f"{name} Armor Enhancement".lower()
+        found = None
+        for shop in getattr(cmd.bot, "loaded_shop_datas", []) or []:
+            if str(getattr(shop, "shop_id", "")) != str(shop_id):
+                continue
+            for item in getattr(shop, "items", []) or []:
+                if str(getattr(item, "s_name", "")).lower() != wanted:
+                    continue
+                if int(getattr(item, "level", 0) or 0) > level:
+                    continue
+                if getattr(item, "is_upgrade", False) and not is_member:
+                    continue
+                if found is None or item.level > found.level:
+                    found = item
+        if found is not None:
+            return _ShopBase(found.s_name, found.item_id,
+                             getattr(found, "enh_pattern_id", 0),
+                             getattr(found, "rarity", 0), found.level, shop_id)
     return None
 
 
