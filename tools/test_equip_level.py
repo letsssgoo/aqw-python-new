@@ -281,13 +281,60 @@ def main() -> int:
                                           enhance_if_missing=True))
     check("helm at lvl 70 still succeeds", ok, True)
     fields = bot.sent[-1].split("%")[5:8] if bot.sent else []
-    check("...and takes the lvl-70 R5 tier (39731), not lvl 100", fields,
-          [str(helm.item_id), "39731", "765"],
+    regular_70 = [r for r in enh.find("Wizard Helm Enhancement", "helm")
+                  if r.level <= 70 and not r.is_upgrade]
+    expected_70 = max(regular_70, key=lambda r: (r.rarity, r.level,
+                                                 r.item_id)).item_id
+    check("...and takes the best free tier at or under lvl 70", fields,
+          [str(helm.item_id), str(expected_70), "765"],
           str(bot.sent[-1]) if bot.sent else "no packet")
     check("...a basic enhancement stays in the current map", bot.joined, [],
           str(bot.joined))
     check("...but its shop is opened too", bot.shops_loaded, [765],
           str(bot.shops_loaded))
+
+    print("\n-- a free account is given the regular tier, not the member one --")
+    for it in items:
+        it.is_equipped = False
+    helm = items[2]
+    helm.level = 100
+    helm.enh_id = 0
+    helm.enh_pattern_id = 0
+    helm.is_equipped = True
+    bot.sent.clear()
+    bot.joined.clear()
+    bot.shops_loaded.clear()
+    regular = [r for r in enh.find("Wizard Helm Enhancement", "helm")
+               if r.level == 100 and not r.is_upgrade]
+    regular_id = max(regular, key=lambda r: (r.rarity, r.level,
+                                             r.item_id)).item_id
+    ok = asyncio.run(cmd.equip_enhancement("Wizard Helm Enhancement",
+                                          enhance_if_missing=True))
+    fields = bot.sent[-1].split("%")[5:8] if bot.sent else []
+    check("...sockets the lvl-100 non-member tier", fields,
+          [str(helm.item_id), str(regular_id), "765"],
+          str(bot.sent[-1]) if bot.sent else "no packet")
+    check("...and reports it as sent, not verified",
+          cmd.last_enhancement_verified, False)
+
+    print("\n-- a member account keeps the bUpg tier --")
+    bot.player.is_member = True
+    helm.enh_id = 0
+    helm.enh_pattern_id = 0
+    bot.sent.clear()
+    bot.joined.clear()
+    bot.shops_loaded.clear()
+    upgrade = [r for r in enh.find("Wizard Helm Enhancement", "helm")
+               if r.level == 100 and r.is_upgrade]
+    upgrade_id = max(upgrade, key=lambda r: (r.rarity, r.level,
+                                             r.item_id)).item_id
+    ok = asyncio.run(cmd.equip_enhancement("Wizard Helm Enhancement",
+                                          enhance_if_missing=True))
+    fields = bot.sent[-1].split("%")[5:8] if bot.sent else []
+    check("...sockets the member tier", fields,
+          [str(helm.item_id), str(upgrade_id), "765"],
+          str(bot.sent[-1]) if bot.sent else "no packet")
+    bot.player.is_member = False
 
     print()
     print("=" * 74)

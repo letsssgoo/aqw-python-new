@@ -741,7 +741,8 @@ class _Entry:
 
 real_best = enhancements.best_entry
 real_adv_buy = None
-enhancements.best_entry = lambda name, slot: _Entry() if name == "Valiance" else None
+enhancements.best_entry = (lambda name, slot, **kwargs:
+                           _Entry() if name == "Valiance" else None)
 from bot import core_advanced as _adv
 
 
