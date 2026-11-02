@@ -782,8 +782,10 @@ check("gramiel/crystal: the pane already on the ahead crystal stays there",
       _balanced("id.2", 970, 900), "id.2")
 check("gramiel/crystal: the same rule works in the other direction",
       _balanced("id.2", 900, 970), "id.3")
-check("gramiel/crystal: a 3% gap is inside the window",
-      _balanced("id.2", 930, 900), "id.2")
+check("gramiel/crystal: a 5% gap is inside the window",
+      _balanced("id.2", 950, 900), "id.2")
+check("gramiel/crystal: a 6% gap crosses over",
+      _balanced("id.2", 900, 960), "id.3")
 check("gramiel/crystal: a dead crystal leaves the assigned target alone",
       _balanced("id.2", 0, 900), "id.2")
 

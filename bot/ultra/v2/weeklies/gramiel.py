@@ -94,7 +94,7 @@ V1_TELEGRAPH = "The Grace Crystal prepares a defense shattering attack!"
 #: The two crystals are meant to die together.  When their HP percentages are
 #: further apart than this, the pane assigned to the lagging crystal crosses
 #: over to the one that is ahead until the gap closes again.
-CRYSTAL_BALANCE_TOLERANCE = 3.0
+CRYSTAL_BALANCE_TOLERANCE = 5.0
 
 
 class UltraGramiel(V2Core):
