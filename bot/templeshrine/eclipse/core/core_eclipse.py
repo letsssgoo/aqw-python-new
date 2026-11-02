@@ -76,7 +76,31 @@ class AscendEclipseBot:
     def print_aura(self, message):
         self.print_debug(f"{Fore.RED}You got \"{message}\"{Fore.RESET}")
 
+    async def ensure_rite_of_ascension(self) -> bool:
+        """The dungeon's entry item: inventory first, then the bank.
+
+        Ascend Eclipse cannot be entered without it, so a copy that exists
+        nowhere stops the bot with the reason instead of walking into the map
+        and failing there.  A banked copy is withdrawn first.
+        """
+        name = "Rite of Ascension"
+        if self.cmd.is_in_inventory(name):
+            return True
+        if self.cmd.is_in_bank(name):
+            self.print_debug(f"{name} is in the bank; moving it to the "
+                             f"inventory.")
+            await self.cmd.bank_to_inv(name)
+            await self.cmd.sleep(500)
+            if self.cmd.is_in_inventory(name):
+                self.print_debug(f"{name} is ready.")
+                return True
+        self.cmd.stop_bot(f"{name} is in neither the inventory nor the bank; "
+                          f"Ascend Eclipse cannot be entered.")
+        return False
+
     async def prepare_items(self):
+        if not await self.ensure_rite_of_ascension():
+            return
         minimalScroll = 50
         if self.cmd.get_quant_item("Scroll of Enrage") < minimalScroll:
             self.cmd.stop_bot(f"Not enough Scroll of Enrage. Minimum {minimalScroll} scrolls is required.")

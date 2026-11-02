@@ -679,12 +679,33 @@ def main() -> None:
     class _TCmd:
         def __init__(self):
             self.bot = _TBot()
+            self.has_rite = False
+            self.rite_in_bank = False
+            self.stopped = ""
+            self.banked = []
 
         def get_player(self):
             return self.bot.player
 
         def subscribe(self, callback):
             self.bot.handler = callback
+
+        def is_in_inventory(self, name, *args, **kwargs):
+            return self.has_rite and name == "Rite of Ascension"
+
+        def is_in_bank(self, name, *args, **kwargs):
+            return self.rite_in_bank and name == "Rite of Ascension"
+
+        async def bank_to_inv(self, name):
+            self.banked.append(name)
+            self.rite_in_bank = False
+            self.has_rite = True
+
+        async def sleep(self, ms):
+            return None
+
+        def stop_bot(self, msg=""):
+            self.stopped = msg
 
     _tcmd = _TCmd()
     _moon = SolsticeMoonBot(_tcmd, "master")
@@ -697,6 +718,26 @@ def main() -> None:
     _eclipse.print_debug("eclipse log")
     check("eclipse: print_debug writes through the command's bot",
           "eclipse log" in _ecmd.bot.logs[-1])
+
+    # The dungeon's entry item: inventory first, then the bank, then stop.
+    _ecmd.has_rite = True
+    check("eclipse: a copy in the inventory is enough",
+          asyncio.run(_eclipse.ensure_rite_of_ascension()))
+    check("eclipse: nothing was withdrawn", _ecmd.banked == [], _ecmd.banked)
+
+    _ecmd.has_rite = False
+    _ecmd.rite_in_bank = True
+    check("eclipse: a banked Rite is withdrawn",
+          asyncio.run(_eclipse.ensure_rite_of_ascension()))
+    check("eclipse: the banked copy is moved",
+          _ecmd.banked == ["Rite of Ascension"], _ecmd.banked)
+
+    _ecmd.has_rite = False
+    _ecmd.rite_in_bank = False
+    check("eclipse: no Rite anywhere stops the bot",
+          not asyncio.run(_eclipse.ensure_rite_of_ascension()))
+    check("eclipse: ...and says why",
+          "Rite of Ascension" in _ecmd.stopped, _ecmd.stopped)
 
     # --- class enhancement without registry rows --------------------------
     # A stock basic_enhancement.jsonl has no class-slot rows; the class
