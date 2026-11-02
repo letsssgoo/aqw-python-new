@@ -694,6 +694,83 @@ check("gramiel: the Optimized Shaman is slot 1 only",
        _gramiel(1, "Optimized").preset.skills),
       ([True, False], (0, 1, 2)))
 
+# --- Ultra Gramiel: Crystal Taunt (the v1 ``ultra_gramiel`` port) ------------
+check("gramiel/crystal: the v1 party",
+      options.compositions("gramiel")["Crystal Taunt"],
+      ("LightCaster", "Obsidian Paladin Chronomancer", "Lord of Order",
+       "StoneCrusher"))
+check("gramiel/crystal: the OPC preset resolves through its alias",
+      presets.preset_for("gramiel", "Crystal Taunt", 2).cls,
+      "Paladin Chronomancer")
+check("gramiel/crystal: v1's kill order per slot",
+      [gramiel.V1_KILL_ORDER[slot] for slot in (1, 2, 3, 4)],
+      [("id.3", "id.2"), ("id.2", "id.3"), ("id.3", "id.2"), ("id.2", "id.3")])
+check("gramiel/crystal: StoneCrusher has no party heal",
+      gramiel.V1_HEAL_SKILL.get("stonecrusher"), None)
+check("gramiel/crystal: the support heal skills",
+      gramiel.V1_HEAL_SKILL,
+      {"lightcaster": 3, "obsidian paladin chronomancer": 3,
+       "lord of order": 2})
+
+
+def _crystal_runner(role):
+    runner = _gramiel(1, composition=gramiel.CRYSTAL_TAUNT)
+    runner.bot.strMapName = "ultragramiel"
+    runner.equipped_class_name = lambda: role
+    return runner
+
+
+def _right_telegraphs(role):
+    runner = _crystal_runner(role)
+    fired = []
+    for _ in range(2):
+        runner._v1_force = False
+        runner._crystal_packet(json.dumps({"b": {"o": {
+            "cmd": "ct",
+            "anims": [{"tInf": "m:3", "msg": gramiel.V1_TELEGRAPH}]}}}))
+        fired.append(runner._v1_force)
+    return fired
+
+
+check("gramiel/crystal: LightCaster answers the odd right attack",
+      _right_telegraphs("lightcaster"), [True, False])
+check("gramiel/crystal: Lord of Order answers the even right attack",
+      _right_telegraphs("lord of order"), [False, True])
+
+
+def _left_telegraphs(role):
+    runner = _crystal_runner(role)
+    fired = []
+    for _ in range(2):
+        runner._v1_force = False
+        runner._crystal_packet(json.dumps({"b": {"o": {
+            "cmd": "ct",
+            "anims": [{"tInf": "m:2", "msg": gramiel.V1_TELEGRAPH}]}}}))
+        fired.append(runner._v1_force)
+    return fired
+
+
+check("gramiel/crystal: StoneCrusher answers the odd left attack",
+      _left_telegraphs("stonecrusher"), [True, False])
+check("gramiel/crystal: Obsidian Paladin Chronomancer the even one",
+      _left_telegraphs("obsidian paladin chronomancer"), [False, True])
+
+
+def _point_taunt(role):
+    runner = _crystal_runner(role)
+    runner._crystal_packet(json.dumps({"b": {"o": {
+        "cmd": "ct", "anims": [{"animStr": "Point", "tInf": "m:1"}]}}}))
+    return runner._v1_index, runner._v1_wait
+
+
+check("gramiel/crystal: Point hands the taunt to the next class",
+      _point_taunt("stonecrusher"), (1, True))
+check("gramiel/crystal: and only that class waits",
+      _point_taunt("lightcaster"), (1, False))
+check("gramiel/crystal: the Paladin Chronomancer alias counts as OPC",
+      _crystal_runner("paladin chronomancer").v1_role(),
+      "obsidian paladin chronomancer")
+
 
 class _CrystalCommand(_StubCommand):
     def __init__(self, a_hp, b_hp):

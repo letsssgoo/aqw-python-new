@@ -24,6 +24,8 @@ Pay2Win is not ported.
 """
 from __future__ import annotations
 
+import json
+import time
 from datetime import datetime, timedelta
 from typing import Optional, Tuple
 
@@ -31,6 +33,7 @@ from bot.ultra.v2 import scrolls
 from bot.ultra.v2.core import V2Core
 from bot.ultra.v2.options import UltraOptions, UltraSpec
 from bot.ultra.v2.packets import MarkerWatcher
+from core.utils import is_valid_json
 
 SPEC = UltraSpec(
     id="gramiel",
@@ -70,6 +73,25 @@ TAUNT_TARGET_HOLD_MS = 1500
 NUKE_CYCLES = 3
 HEAL_HOLD_THRESHOLDS = {1: 75, 2: 45}     # anything later is 15
 
+#: Port of ``bot/ultra/ultra_gramiel.py`` (v1): a different fight from the LW
+#: chart above.  The crystals are cleared in the script's own order and the
+#: taunts come from the ``ct`` telegraphs, not from a cycle counter.
+CRYSTAL_TAUNT = "Crystal Taunt"
+#: v1's ``taunter_list``: the class that answers the boss's ``Point``, rotated.
+V1_TAUNTERS = ("obsidian paladin chronomancer", "stonecrusher",
+               "lightcaster", "lord of order")
+#: v1's ``loadout.kill_order`` per launcher slot.
+V1_KILL_ORDER = {1: ("id.3", "id.2"), 2: ("id.2", "id.3"),
+                 3: ("id.3", "id.2"), 4: ("id.2", "id.3")}
+#: v1's ``party_heal``: by class, and StoneCrusher deliberately has none.
+V1_HEAL_SKILL = {"lightcaster": 3, "obsidian paladin chronomancer": 3,
+                 "lord of order": 2}
+V1_HEAL_BELOW = 50
+V1_CRYSTAL_TAUNT_MS = 1000
+V1_BOSS_TAUNT_MS = 1200
+V1_WAIT_TAUNT_S = 4
+V1_TELEGRAPH = "The Grace Crystal prepares a defense shattering attack!"
+
 
 class UltraGramiel(V2Core):
     """One pane of the Ultra Gramiel fight."""
@@ -88,6 +110,15 @@ class UltraGramiel(V2Core):
         self.safeguard_active = False
         self.emergency_target = 0
         self._boss_seen = False
+        self.is_crystal_taunt = composition == CRYSTAL_TAUNT
+        # v1 fight state: the telegraph counters and the taunt rotation.
+        self._v1_left = 0
+        self._v1_right = 0
+        self._v1_index = 0
+        self._v1_force = False
+        self._v1_wait = False
+        self._v1_at = 0.0
+        self._v1_dead = False
         if self.is_vdk:
             # Verus DoomKnight's skill 4 is off-limits while Safeguard is up.
             self.blocked_skill = 4
@@ -165,6 +196,11 @@ class UltraGramiel(V2Core):
         return True
 
     async def fight_attempts(self) -> bool:
+        if self.is_crystal_taunt:
+            # v1's fight has no chart, no crystal-charge detector and no nuke
+            # cycles: the crystals are cleared in ``kill_order`` and the
+            # telegraphs arm the taunts.
+            return await self.fight_attempts_crystal_taunt()
         retries = max(1, int(self.options.retries))
         attempts = retries + 1
         for attempt in range(1, attempts + 1):
@@ -200,6 +236,190 @@ class UltraGramiel(V2Core):
                     self.sync.stop("ATTEMPTS_EXHAUSTED")
                 return self.abort(f"the party wiped {retries} time(s)")
         return False
+
+    # ------------------------------------ Crystal Taunt (v1 ``ultra_gramiel``)
+    def v1_role(self) -> str:
+        """The equipped class under the name v1's tables use."""
+        cls = self.equipped_class_name()
+        if cls in ("paladin chronomancer", "obsidian paladin chronomancer"):
+            return "obsidian paladin chronomancer"
+        return cls
+
+    def _crystal_packet(self, message) -> None:
+        """v1's ``_on_gramiel_taunt``: arm taunts from the ``ct`` telegraphs."""
+        if not message or not is_valid_json(message):
+            return
+        try:
+            data = json.loads(message)["b"]["o"]
+        except Exception:
+            return
+        if not isinstance(data, dict) or data.get("cmd") != "ct":
+            return
+        anims = data.get("anims")
+        if not anims:
+            return
+        role = self.v1_role()
+        for anim in anims:
+            target = anim.get("tInf")
+            msg = anim.get("msg")
+            anim_str = anim.get("animStr")
+            if msg and isinstance(msg, str) and msg.lower() == V1_TELEGRAPH.lower():
+                if target == "m:3":
+                    self._v1_right += 1
+                    if self._v1_right % 2 == 0 and role == "lord of order":
+                        self._v1_force = True
+                    elif self._v1_right % 2 == 1 and role == "lightcaster":
+                        self._v1_force = True
+                if target == "m:2":
+                    self._v1_left += 1
+                    if (self._v1_left % 2 == 0
+                            and role == "obsidian paladin chronomancer"):
+                        self._v1_force = True
+                    elif self._v1_left % 2 == 1 and role == "stonecrusher":
+                        self._v1_force = True
+            if anim_str:
+                if (str(getattr(self.bot, "strMapName", "")).lower()
+                        == "ultragramiel" and anim_str == "Point"
+                        and target == "m:1"):
+                    self._v1_index += 1
+                    if self._v1_index >= len(V1_TAUNTERS):
+                        self._v1_index = 0
+                    if role == V1_TAUNTERS[self._v1_index]:
+                        self._v1_wait = True
+                        self._v1_at = time.time() + V1_WAIT_TAUNT_S
+
+    async def v1_party_heal(self) -> None:
+        """v1's ``party_heal``: heal every ally under 50% with the class skill."""
+        skill = V1_HEAL_SKILL.get(self.v1_role())
+        if not skill:
+            return
+        for player in getattr(self.bot, "player_in_area", []) or []:
+            try:
+                if player.is_hp_below(V1_HEAL_BELOW):
+                    await self.cmd.use_skill(skill)
+            except Exception:
+                continue
+
+    async def v1_wait_respawn(self, attempt: int) -> str:
+        """Wait out a death; ``""`` to keep fighting, else "reset"/"stopped"."""
+        if not self.bot.player.ISDEAD:
+            if self._v1_dead:
+                self._v1_dead = False
+                self.log("respawned.")
+            return ""
+        if not self._v1_dead:
+            self._v1_dead = True
+            self.note_death()
+        state = await self.wait_respawn(attempt)
+        if state in ("reset", "stopped"):
+            return state
+        if not self.in_boss_room():
+            await self.jump_boss()
+        return ""
+
+    async def fight_attempts_crystal_taunt(self) -> bool:
+        """v1's ``run``: crystals in ``kill_order``, then Gramiel, retried."""
+        retries = max(1, int(self.options.retries))
+        attempts = retries + 1
+        for attempt in range(1, attempts + 1):
+            await self.join()
+            await self.use_potions(drop_combat_potion=True)
+            await scrolls.equip(self.cmd, ENRAGE)
+            await self.precast_buffs()
+            if not await self.require_step("FIGHT_READY"):
+                return False
+
+            await self.jump_boss()
+            self.begin_attempt(attempt)
+            self._v1_left = 0
+            self._v1_right = 0
+            self._v1_index = 0
+            self._v1_force = False
+            self._v1_wait = False
+            self._v1_dead = False
+            self.bot.subscribe(self._crystal_packet)
+            try:
+                result = await self.crystal_taunt_fight(attempt)
+            finally:
+                self.bot.unsubscribe(self._crystal_packet)
+
+            if result == "completed":
+                return True
+            if result == "stopped":
+                return False
+            if result == "reset":
+                if not await self.handle_reset(attempt):
+                    return False
+                await self.use_potions(drop_combat_potion=True)
+                await scrolls.equip(self.cmd, ENRAGE)
+
+            if attempt >= attempts:
+                self.log(f"failed after {attempts} fight attempt(s).")
+                if self.slot == 1:
+                    self.sync.stop("ATTEMPTS_EXHAUSTED")
+                return self.abort(f"the party wiped {retries} time(s)")
+        return False
+
+    async def crystal_taunt_fight(self, attempt: int) -> str:
+        """One v1 fight: both crystals in order, then the boss."""
+        role = self.v1_role()
+        rotation = (1, 2, 3, 4)          # v1's ``[0,1,2,3,4]`` minus the attack
+        index = 0
+
+        # --- phase 1: the side crystals, in this slot's order --------------
+        for prio in V1_KILL_ORDER.get(self.slot, ("id.3", "id.2")):
+            while (self.cmd.is_monster_alive(prio)
+                   and self.cmd.is_still_connected()
+                   and not self.sync.aborted()):
+                if self.should_reset(attempt):
+                    return "reset"
+                state = await self.v1_wait_respawn(attempt)
+                if state:
+                    return state
+                await self.v1_party_heal()
+                if self._v1_force:
+                    await self.cmd.sleep(V1_CRYSTAL_TAUNT_MS)
+                    await self.cmd.use_skill(5, target_monsters=prio)
+                    self._v1_force = False
+                    self.log(f"taunted {prio}.")
+                    continue
+                await self._auto_attack(prio)
+                await self.cmd.use_skill(rotation[index], target_monsters=prio)
+                index = (index + 1) % len(rotation)
+                await self.cmd.sleep(100)
+
+        # --- phase 2: Gramiel ---------------------------------------------
+        self._v1_force = False
+        if role == V1_TAUNTERS[self._v1_index]:
+            self._v1_wait = True
+            self._v1_at = time.time()
+
+        seen = self.cmd.is_monster_alive(GRAMIEL)
+        while self.cmd.is_still_connected() and not self.sync.aborted():
+            if self.should_reset(attempt):
+                return "reset"
+            if self.cmd.is_monster_alive(GRAMIEL):
+                seen = True
+            elif seen:
+                return "completed"
+            state = await self.v1_wait_respawn(attempt)
+            if state:
+                return state
+            await self.v1_party_heal()
+            if self._v1_wait and time.time() >= self._v1_at:
+                self._v1_force = True
+                self._v1_wait = False
+            if self._v1_force:
+                await self.cmd.sleep(V1_BOSS_TAUNT_MS)
+                await self.cmd.use_skill(5, target_monsters=GRAMIEL)
+                self._v1_force = False
+                self.log("taunted Gramiel.")
+                continue
+            await self._auto_attack(GRAMIEL)
+            await self.cmd.use_skill(rotation[index], target_monsters=GRAMIEL)
+            index = (index + 1) % len(rotation)
+            await self.cmd.sleep(100)
+        return "stopped"
 
     # --------------------------------------------------------------- phase 1
     def phase_one_rotation(self) -> Tuple[int, ...]:

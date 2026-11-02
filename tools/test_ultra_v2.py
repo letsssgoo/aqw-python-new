@@ -14,13 +14,15 @@ for ultra in ("warden", "ezrajal", "engineer", "tyndarius", "drakath", "drago",
             else ["Default", "Reliable", "Stable"])
     extra = {"drakath": ["Optimized"],
              "nulgath": ["Optimized"],
-             "gramiel": ["Optimized"],
+             "gramiel": ["Optimized", "Crystal Taunt"],
              "speaker": ["3 Man Taunt"]}.get(ultra, [])
     check(f"{ultra}: ported compositions", sorted(table), sorted(base + extra))
     # Slot 2 and slot 4 are not always the same class in the extra columns.
     exceptions = {("nulgath", "Optimized"): "Dragon of Time",
-                  ("speaker", "3 Man Taunt"): "ArchPaladin"}
-    last_slots = {("speaker", "3 Man Taunt"): "Verus DoomKnight"}
+                  ("speaker", "3 Man Taunt"): "ArchPaladin",
+                  ("gramiel", "Crystal Taunt"): "Obsidian Paladin Chronomancer"}
+    last_slots = {("speaker", "3 Man Taunt"): "Verus DoomKnight",
+                  ("gramiel", "Crystal Taunt"): "StoneCrusher"}
     for name, slots in table.items():
         check(f"{ultra}/{name}: four slots", len(slots), 4)
         check(f"{ultra}/{name}: slot 2 is StoneCrusher", slots[1],
@@ -128,8 +130,8 @@ check("ezrajal: Stable's King's Echo wears no cape",
       presets.preset_for("ezrajal", "Stable", 1).cape, None)
 check("warden: Stable's King's Echo keeps its cape",
       presets.preset_for("warden", "Stable", 1).cape, "Vainglory")
-check("tooltip: gramiel lists three rows",
-      len(options.composition_tooltip("gramiel").splitlines()), 3)
+check("tooltip: gramiel lists its four rows",
+      len(options.composition_tooltip("gramiel").splitlines()), 4)
 
 # --- base (class-slot) enhancement resolution ------------------------------
 # Skua resolves the base enhancement by *type* through fixed shop ids, not by a
