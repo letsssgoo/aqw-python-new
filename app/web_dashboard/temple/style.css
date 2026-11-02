@@ -877,6 +877,7 @@ item-slot-card, slot-card {
     font-weight: bold;
     font-family: 'Fira Code', monospace;
     line-height: 1;
+}
 .skill-cd-badge.ready {
     background: rgba(34, 197, 94, 0.15); /* green */
     color: #22c55e;

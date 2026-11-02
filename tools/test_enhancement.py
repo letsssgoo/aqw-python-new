@@ -679,12 +679,33 @@ def main() -> None:
     class _TCmd:
         def __init__(self):
             self.bot = _TBot()
+            self.has_rite = False
+            self.rite_in_bank = False
+            self.stopped = ""
+            self.banked = []
 
         def get_player(self):
             return self.bot.player
 
         def subscribe(self, callback):
             self.bot.handler = callback
+
+        def is_in_inventory(self, name, *args, **kwargs):
+            return self.has_rite and name == "Rite of Ascension"
+
+        def is_in_bank(self, name, *args, **kwargs):
+            return self.rite_in_bank and name == "Rite of Ascension"
+
+        async def bank_to_inv(self, name):
+            self.banked.append(name)
+            self.rite_in_bank = False
+            self.has_rite = True
+
+        async def sleep(self, ms):
+            return None
+
+        def stop_bot(self, msg=""):
+            self.stopped = msg
 
     _tcmd = _TCmd()
     _moon = SolsticeMoonBot(_tcmd, "master")
@@ -697,6 +718,120 @@ def main() -> None:
     _eclipse.print_debug("eclipse log")
     check("eclipse: print_debug writes through the command's bot",
           "eclipse log" in _ecmd.bot.logs[-1])
+
+    # The dungeon's entry item: inventory first, then the bank, then stop.
+    _ecmd.has_rite = True
+    check("eclipse: a copy in the inventory is enough",
+          asyncio.run(_eclipse.ensure_rite_of_ascension()))
+    check("eclipse: nothing was withdrawn", _ecmd.banked == [], _ecmd.banked)
+
+    _ecmd.has_rite = False
+    _ecmd.rite_in_bank = True
+    check("eclipse: a banked Rite is withdrawn",
+          asyncio.run(_eclipse.ensure_rite_of_ascension()))
+    check("eclipse: the banked copy is moved",
+          _ecmd.banked == ["Rite of Ascension"], _ecmd.banked)
+
+    _ecmd.has_rite = False
+    _ecmd.rite_in_bank = False
+    check("eclipse: no Rite anywhere stops the bot",
+          not asyncio.run(_eclipse.ensure_rite_of_ascension()))
+    check("eclipse: ...and says why",
+          "Rite of Ascension" in _ecmd.stopped, _ecmd.stopped)
+
+    # --- class enhancements from the V2 presets ---------------------------
+    # The class comes from the menu, so a known class gets its preset's gear
+    # and an unknown one is left alone instead of stopping the pane.
+    from bot.templeshrine import auto_enhance
+
+    from bot.ultra.v2 import enhancements
+
+    _gear_calls = []
+    _real_enh_prepare = enhancements.prepare
+
+    async def _fake_enh_prepare(cmd, preset):
+        _gear_calls.append(preset.cls)
+        return True
+
+    enhancements.prepare = _fake_enh_prepare
+    try:
+        _known = asyncio.run(auto_enhance.apply(_TCmd(), "ArchPaladin"))
+        _unknown = asyncio.run(auto_enhance.apply(_TCmd(), "No Such Class"))
+    finally:
+        enhancements.prepare = _real_enh_prepare
+    check("temple: a known class gets its preset enhancements", _known)
+    check("temple: ...from the class preset", _gear_calls, ["ArchPaladin"])
+    check("temple: an unknown class is skipped, not stopped", _unknown)
+
+    # --- the shared Scroll of Enrage gate ---------------------------------
+    from bot.templeshrine.party_scrolls import PartyScrollGate
+
+    def _gate_with(counts, size=None):
+        gate = PartyScrollGate(size if size is not None else len(counts))
+        for key, qty in counts.items():
+            gate.publish(key, qty)
+        return gate
+
+    check("gate: one pane under 50 makes the party craft",
+          _gate_with({"a": 10, "b": 80, "c": 80, "d": 80}).short() is True)
+    check("gate: 38 scrolls is short, not close enough",
+          _gate_with({"a": 38, "b": 80, "c": 80, "d": 80}).short() is True)
+    check("gate: 50 or more everywhere keeps the party in",
+          _gate_with({"a": 50, "b": 60, "c": 80, "d": 100}).short() is False)
+    check("gate: an incomplete party does not decide",
+          _gate_with({"a": 10}, size=4).short() is None)
+
+    _crafting = PartyScrollGate(2)
+    _crafting.start_craft()
+    _crafting.mark_left("a")
+    check("gate: crafting is a party flag", _crafting.crafting is True)
+    _crafting.mark_crafted("a")
+    check("gate: one pane crafted is not all",
+          _crafting.all_crafted() is False)
+    _crafting.mark_crafted("b")
+    check("gate: the last pane ends the craft", _crafting.all_crafted() is True)
+    _crafting.craft_done()
+    check("gate: and the flag clears", _crafting.crafting is False)
+
+    # --- back into the dungeon after crafting -----------------------------
+    # The gate parks the party in yulgar; the cell walk must re-enter first
+    # instead of jumping cells inside the wrong map.
+    def _reentry(bot_class, *args):
+        cmd = _TCmd()
+        calls = []
+
+        def is_not_in_map(name):
+            return True          # we are still in yulgar
+
+        async def join_map(name, **kwargs):
+            calls.append(("join", name))
+
+        async def jump_cell(cell, pad):
+            calls.append(("jump", cell))
+
+        async def sleep(ms):
+            return None
+
+        async def enter():
+            calls.append(("enter",))
+
+        cmd.is_not_in_map = is_not_in_map
+        cmd.is_still_connected = lambda: True
+        cmd.join_map = join_map
+        cmd.jump_cell = jump_cell
+        cmd.sleep = sleep
+        cmd.is_monster_alive = lambda *a, **k: False
+        cmd.get_player = lambda: type("P", (), {"CELL": "Enter"})()
+        bot = bot_class(cmd, *args)
+        bot.enter_dungeon = enter
+        asyncio.run(bot.to_next_cell())
+        return calls
+
+    _temple_calls = _reentry(SolsticeMoonBot, "master")
+    check("temple: after crafting the master re-enters the dungeon",
+          ("enter",) in _temple_calls, _temple_calls)
+    check("temple: ...and does not jump cells in yulgar",
+          [call for call in _temple_calls if call[0] == "jump"], [])
 
     # --- class enhancement without registry rows --------------------------
     # A stock basic_enhancement.jsonl has no class-slot rows; the class

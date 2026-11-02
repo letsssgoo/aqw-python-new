@@ -108,11 +108,15 @@ async def _apply_one(cmd, slot: str, candidates: Sequence[str]) -> bool:
     for candidate in candidates:
         if await cmd.equip_enhancement(candidate, slot=slot,
                                        enhance_if_missing=True):
-            cmd.bot.log(f"[v2] {slot} enhancement: {candidate} (applied).")
+            verified = bool(getattr(cmd, "last_enhancement_verified", False))
+            cmd.bot.log(f"[v2] {slot} enhancement: {candidate} "
+                        f"({'applied' if verified else 'sent, not verified'}).")
             return True
 
     for candidate in candidates:
-        entry = best_entry(candidate, slot)
+        entry = best_entry(candidate, slot,
+                           is_member=bool(getattr(cmd.bot.player,
+                                                  "is_member", False)))
         if entry is None:
             continue
         cmd.bot.log(f"[v2] {slot} enhancement {candidate!r} is neither owned nor "
@@ -287,11 +291,13 @@ def _shop_id_for(name: str) -> int:
     return shops[0]
 
 
-def best_entry(name: str, slot: str):
+def best_entry(name: str, slot: str, is_member: Optional[bool] = None):
     """The registry record to buy for ``name`` in ``slot``, or ``None``.
 
     A *basic* enhancement is one name at every level 51-100, so the highest
     tier is the right purchase; a forge enhancement has exactly one.
+    ``is_member=False`` skips the ``bUpg`` (member/LEGEND) tiers, which the
+    server refuses to apply on a free account.
     """
     from model import enhancement as registry
     try:
@@ -300,6 +306,10 @@ def best_entry(name: str, slot: str):
         return None
     if not records:
         return None
+    if is_member is False:
+        regular = [record for record in records if not record.is_upgrade]
+        if regular:
+            records = regular
     return max(records, key=lambda record: (record.level, record.rarity))
 
 

@@ -14,16 +14,21 @@ for ultra in ("warden", "ezrajal", "engineer", "tyndarius", "drakath", "drago",
             else ["Default", "Reliable", "Stable"])
     extra = {"drakath": ["Optimized"],
              "nulgath": ["Optimized"],
-             "gramiel": ["Optimized"],
-             "speaker": []}.get(ultra, [])
+             "gramiel": ["Optimized", "Crystal Taunt"],
+             "speaker": ["3 Man Taunt"]}.get(ultra, [])
     check(f"{ultra}: ported compositions", sorted(table), sorted(base + extra))
     # Slot 2 and slot 4 are not always the same class in the extra columns.
-    exceptions = {("nulgath", "Optimized"): "Dragon of Time"}
+    exceptions = {("nulgath", "Optimized"): "Dragon of Time",
+                  ("speaker", "3 Man Taunt"): "ArchPaladin",
+                  ("gramiel", "Crystal Taunt"): "Obsidian Paladin Chronomancer"}
+    last_slots = {("speaker", "3 Man Taunt"): "Verus DoomKnight",
+                  ("gramiel", "Crystal Taunt"): "StoneCrusher"}
     for name, slots in table.items():
         check(f"{ultra}/{name}: four slots", len(slots), 4)
         check(f"{ultra}/{name}: slot 2 is StoneCrusher", slots[1],
               exceptions.get((ultra, name), "StoneCrusher"))
-        check(f"{ultra}/{name}: slot 4 is Lord of Order", slots[3], "Lord of Order")
+        check(f"{ultra}/{name}: slot 4 is Lord of Order", slots[3],
+              last_slots.get((ultra, name), "Lord of Order"))
 
 check("default: slot 1 is Legion Revenant",
       options.compositions("warden")["Default"][0], "Legion Revenant")
@@ -125,8 +130,8 @@ check("ezrajal: Stable's King's Echo wears no cape",
       presets.preset_for("ezrajal", "Stable", 1).cape, None)
 check("warden: Stable's King's Echo keeps its cape",
       presets.preset_for("warden", "Stable", 1).cape, "Vainglory")
-check("tooltip: gramiel lists three rows",
-      len(options.composition_tooltip("gramiel").splitlines()), 3)
+check("tooltip: gramiel lists its four rows",
+      len(options.composition_tooltip("gramiel").splitlines()), 4)
 
 # --- base (class-slot) enhancement resolution ------------------------------
 # Skua resolves the base enhancement by *type* through fixed shop ids, not by a
@@ -247,6 +252,62 @@ class _Player:
 readout = hub._skill_cooldowns(_Player())
 check("ui cooldown: one row per skill slot", [row["slot"] for row in readout],
       [0, 1, 2])
+
+# A pane thread that died on an exception stays in ``active_threads``; the old
+# truthiness guard then refused the next START with "Party is already
+# running!" while nothing was alive.  Reaping keeps the live panes and closes
+# what is left of the dead one's bot.
+class _FakePaneThread:
+    def __init__(self, alive, username, bot=None):
+        self._alive = alive
+        self.username = username
+        self.bot_instance = bot
+
+    def is_alive(self):
+        return self._alive
+
+
+class _DeadPaneBot:
+    def __init__(self):
+        self.auto_relogin = True
+        self.stopped = False
+
+    def stop_bot(self):
+        self.stopped = True
+
+
+_dead_bot = _DeadPaneBot()
+_kept = hub._reap_ended_panes({
+    "slot1": _FakePaneThread(True, "alive"),
+    "slot2": _FakePaneThread(False, "dead", _dead_bot),
+}, tag="test")
+check("hub: a dead pane thread is reaped", list(_kept), ["slot1"])
+check("hub: reaping closes the dead pane's bot", _dead_bot.stopped, True)
+
+
+class _WatchApi:
+    def __init__(self, threads):
+        self.active_threads = dict(threads)
+        self._party_stopping = False
+        self.stopped = False
+
+    def stop_party(self):
+        self.stopped = True
+        self._party_stopping = True
+
+
+_watch_api = _WatchApi({
+    "slot1": _FakePaneThread(True, "a"),
+    "slot2": _FakePaneThread(False, "b"),
+})
+hub._watch_party(_watch_api, "temple", interval=0.01)
+check("hub: one ended pane stops the rest of the party",
+      _watch_api.stopped, True)
+
+_ended_api = _WatchApi({"slot1": _FakePaneThread(False, "b")})
+hub._watch_party(_ended_api, "temple", interval=0.01)
+check("hub: a party that already ended is left alone",
+      _ended_api.stopped, False)
 check("ui cooldown: a ready slot reads 0", readout[0]["ready_in"], 0)
 check("ui cooldown: a busy slot reports the wait",
       2000 < readout[1]["ready_in"] <= 2600, True)
@@ -527,9 +588,23 @@ check("scroll plan: a small plan is left alone",
 # their markers in the packet, the choice detector reports the first one.
 class _WatchedBot:
     def __init__(self):
+        self.subscribers = []
+
         async def handler(msg):
             return None
         self.handle_server_response = handler
+
+    def subscribe(self, callback):
+        if callback not in self.subscribers:
+            self.subscribers.append(callback)
+
+    def unsubscribe(self, callback):
+        if callback in self.subscribers:
+            self.subscribers.remove(callback)
+
+    def notify_subscribers(self, message):
+        for callback in list(self.subscribers):
+            callback(message)
 
 
 from bot.ultra.v2.packets import MarkerWatcher  # noqa: E402
@@ -551,6 +626,23 @@ check("detector: the choice detector reports the first match",
       _choice.last, "truth")
 _choice.stop()
 
+# The watchers ride ``Bot.subscribe`` -- the same hook ``core_ultra.py`` uses --
+# instead of replacing ``handle_server_response``.  Every inbound packet goes
+# through ``notify_subscribers`` before the bot parses it, so the detector sees
+# the reference's packet text and cannot swallow anything.
+_sub = _WatchedBot()
+_handler_before = _sub.handle_server_response
+_watcher = MarkerWatcher(_sub, "ct", ('"animStr":"Charge"',))
+_watcher.start()
+check("detector: armed through Bot.subscribe", len(_sub.subscribers), 1)
+check("detector: the server handler is left alone",
+      _sub.handle_server_response is _handler_before, True)
+_sub.notify_subscribers('{"b":{"o":{"cmd":"ct","animStr":"Charge"}}}')
+check("detector: a packet delivered to subscribers is counted",
+      _watcher.count, 1)
+_watcher.stop()
+check("detector: stop unsubscribes", len(_sub.subscribers), 0)
+
 # --- warden rules ----------------------------------------------------------
 check("warden: Default taunts from slot 1", warden.taunter_slot("Default"), 1)
 check("warden: Stable taunts from slot 2", warden.taunter_slot("Stable"), 2)
@@ -569,6 +661,28 @@ check("core: a wipe is the whole party down", WIPE_DEATHS, 4)
 check("enhancements: every preset field has a slot",
       [slot for _field, slot in enhancements.SLOTS],
       ["class", "cape", "helm", "weapon"])
+
+
+class _ClassCmd(_StubCommand):
+    """A command whose equipped class is whatever the test says."""
+
+    def __init__(self, name):
+        super().__init__()
+        self._class_name = name
+
+    def get_equipped_class(self):
+        if not self._class_name:
+            return None
+        return type("I", (), {"item_name": self._class_name})()
+
+
+check("core: the equipped class is read back lower-cased",
+      warden.build(_ClassCmd("Legion Revenant"),
+                   options.UltraOptions(), 1).equipped_class_name(),
+      "legion revenant")
+check("core: no equipped class reads as empty",
+      warden.build(_ClassCmd(None), options.UltraOptions(), 1)
+      .equipped_class_name(), "")
 
 # --- enhancement buying ----------------------------------------------------
 # Wear what is owned; only when nothing carries it does the module buy it.  A
@@ -627,7 +741,8 @@ class _Entry:
 
 real_best = enhancements.best_entry
 real_adv_buy = None
-enhancements.best_entry = lambda name, slot: _Entry() if name == "Valiance" else None
+enhancements.best_entry = (lambda name, slot, **kwargs:
+                           _Entry() if name == "Valiance" else None)
 from bot import core_advanced as _adv
 
 

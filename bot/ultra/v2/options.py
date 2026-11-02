@@ -34,6 +34,9 @@ SHORT_NAMES = {
     "Dragon of Time": "DOT",
     "Shaman": "SHM",
     "Chaos Slayer Berserker": "CS",
+    "LightCaster": "LC",
+    "Obsidian Paladin Chronomancer": "OPC",
+    "Paladin Chronomancer": "PC",
 }
 
 LR, SC, AP, LOO, KE, VDK = ("Legion Revenant", "StoneCrusher", "ArchPaladin",
@@ -41,6 +44,8 @@ LR, SC, AP, LOO, KE, VDK = ("Legion Revenant", "StoneCrusher", "ArchPaladin",
 SHAMAN = "Shaman"
 DOT = "Dragon of Time"
 CS = "Chaos Slayer Berserker"
+LC = "LightCaster"
+OPC = "Obsidian Paladin Chronomancer"
 
 
 @dataclass(frozen=True)
@@ -209,6 +214,15 @@ COMPOSITIONS: Dict[str, Dict[str, Tuple[SlotPlan, ...]]] = {
                      SlotPlan(SC),
                      SlotPlan(AP, cape="Penitence"),
                      SlotPlan(LOO)),
+        # Port of ``bot/ultra/ultra_gramiel.py`` (v1): LightCaster and Obsidian
+        # Paladin Chronomancer on the left, Lord of Order and StoneCrusher on
+        # the right, each side clearing its crystals in the script's order.
+        # Weapons and the Penitence cape are v1's loadout; the helm stays the
+        # class preset's, because v1 named normal-shop helm *items*.
+        "Crystal Taunt": (SlotPlan(LC, weapon="Valiance", cape="Penitence"),
+                          SlotPlan(OPC, weapon="Mana Vamp", cape="Penitence"),
+                          SlotPlan(LOO, cape="Penitence"),
+                          SlotPlan(SC, weapon="Valiance", cape="Penitence")),
     },
     # Speaker: Penitence everywhere, LR without a helm, StoneCrusher on the
     # Divine Elixir, and two short rotations (2,1 / 2,3,1) for the non-brute
@@ -223,6 +237,14 @@ COMPOSITIONS: Dict[str, Dict[str, Tuple[SlotPlan, ...]]] = {
                      SlotPlan(SC, cape="Penitence", elixir="Divine Elixir"),
                      SlotPlan(AP, skills=(2, 1), cape="Penitence"),
                      SlotPlan(LOO, skills=(2, 3, 1))),
+        # Port of ``bot/ultra/ultra_speaker.py``: the three taunt classes rotate
+        # the boss's malgor steps and Verus DoomKnight covers the zone walk.
+        # Gear follows the v2 speaker rules (Penitence capes); the fight itself
+        # is the v1 counter, not the Truth/Listen chart.
+        "3 Man Taunt": (SlotPlan(LR, cape="Penitence", clear_helm=True),
+                        SlotPlan(AP, cape="Penitence"),
+                        SlotPlan(LOO, cape="Penitence"),
+                        SlotPlan(VDK, cape="Penitence")),
     },
 }
 

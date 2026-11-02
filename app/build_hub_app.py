@@ -65,6 +65,7 @@ if project_root not in sys.path:
 from core.bot import Bot
 from bot.templeshrine.temple.core.core_temple import MidnightSunBot, SolsticeMoonBot
 from bot.templeshrine.eclipse.core.core_eclipse import EclipseMasterBot, EclipseSlaveBot
+from bot.templeshrine.party_scrolls import PartyScrollGate
 
 # --- TauntCoordinator Class ---
 class TauntCoordinator:
@@ -350,6 +351,71 @@ def _stop_panes(active_threads: dict, timeout_s: float = 20.0,
             if id(thread) in alive_ids}
 
 
+def _reap_ended_panes(active_threads: dict, tag: str = "") -> dict:
+    """Drop panes whose thread already ended; keep the ones still running.
+
+    A thread that dies on an exception -- or simply finishes its run -- stayed
+    in ``active_threads`` forever, and a truthiness check then answered "Party
+    is already running!" on the next START with nothing actually running.
+    Anything still alive is kept, so a pane that is only unwinding still
+    blocks a second spawn on the same account.
+    """
+    ended = {key: thread for key, thread in active_threads.items()
+             if not thread.is_alive()}
+    for key, thread in ended.items():
+        _stop_pane(getattr(thread, "bot_instance", None))
+        name = getattr(thread, "username", None) or key
+        print(f"[{tag or 'app'}] {name}: pane thread ended; clearing it.")
+    return {key: thread for key, thread in active_threads.items()
+            if thread.is_alive()}
+
+
+def _watch_party(api, tag: str, interval: float = 1.0) -> None:
+    """Stop the whole party the moment one pane ends on its own.
+
+    A disconnect, a logout from the client or a crashed pane thread ends that
+    thread and leaves the other three fighting a party that no longer exists.
+    The reference parties stop together, so this does the same: when a pane
+    ends while another is still running, the rest are stopped (which closes
+    their sessions too).
+
+    ``stop_party`` sets ``_party_stopping`` first, so an intentional stop never
+    re-enters here, and a party that ended on its own leaves nothing to stop.
+    """
+    while not getattr(api, "_party_stopping", False):
+        time.sleep(interval)
+        if getattr(api, "_party_stopping", False):
+            return
+        threads = list(api.active_threads.values())
+        if not threads:
+            return
+        ended = [thread for thread in threads if not thread.is_alive()]
+        if not ended:
+            continue
+        if len(ended) == len(threads):
+            return
+        names = ", ".join(getattr(thread, "username", "?")
+                          for thread in ended)
+        print(f"[{tag}] {names} ended (disconnect/logout); stopping the party.")
+        try:
+            _push_log(tag, "System", ansi_to_html(
+                f"[system] {names} disconnected or logged out; "
+                f"stopping the party."))
+        except Exception:
+            pass
+        api.stop_party()
+        return
+
+
+def _start_party_watch(api, tag: str) -> None:
+    """Arm :func:`_watch_party` for a freshly started party."""
+    api._party_stopping = False
+    api._party_watch = threading.Thread(
+        target=_watch_party, args=(api, tag),
+        name=f"{tag}-party-watch", daemon=True)
+    api._party_watch.start()
+
+
 def _ultra_run_folder():
     """``capture_logs/ultra/<run id>`` for the run the panes are in, or None."""
     run_id = os.environ.get("AQW_RUN_ID", "").strip()
@@ -551,7 +617,7 @@ class SlaveBotThread(threading.Thread):
             self.loop.close()
 
 class TempleBotThread(threading.Thread):
-    def __init__(self, slot_id, username, password, char_class, bot_class, role, is_taunter, config, callback, taunt_coordinator=None):
+    def __init__(self, slot_id, username, password, char_class, bot_class, role, is_taunter, config, callback, taunt_coordinator=None, scroll_gate=None):
         super().__init__()
         self.slot_id = slot_id
         self.username = username
@@ -563,6 +629,7 @@ class TempleBotThread(threading.Thread):
         self.config = config
         self.callback = callback
         self.taunt_coordinator = taunt_coordinator
+        self.scroll_gate = scroll_gate
         self.bot_instance = None
         self.bot_core = None
         self.daemon = True
@@ -594,6 +661,7 @@ class TempleBotThread(threading.Thread):
         )
         b.set_login_info(self.username, self.password, self.config.get("server", "Alteon"))
         b.taunt_coordinator = self.taunt_coordinator
+        b.scroll_gate = self.scroll_gate
         self.bot_instance = b
 
         async def run_bot(cmd):
@@ -608,13 +676,17 @@ class TempleBotThread(threading.Thread):
         try:
             loop.run_until_complete(b.start_bot(run_bot))
         except Exception as e:
-            print(f"[{self.username}] Thread Exception: {e}")
+            # The hub log needs the line, not only the message: a bare
+            # "object has no attribute 'bot'" says nothing about where.
+            import traceback
+            print(f"[{self.username}] Thread Exception: {e}\n"
+                  f"{traceback.format_exc()}")
         finally:
             unified_redirector_out.unregister_thread(thread_id)
             unified_redirector_err.unregister_thread(thread_id)
 
 class EclipseBotThread(threading.Thread):
-    def __init__(self, slot_id, username, password, char_class, bot_class, bot_kwargs, config, callback):
+    def __init__(self, slot_id, username, password, char_class, bot_class, bot_kwargs, config, callback, scroll_gate=None):
         super().__init__()
         self.slot_id = slot_id
         self.username = username
@@ -624,6 +696,7 @@ class EclipseBotThread(threading.Thread):
         self.bot_kwargs = bot_kwargs
         self.config = config
         self.callback = callback
+        self.scroll_gate = scroll_gate
         self.bot_instance = None
         self.bot_core = None
         self.daemon = True
@@ -654,6 +727,7 @@ class EclipseBotThread(threading.Thread):
             muteSpamWarning=True
         )
         b.set_login_info(self.username, self.password, self.config.get("server", "Alteon"))
+        b.scroll_gate = self.scroll_gate
         self.bot_instance = b
 
         async def run_bot(cmd):
@@ -669,7 +743,9 @@ class EclipseBotThread(threading.Thread):
         try:
             loop.run_until_complete(b.start_bot(run_bot))
         except Exception as e:
-            print(f"[{self.username}] Thread Exception: {e}")
+            import traceback
+            print(f"[{self.username}] Thread Exception: {e}\n"
+                  f"{traceback.format_exc()}")
         finally:
             unified_redirector_out.unregister_thread(thread_id)
             unified_redirector_err.unregister_thread(thread_id)
@@ -1726,6 +1802,13 @@ class TempleApi:
         self.start_time = None
         self.cleared_count = 0
         self.taunt_coordinator = TauntCoordinator()
+        #: Shared Scroll of Enrage gate: one short pane sends the party out to
+        #: craft before the next dungeon iteration.
+        self.scroll_gate = None
+        #: Set by ``stop_party`` so the party watchdog never re-enters it.
+        self._party_stopping = False
+        #: The watchdog started with the party (one pane ends -> all stop).
+        self._party_watch = None
         
         try:
             import psutil
@@ -1824,10 +1907,16 @@ class TempleApi:
         return self.load_config()
 
     def start_party(self, config):
+        # A crashed pane thread stays in the mapping, so the old truthiness
+        # check answered "Party is already running!" with nothing alive.  Drop
+        # the ended ones first; a pane still unwinding still blocks the start.
+        self.active_threads = _reap_ended_panes(self.active_threads,
+                                               tag="temple")
         if self.active_threads:
             return {"success": False, "error": "Party is already running!"}
             
         self.taunt_coordinator = TauntCoordinator()
+        self.scroll_gate = PartyScrollGate(4)
         self.start_time = time.time()
         self.cleared_count = 0
         server = config.get("server", "Alteon")
@@ -1867,14 +1956,22 @@ class TempleApi:
                 is_taunter, 
                 execution_config, 
                 self.handle_slave_log,
-                taunt_coordinator=self.taunt_coordinator
+                taunt_coordinator=self.taunt_coordinator,
+                scroll_gate=self.scroll_gate
             )
             self.active_threads[s_id] = t
             t.start()
-            
+
+        # One pane dropping (DC, logout, crash) stops the other three: a party
+        # that lost a member cannot finish the shrine, and the reference stops
+        # them together.
+        _start_party_watch(self, "temple")
         return {"success": True}
 
     def stop_party(self):
+        # Set before the early return: an intentional stop must disarm the
+        # watchdog even when the mapping is already empty.
+        self._party_stopping = True
         if not self.active_threads:
             return {"success": True}
 
@@ -2008,6 +2105,12 @@ class EclipseApi:
         self.active_threads = {}
         self.start_time = None
         self.cleared_count = 0
+        #: Shared Scroll of Enrage gate (one short pane sends the party out).
+        self.scroll_gate = None
+        #: Set by ``stop_party`` so the party watchdog never re-enters it.
+        self._party_stopping = False
+        #: The watchdog started with the party (one pane ends -> all stop).
+        self._party_watch = None
         
         try:
             import psutil
@@ -2114,11 +2217,16 @@ class EclipseApi:
         return self.load_config()
 
     def start_party(self, config):
+        # Same stale-thread guard as the temple party: a thread that died on an
+        # exception must not keep the next START blocked.
+        self.active_threads = _reap_ended_panes(self.active_threads,
+                                               tag="eclipse")
         if self.active_threads:
             return {"success": False, "error": "Party is already running!"}
             
         self.start_time = time.time()
         self.cleared_count = 0
+        self.scroll_gate = PartyScrollGate(4)
         server = config.get("server", "Alteon")
         room_number = 99999
         slots = config.get("slots", {})
@@ -2147,7 +2255,7 @@ class EclipseApi:
             "slot_number": 1,
             "light_gather_taunter": bool(s1.get("light_gather_taunter", True))
         }
-        t1 = EclipseBotThread("slot1", s1["username"], s1["password"], s1["char_class"], EclipseMasterBot, s1_kwargs, execution_config, self.handle_slave_log)
+        t1 = EclipseBotThread("slot1", s1["username"], s1["password"], s1["char_class"], EclipseMasterBot, s1_kwargs, execution_config, self.handle_slave_log, scroll_gate=self.scroll_gate)
         self.active_threads["slot1"] = t1
         t1.start()
 
@@ -2160,7 +2268,7 @@ class EclipseApi:
             "slot_number": 2,
             "light_gather_taunter": bool(s2.get("light_gather_taunter", True)),
         }
-        t2 = EclipseBotThread("slot2", s2["username"], s2["password"], s2["char_class"], EclipseSlaveBot, s2_kwargs, execution_config, self.handle_slave_log)
+        t2 = EclipseBotThread("slot2", s2["username"], s2["password"], s2["char_class"], EclipseSlaveBot, s2_kwargs, execution_config, self.handle_slave_log, scroll_gate=self.scroll_gate)
         self.active_threads["slot2"] = t2
         t2.start()
 
@@ -2174,7 +2282,7 @@ class EclipseApi:
             "light_gather_taunter": bool(s3.get("light_gather_taunter", True)),
             "moon_haze_taunter": bool(s3.get("moon_haze_taunter", True))
         }
-        t3 = EclipseBotThread("slot3", s3["username"], s3["password"], s3["char_class"], EclipseSlaveBot, s3_kwargs, execution_config, self.handle_slave_log)
+        t3 = EclipseBotThread("slot3", s3["username"], s3["password"], s3["char_class"], EclipseSlaveBot, s3_kwargs, execution_config, self.handle_slave_log, scroll_gate=self.scroll_gate)
         self.active_threads["slot3"] = t3
         t3.start()
 
@@ -2188,13 +2296,18 @@ class EclipseApi:
             "light_gather_taunter": bool(s4.get("light_gather_taunter", True)),
             "sunset_knight_taunter": bool(s4.get("sunset_knight_taunter", True))
         }
-        t4 = EclipseBotThread("slot4", s4["username"], s4["password"], s4["char_class"], EclipseSlaveBot, s4_kwargs, execution_config, self.handle_slave_log)
+        t4 = EclipseBotThread("slot4", s4["username"], s4["password"], s4["char_class"], EclipseSlaveBot, s4_kwargs, execution_config, self.handle_slave_log, scroll_gate=self.scroll_gate)
         self.active_threads["slot4"] = t4
         t4.start()
 
+        # One pane dropping (DC, logout, crash) stops the other three.
+        _start_party_watch(self, "eclipse")
         return {"success": True}
 
     def stop_party(self):
+        # Disarm the watchdog before the early return, so an intentional stop
+        # is never mistaken for a pane that ended on its own.
+        self._party_stopping = True
         if not self.active_threads:
             return {"success": True}
         

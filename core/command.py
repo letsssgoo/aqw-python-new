@@ -198,6 +198,10 @@ class Command:
         from core.bot import Bot
         self.bot: Bot = bot
         self.last_skill_cast_ms: int = 0
+        #: Set by ``_socket_enhancement``: True only when the worn item's
+        #: enhancement id actually changed to the requested one after the
+        #: packet.  False means "sent, could not confirm" -- never "applied".
+        self.last_enhancement_verified: bool = False
         #: Set by ``ensure_accept_quest`` when the accept was refused only
         #: because the quest was already in progress from an earlier session --
         #: the case whose server-side progress the client cannot see.
@@ -1252,6 +1256,15 @@ class Command:
         # the enhancement is bought from.
         candidates = [r for r in records
                       if r.slot == wanted_slot and r.shop_id]
+        # ``bUpg`` tiers are member/LEGEND only (the registry says so): the
+        # server refuses them on a non-member account without an error, so a
+        # non-member has to be given the regular sibling of the same name.
+        # Picking the level-100 R6 instead is what made a helm "applied" and
+        # left it unchanged.
+        if not bool(getattr(self.bot.player, "is_member", False)):
+            regular = [r for r in candidates if not r.is_upgrade]
+            if regular:
+                candidates = regular
         if level is not None:
             candidates = [r for r in candidates if r.level == level] or candidates
         if rarity is not None:
@@ -1308,7 +1321,15 @@ class Command:
                   f"[equip_enhancement] shop {rec.shop_id} did not load; not "
                   f"sending the enhancement." + Fore.RESET)
             return False
+        before = int(getattr(equipped, "enh_id", 0) or 0)
         await self.enhance_item(equipped.item_id, rec.item_id, rec.shop_id)
+        # Best-effort check of what the server did with the packet.  The model
+        # only refreshes its items when the server sends an inventory, so an
+        # unchanged id means "cannot confirm", not necessarily "refused"; the
+        # caller logs the difference instead of claiming it was applied.
+        after = int(getattr(equipped, "enh_id", 0) or 0)
+        self.last_enhancement_verified = bool(
+            after == int(rec.item_id) and after != before)
         return True
 
     def add_drop(self, itemName: Union[str, List[str]]) -> None:

@@ -9,6 +9,7 @@ from colorama import Fore
 import colorama
 
 from handlers.death_handler import death_handler_task
+from bot.templeshrine import auto_enhance, party_scrolls
 
 class AscendEclipseBot:
     def __init__(self, cmd: Command, 
@@ -76,14 +77,41 @@ class AscendEclipseBot:
     def print_aura(self, message):
         self.print_debug(f"{Fore.RED}You got \"{message}\"{Fore.RESET}")
 
+    async def ensure_rite_of_ascension(self) -> bool:
+        """The dungeon's entry item: inventory first, then the bank.
+
+        Ascend Eclipse cannot be entered without it, so a copy that exists
+        nowhere stops the bot with the reason instead of walking into the map
+        and failing there.  A banked copy is withdrawn first.
+        """
+        name = "Rite of Ascension"
+        if self.cmd.is_in_inventory(name):
+            return True
+        if self.cmd.is_in_bank(name):
+            self.print_debug(f"{name} is in the bank; moving it to the "
+                             f"inventory.")
+            await self.cmd.bank_to_inv(name)
+            await self.cmd.sleep(500)
+            if self.cmd.is_in_inventory(name):
+                self.print_debug(f"{name} is ready.")
+                return True
+        self.cmd.stop_bot(f"{name} is in neither the inventory nor the bank; "
+                          f"Ascend Eclipse cannot be entered.")
+        return False
+
     async def prepare_items(self):
+        if not await self.ensure_rite_of_ascension():
+            return
         minimalScroll = 50
         if self.cmd.get_quant_item("Scroll of Enrage") < minimalScroll:
-            self.cmd.stop_bot(f"Not enough Scroll of Enrage. Minimum {minimalScroll} scrolls is required.")
-            return
+            # The party gate crafts before the next dungeon iteration; stopping
+            # here would keep the party from ever reaching it.
+            self.print_debug(f"Scroll of Enrage is under {minimalScroll}; the "
+                             f"scroll gate will craft it before the next run.")
         farm_class = self.cmd.get_farm_class()
         if farm_class:
             await self.cmd.equip_item(farm_class)
+            await auto_enhance.apply(self.cmd, farm_class)
         await self.cmd.equip_scroll("Scroll of Enrage")
         await self.cmd.sleep(3000)
 
@@ -240,6 +268,11 @@ class AscendEclipseBot:
                     self.print_debug("Resuming bot.")
                 self.was_paused = False
 
+            # Before each dungeon iteration: every pane needs its taunt scroll.
+            # One short pane sends the whole party out to craft.
+            await party_scrolls.ensure(self.cmd,
+                                       is_master=(self.role == "master"))
+
             if self.role == "master" and not self.cmd.is_monster_alive():
                 await self.to_next_cell()
             if self.role == "slave":
@@ -349,6 +382,13 @@ class EclipseMasterBot(AscendEclipseBot):
         self.do_taunt = False
         self.converges_count = 0
         self.light_gather_count = 0
+
+        if self.cmd.is_not_in_map("ascendeclipse"):
+            # After the scroll gate the party waits in yulgar; come back in
+            # before the cell walk starts.
+            self.print_debug("Back from crafting; re-entering the dungeon.")
+            await self.enter_dungeon()
+            return
 
         # reset to "Enter" if dead from "r3"
         if self.last_cell == "r3":

@@ -175,6 +175,34 @@ PRESETS: Dict[str, Preset] = {
         elixir="Potent Destruction Elixir",
         combat_potion="Potent Honor Potion",
     ),
+    # Ultra Gramiel's v1 party (``ultra_gramiel.py``): the two support classes
+    # keep their reference presets; the fight itself drives its own 1-2-3-4
+    # rotation, so ``skills``/``mode`` are only used if another composition
+    # ever asks for them.
+    "lightcaster": Preset(
+        cls="LightCaster",
+        skills=(2, 1, 3, 4),
+        base="Lucky",
+        cape="Lament",
+        helm="Forge",
+        weapon="Ravenous",
+        tonic="Fate Tonic",
+        elixir="Potent Battle Elixir",
+        combat_potion="Felicitous Philtre",
+    ),
+    "paladin chronomancer": Preset(
+        cls="Paladin Chronomancer",
+        alternates=("Obsidian Paladin Chronomancer",),
+        skills=(2, 1, 1, 3, 1, 1, 1, 4, 2, 1, 1, 1, 1, 1, 4),
+        mode=STRICT,
+        base="Fighter",
+        cape="Vainglory",
+        helm="Hearty",
+        weapon="Mana Vamp",
+        tonic="Might Tonic",
+        elixir="Divine Elixir",
+        combat_potion="Potent Honor Potion",
+    ),
 }
 
 
@@ -184,6 +212,7 @@ PRESETS["chaos slayer cleric"] = PRESETS["chaos slayer berserker"]
 PRESETS["chaos slayer thief"] = PRESETS["chaos slayer berserker"]
 PRESETS["chaos champion prime"] = PRESETS["chaos slayer berserker"]
 PRESETS["dark chaos berserker"] = PRESETS["chaos slayer berserker"]
+PRESETS["obsidian paladin chronomancer"] = PRESETS["paladin chronomancer"]
 
 
 def preset_for_class(class_name: str) -> Preset:

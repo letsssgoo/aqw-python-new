@@ -374,8 +374,93 @@ async def _heal_holds():
 check("heal: a pending heal holds the rotation",
       run(_heal_holds()), (True, True, True))
 
-check("taunt: a pending taunt keeps the rotation going",
-      run(_pending_taunt_keeps_casting()), (True, True))
+check("taunt: a pending taunt is consumed and the rotation resumes",
+      run(_pending_taunt_keeps_casting()), (False, True))
+
+
+class _TauntCommand(_PendingTauntCommand):
+    """Records the LW ``TauntMonster`` sequence: attack, 100 ms, cast."""
+
+    def __init__(self, ready: bool = True):
+        super().__init__()
+        self.events = []
+        self.ready = ready
+        self.bot.player.canUseSkill = lambda slot: self.ready
+        self.bot.monsters = [type("M", (), {
+            "frame": "Enter", "is_alive": True, "current_hp": 100,
+            "mon_map_id": "3", "mon_name": "Ultra Dage"})()]
+        self.bot.use_skill_to_monster = (
+            lambda skill, ids, cap: self.events.append(("attack", tuple(ids))))
+
+    async def use_skill(self, slot, **kwargs):
+        self.events.append(("cast", slot, kwargs.get("target_monsters")))
+        return True
+
+    async def sleep(self, ms):
+        self.events.append(("sleep", ms))
+        await asyncio.sleep(0)
+
+
+async def _taunt_sequence():
+    cmd = _TauntCommand(ready=True)
+    runner = warden.build(cmd, options.UltraOptions(
+        players=("a", "b", "c", "d")), 1)
+    runner.taunter_role = True
+    runner.request_taunt("id.3")
+    cast = await runner._taunt_monster("id.3")
+    return cast, [event[0] for event in cmd.events][:3], runner.taunt_requested
+
+
+check("taunt: attack first, then the 100 ms wait, then skill 5",
+      run(_taunt_sequence()), (True, ["attack", "sleep", "cast"], False))
+
+
+async def _immediate_taunt_gate():
+    blocked = _TauntCommand(ready=False)
+    runner = warden.build(blocked, options.UltraOptions(
+        players=("a", "b", "c", "d")), 1)
+    runner.taunter_role = True
+    refused = runner.request_immediate_taunt("id.3")
+
+    ready = _TauntCommand(ready=True)
+    runner_b = warden.build(ready, options.UltraOptions(
+        players=("a", "b", "c", "d")), 1)
+    runner_b.taunter_role = True
+    queued = runner_b.request_immediate_taunt("id.3")
+    await runner_b._slot_five_lane("id.3")
+    return refused, queued, runner_b.immediate_taunt_target, (
+        ("cast", 5, "id.3") in ready.events)
+
+
+check("taunt: an immediate taunt is only queued when slot 5 is ready",
+      run(_immediate_taunt_gate()), (False, True, None, True))
+
+
+async def _absolute_taunt():
+    cmd = _TauntCommand(ready=True)
+    runner = warden.build(cmd, options.UltraOptions(
+        players=("a", "b", "c", "d")), 1)
+    runner.taunter_role = True
+    runner.request_absolute_priority_taunt("id.3")
+    await runner._absolute_priority_taunt("id.3")
+    return runner.absolute_taunt_target, ("cast", 5, "id.3") in cmd.events
+
+
+check("taunt: the absolute priority taunt casts and clears itself",
+      run(_absolute_taunt()), (None, True))
+
+
+async def _priority_skill_lane():
+    cmd = _TauntCommand(ready=True)
+    runner = warden.build(cmd, options.UltraOptions(
+        players=("a", "b", "c", "d")), 3)
+    runner.priority_skill = 3
+    handled = await runner._priority_lane("id.3")
+    return handled, runner.priority_skill, ("cast", 3, "id.3") in cmd.events
+
+
+check("priority skill: the queued slot is cast and then cleared",
+      run(_priority_skill_lane()), (True, 0, True))
 
 check("bill: the auto attack fires before the heal",
       run(_auto_before_heal()), [0, 2])

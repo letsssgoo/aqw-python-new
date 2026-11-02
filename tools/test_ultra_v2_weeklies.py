@@ -3,6 +3,7 @@
     python tools/test_ultra_v2_weeklies.py
 """
 from _ultra_v2_support import *  # noqa: F401,F403
+import json     # noqa: E402
 import os      # noqa: E402
 import shutil  # noqa: E402
 
@@ -433,17 +434,19 @@ _previous_decay = os.environ.get("AQW_RUN_ID")
 os.environ["AQW_RUN_ID"] = _decay_run
 try:
     holder = _dage(2)
+    holder.scroll_equipped = lambda name: True
     holder.detector.count = 3
     holder.detector.running = True
     holder.handle_decay_detections()
     check("dage: the Decay holder answers its cycles",
-          (holder.next_decay_cycle, holder.taunt_requested), (4, True))
+          (holder.next_decay_cycle, holder.skill_five_target), (4, dage.BOSS))
     even = _dage(4)
+    even.scroll_equipped = lambda name: True
     even.detector.count = 2
     even.detector.running = True
     even.handle_decay_detections()
     check("dage: Default's slot 4 only answers even cycles",
-          (even.next_decay_cycle, even.taunt_requested), (3, True))
+          (even.next_decay_cycle, even.skill_five_target), (3, dage.BOSS))
 finally:
     shutil.rmtree(REPO_ROOT / "capture_logs" / "ultra" / _decay_run,
                   ignore_errors=True)
@@ -590,6 +593,9 @@ class _HealCommand(_StubCommand):
         self.heals = []
         self.bot.player.canUseSkill = lambda slot: True
         self.bot.player.getAura = lambda name: aura
+        # ``HandleSafeHeal`` returns early while the pane carries no auras at
+        # all, so the stub needs at least one for the window to count as open.
+        self.bot.player.AURAS = [object()]
 
     def is_monster_alive(self, target="*"):
         return True
@@ -601,6 +607,9 @@ class _HealCommand(_StubCommand):
 
 _clean = dage.UltraDage(_HealCommand(), options.UltraOptions(
     players=("a", "b", "c", "d")), 3)
+check("dage: the only heal is the safe-window one",
+      (_clean.spam_heal, _clean.heal_below, _clean.heal_skill),
+      (False, None, None))
 check("dage: the safe heal fires once", run(_clean.handle_safe_heal()), True)
 check("dage: and not twice in the same window",
       run(_clean.handle_safe_heal()), False)
@@ -684,6 +693,89 @@ check("gramiel: the Optimized Shaman is slot 1 only",
         _gramiel(2, "Optimized").is_shaman],
        _gramiel(1, "Optimized").preset.skills),
       ([True, False], (0, 1, 2)))
+
+# --- Ultra Gramiel: Crystal Taunt (the v1 ``ultra_gramiel`` port) ------------
+check("gramiel/crystal: the v1 party",
+      options.compositions("gramiel")["Crystal Taunt"],
+      ("LightCaster", "Obsidian Paladin Chronomancer", "Lord of Order",
+       "StoneCrusher"))
+check("gramiel/crystal: the OPC preset resolves through its alias",
+      presets.preset_for("gramiel", "Crystal Taunt", 2).cls,
+      "Paladin Chronomancer")
+check("gramiel/crystal: v1's kill order per slot",
+      [gramiel.V1_KILL_ORDER[slot] for slot in (1, 2, 3, 4)],
+      [("id.3", "id.2"), ("id.2", "id.3"), ("id.3", "id.2"), ("id.2", "id.3")])
+check("gramiel/crystal: StoneCrusher has no party heal",
+      gramiel.V1_HEAL_SKILL.get("stonecrusher"), None)
+check("gramiel/crystal: the support heal skills",
+      gramiel.V1_HEAL_SKILL,
+      {"lightcaster": 3, "obsidian paladin chronomancer": 3,
+       "lord of order": 2})
+
+
+def _crystal_runner(role):
+    runner = _gramiel(1, composition=gramiel.CRYSTAL_TAUNT)
+    runner.bot.strMapName = "ultragramiel"
+    runner.equipped_class_name = lambda: role
+    return runner
+
+
+def _right_telegraphs(role):
+    runner = _crystal_runner(role)
+    fired = []
+    for _ in range(2):
+        runner._v1_force = False
+        runner._crystal_packet(json.dumps({"b": {"o": {
+            "cmd": "ct",
+            "anims": [{"tInf": "m:3", "msg": gramiel.V1_TELEGRAPH}]}}}))
+        fired.append(runner._v1_force)
+    return fired
+
+
+check("gramiel/crystal: LightCaster answers the odd right attack",
+      _right_telegraphs("lightcaster"), [True, False])
+check("gramiel/crystal: Lord of Order answers the even right attack",
+      _right_telegraphs("lord of order"), [False, True])
+
+
+def _left_telegraphs(role):
+    runner = _crystal_runner(role)
+    fired = []
+    for _ in range(2):
+        runner._v1_force = False
+        runner._crystal_packet(json.dumps({"b": {"o": {
+            "cmd": "ct",
+            "anims": [{"tInf": "m:2", "msg": gramiel.V1_TELEGRAPH}]}}}))
+        fired.append(runner._v1_force)
+    return fired
+
+
+check("gramiel/crystal: StoneCrusher answers the odd left attack",
+      _left_telegraphs("stonecrusher"), [True, False])
+check("gramiel/crystal: Obsidian Paladin Chronomancer the even one",
+      _left_telegraphs("obsidian paladin chronomancer"), [False, True])
+
+_telegraph_runner = _crystal_runner("lord of order")
+_telegraph_runner._crystal_packet(json.dumps({"b": {"o": {
+    "cmd": "ct", "anims": [{"tInf": "m:3", "msg": gramiel.V1_TELEGRAPH}]}}}))
+check("gramiel/crystal: the taunt remembers which crystal telegraphed",
+      _telegraph_runner._v1_target, "id.3")
+
+
+def _point_taunt(role):
+    runner = _crystal_runner(role)
+    runner._crystal_packet(json.dumps({"b": {"o": {
+        "cmd": "ct", "anims": [{"animStr": "Point", "tInf": "m:1"}]}}}))
+    return runner._v1_index, runner._v1_wait
+
+
+check("gramiel/crystal: Point hands the taunt to the next class",
+      _point_taunt("stonecrusher"), (1, True))
+check("gramiel/crystal: and only that class waits",
+      _point_taunt("lightcaster"), (1, False))
+check("gramiel/crystal: the Paladin Chronomancer alias counts as OPC",
+      _crystal_runner("paladin chronomancer").v1_role(),
+      "obsidian paladin chronomancer")
 
 
 class _CrystalCommand(_StubCommand):
@@ -803,6 +895,73 @@ check("speaker: the signals follow the attempt and cycle",
        _speaker(1).chart_reset_signal(2)),
       ("SPEAKER_ZONE_2_3_CLEAR", "SPEAKER_CHART_FAILURE_2",
        "SPEAKER_CHART_RESET_2"))
+
+
+async def _speaker_respawn():
+    runner = _speaker(2)
+    calls = []
+
+    async def fake_resume():
+        calls.append("resume")
+
+    async def fake_jump():
+        calls.append("jump")
+
+    async def fake_zone(state, attempt):
+        calls.append("zone")
+
+    runner.resume_skills = fake_resume
+    runner.jump_boss = fake_jump
+    runner.restore_zone_after_death = fake_zone
+    runner.in_boss_room = lambda: False
+    await runner.on_respawn(None, 1)
+    return calls
+
+
+check("speaker: a respawn restarts the skill engine before anything else",
+      run(_speaker_respawn()), ["resume", "jump", "zone"])
+
+# --- Ultra Speaker: 3 Man Taunt (the v1 ``ultra_speaker`` port) --------------
+check("speaker/3man: the composition is v1's four roles",
+      options.compositions("speaker")["3 Man Taunt"],
+      ("Legion Revenant", "ArchPaladin", "Lord of Order", "Verus DoomKnight"))
+check("speaker/3man: step 0 taunts with the Legion Revenant",
+      speaker.UltraSpeaker.malgor_step(0)[:3],
+      ("Legion Revenant", None, None))
+check("speaker/3man: step 15 has the DoomKnight walk IN",
+      speaker.UltraSpeaker.malgor_step(15)[:3],
+      ("Lord Of Order", "Verus DoomKnight", "IN"))
+check("speaker/3man: step 5 zones the Legion Revenant OUT",
+      speaker.UltraSpeaker.malgor_step(5)[:3],
+      ("Legion Revenant", "Legion Revenant", "OUT"))
+
+
+def _malgor_counter():
+    runner = _speaker(1)
+    runner._tm_counter = 15
+    answer = runner.malgor_handler()
+    return answer[:3], runner._tm_counter
+
+
+check("speaker/3man: the counter resets at 15 and resumes at 2",
+      _malgor_counter(), (("Lord Of Order", "Verus DoomKnight", "IN"), 2))
+
+
+def _three_man_packet():
+    runner = _speaker(1)        # Legion Revenant: heals with 3
+    runner._three_man_packet(json.dumps(
+        {"b": {"o": {"cmd": "ct", "p": {"1": {"intHP": 1500}}}}}))
+    heal = (runner._tm_force_heal, runner._tm_heal_skill)
+    runner._three_man_packet(json.dumps(
+        {"b": {"o": {"cmd": "ct", "anims": [{"msg": "truth"}]}}}))
+    step = (runner._tm_taunter, runner._tm_counter)
+    runner._three_man_packet(json.dumps(
+        {"b": {"o": {"cmd": "event", "args": {"zoneSet": "A"}}}}))
+    return heal, step, runner._tm_force_skill
+
+
+check("speaker/3man: the ct packet drives the heal, the counter and the zone",
+      _three_man_packet(), ((True, 3), ("Legion Revenant", 1), True))
 check("speaker: every pane carries the scroll on Default",
       [_speaker(slot).is_taunter for slot in (1, 2, 3, 4)],
       [True, True, True, True])
@@ -814,8 +973,8 @@ check("speaker: brute force is read from the options",
 _fresh = _speaker(1)                       # slot 1 owns the opening Truth step
 _fresh._warning_queue = [speaker.TRUTH]
 check("speaker: the opening Truth is the fresh owner's taunt",
-      (_fresh.process_warnings(), _fresh.taunt_requested),
-      ((True, ""), True))
+      (_fresh.process_warnings(), _fresh.absolute_taunt_target),
+      ((True, ""), speaker.SPEAKER))
 _wrong = _speaker(1)
 _wrong._warning_queue = [speaker.LISTEN]
 _ok, _mismatch = _wrong.process_warnings()

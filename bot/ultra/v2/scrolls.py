@@ -76,15 +76,21 @@ def turns_for(held: int, per_turn: int, target: int) -> int:
     return max(0, math.ceil((target - held) / per_turn))
 
 
-async def prepare(cmd, name: Optional[str]) -> bool:
-    """Bring ``name`` up to the reference's stock level, crafting when short."""
+async def prepare(cmd, name: Optional[str], *, minimum: Optional[int] = None,
+                  target: Optional[int] = None) -> bool:
+    """Bring ``name`` up to a stock level, crafting when short.
+
+    ``minimum`` overrides the reference's threshold (80 for Enrage) and
+    ``target`` the level the turn-ins aim for (the 1000 cap); the temple and
+    eclipse parties use 50 and 1000 so a dungeon run never starts short.
+    """
     if not name:
         return True
     if name not in SUPPORTED:
         cmd.bot.log(f"[v2] scroll {name!r} is not supported; nothing prepared.")
         return False
 
-    wanted = threshold(name)
+    wanted = threshold(name) if minimum is None else int(minimum)
     held = await _quantity(cmd, name)
     if held >= wanted:
         cmd.bot.log(f"[v2] {name} already available ({held}/{wanted}).")
@@ -105,7 +111,7 @@ async def prepare(cmd, name: Optional[str]) -> bool:
         cmd.add_drop(name)
 
     if name == ENRAGE:
-        return await _prepare_enrage(cmd, held)
+        return await _prepare_enrage(cmd, held, minimum=wanted, target=target)
     return await _prepare_optional(cmd, name, held)
 
 
@@ -135,7 +141,10 @@ async def equip(cmd, name: Optional[str]) -> bool:
 # Enrage
 # ---------------------------------------------------------------------------
 
-async def _prepare_enrage(cmd, held: int) -> bool:
+async def _prepare_enrage(cmd, held: int, minimum: Optional[int] = None,
+                          target: Optional[int] = None) -> bool:
+    minimum = ENRAGE_THRESHOLD if minimum is None else int(minimum)
+    target = minimum if target is None else int(target)
     choice = route(cmd.bot.player.GOLD)
     await cmd.join_map(SPELLCRAFT_MAP)
     if not cmd.is_in_map(SPELLCRAFT_MAP):
@@ -143,7 +152,7 @@ async def _prepare_enrage(cmd, held: int) -> bool:
         return False
 
     if choice == "gold":
-        turns = turns_for(held, ENRAGE_REWARD_QUANTITY, ENRAGE_MAX_STACK)
+        turns = turns_for(held, ENRAGE_REWARD_QUANTITY, target)
         cmd.bot.log(f"[v2] {ENRAGE}: gold route, {turns} turn-in(s) of quest "
                     f"{ENRAGE_QUEST}.")
         if not await _ensure(cmd, GOLD_VOUCHER, 2):
@@ -153,7 +162,7 @@ async def _prepare_enrage(cmd, held: int) -> bool:
             return False
         if not await _ensure(cmd, ZEALOUS_INK, turns):
             return False
-        if not await _complete(cmd, ENRAGE_QUEST, turns, ENRAGE, ENRAGE_THRESHOLD):
+        if not await _complete(cmd, ENRAGE_QUEST, turns, ENRAGE, target):
             return False
     else:
         cmd.bot.log(f"[v2] {ENRAGE}: farming route (under 1,000,000 gold).")
@@ -163,9 +172,8 @@ async def _prepare_enrage(cmd, held: int) -> bool:
             return False
 
     held = await _quantity(cmd, ENRAGE)
-    if held < ENRAGE_THRESHOLD:
-        cmd.bot.log(f"[v2] {ENRAGE}: only {held}/{ENRAGE_THRESHOLD} after "
-                    f"crafting.")
+    if held < minimum:
+        cmd.bot.log(f"[v2] {ENRAGE}: only {held}/{minimum} after crafting.")
         return False
     cmd.bot.log(f"[v2] {ENRAGE} prepared ({held}).")
     return True
