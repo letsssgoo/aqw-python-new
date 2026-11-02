@@ -170,7 +170,8 @@ def main() -> int:
 
     quiet, got, ticks = asyncio.run(quiet_scenario())
     check("pass tanpa hasil berhenti, tidak menggantung", got, False)
-    check("berhenti setelah QUIET_PASSES pass", quiet.passes, QUIET_PASSES)
+    check("berhenti setelah 4x QUIET_PASSES pass", quiet.passes,
+          QUIET_PASSES * 4)
     check("quest-nya disebut di log",
           any("9235" in line for line in quiet.bot.lines), True)
     check("event loop tetap jalan selama loop", ticks > 0, True)
