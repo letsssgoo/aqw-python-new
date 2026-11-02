@@ -22,6 +22,7 @@ ends where it stood instead of walking the rest of the script.
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any, Dict, Optional, Sequence
 
 from bot.ultra import party
@@ -61,6 +62,11 @@ WIPE_DEATHS = 4
 class V2Core:
     """One pane of one ultra: gear, pots, skills, wipeout and quest gates."""
 
+    #: How long an absolute priority taunt may hold the rotation.  The
+    #: reference waits forever if slot 5 never becomes usable; this bounds the
+    #: wait so a missing scroll cannot leave a pane silently standing still.
+    ABSOLUTE_TAUNT_TIMEOUT_S = 15.0
+
     def __init__(self, cmd, spec: UltraSpec, options: UltraOptions,
                  slot: int = 1, *, poll_ms: int = 150):
         self.cmd = cmd
@@ -73,9 +79,24 @@ class V2Core:
         self.preset: Preset = presets.preset_for(spec.id, options.composition,
                                                  self.slot, options.extras)
         self.aborted = ""
+        #: ``StartSkillEngine(..., isTaunter)`` -- the role gate on the taunt
+        #: lanes, exactly like ``IsTaunterRole()`` in the reference.
+        self.taunter_role = False
+        # ``RequestTaunt`` / ``RequestImmediateTaunt`` / ``RequestSkillFive``:
+        # each is a single pending slot-5 cast, consumed by the skill loop.
         self.taunt_requested = False
         #: Target the pending skill-5 taunt must hit; None keeps the rotation's.
         self.taunt_target: Optional[str] = None
+        #: ``RequestImmediateTaunt``: same cast, but only queued when skill 5 is
+        #: usable *right now* so it goes out on this pass.
+        self.immediate_taunt_target: Optional[str] = None
+        #: ``RequestAbsolutePriorityTaunt``: blocks the rotation until the cast
+        #: lands (Gramiel, Speaker).
+        self.absolute_taunt_target: Optional[str] = None
+        #: ``RequestSkillFive`` / ``RequestImmediateSkillFive``: slot 5 for a
+        #: pane that is not the taunter -- Ultra Dage's Decay and Mystify.
+        self.skill_five_target: Optional[str] = None
+        self.immediate_skill_five_target: Optional[str] = None
         self._attempt_started = 0.0
         self._death_reported = False
         self._skill_task: Optional[asyncio.Task] = None
@@ -313,6 +334,7 @@ class V2Core:
                            taunter: bool = False) -> None:
         """Run the skill engine in the background until :meth:`stop_skills`."""
         await self.stop_skills()
+        self.taunter_role = bool(taunter)
         self._skill_args = (target, use_survival, taunter)
         self._skill_task = asyncio.create_task(
             self._skill_loop(target, use_survival=use_survival,
@@ -345,9 +367,273 @@ class V2Core:
             pass
 
     def request_taunt(self, target: Optional[str] = None) -> None:
-        """Ask for skill 5 (``RequestTaunt``); ``target`` pins it to one monster."""
+        """``RequestTaunt``: ask for skill 5 on ``target``.
+
+        The request is consumed by the next skill-loop pass; that pass runs the
+        reference's ``TauntMonster`` -- attack, 100 ms, cast, and one retry
+        750 ms later -- so the taunt lands in the window ``Focus`` expects
+        instead of whenever the rotation happens to reach slot 5.
+        """
         self.taunt_requested = True
         self.taunt_target = target
+
+    def request_immediate_taunt(self, target: str) -> bool:
+        """``RequestImmediateTaunt``: queue only when the cast can go out now.
+
+        The reference refuses the request unless the pane is alive, is the
+        taunter, the target is alive and ``CanUseSkill(5)`` is already true.
+        Queuing unconditionally is what turned a "now" taunt into a late one.
+        """
+        if not self.taunter_role or self.bot.player.ISDEAD:
+            return False
+        if not target or not self.cmd.is_monster_alive(target):
+            return False
+        if not self.bot.player.canUseSkill(5):
+            return False
+        self.immediate_taunt_target = target
+        return True
+
+    def request_absolute_priority_taunt(self, target: str) -> None:
+        """``RequestAbsolutePriorityTaunt``: block the rotation until it lands.
+
+        Gramiel and Speaker arm this on a packet, and the reference's engine
+        waits (and keeps re-attacking) until skill 5 is cast or the target is
+        gone -- ordinary skills do not fire in between.
+        """
+        if target:
+            self.absolute_taunt_target = target
+
+    def request_skill_five(self, target: str) -> None:
+        """``RequestSkillFive``: cast slot 5 without the taunter role gate."""
+        if target:
+            self.skill_five_target = target
+
+    def request_immediate_skill_five(self, target: str) -> bool:
+        """``RequestImmediateSkillFive``: slot 5, only if usable right now."""
+        if not target or self.bot.player.ISDEAD:
+            return False
+        if not self.cmd.is_monster_alive(target):
+            return False
+        if not self.bot.player.canUseSkill(5):
+            return False
+        self.immediate_skill_five_target = target
+        return True
+
+    def scroll_equipped(self, name: str) -> bool:
+        """True when ``name`` is the scroll currently in the slot-5 position."""
+        try:
+            item = self.bot.player.get_item_inventory(name)
+        except Exception:
+            return False
+        return bool(item and getattr(item, "is_equipped", False))
+
+    async def _attack_target(self, target: str) -> bool:
+        """``Bot.Combat.Attack(mapId)``: point the client at the monster.
+
+        Sends the bare attack packet for the monster id instead of going
+        through ``use_skill(0)``: the reference's ``Attack`` is a target select,
+        not a skill cast, and must work even while the auto attack is on
+        cooldown.
+        """
+        ids = self.monster_ids(target)
+        if not ids:
+            return False
+        try:
+            self.bot.use_skill_to_monster("a", ids, 1)
+            return True
+        except Exception:
+            return False
+
+    def monster_ids(self, target: str) -> list:
+        """Alive monsters in this cell that ``target`` names, in map order."""
+        try:
+            cell = str(self.bot.player.CELL or "").lower()
+        except Exception:
+            return []
+        wanted_id = target[3:] if target.startswith("id.") else ""
+        wanted_name = target.lower()
+        ids = []
+        for mon in getattr(self.bot, "monsters", []) or []:
+            if str(mon.frame or "").lower() != cell:
+                continue
+            if not mon.is_alive or mon.current_hp <= 0:
+                continue
+            if wanted_id:
+                if mon.mon_map_id == wanted_id:
+                    ids.append(mon.mon_map_id)
+            elif wanted_name == "*" or mon.mon_name.lower() == wanted_name:
+                ids.append(mon.mon_map_id)
+        return ids
+
+    async def _slot_five_lane(self, target: str) -> bool:
+        """One pass of the reference's slot-5 lanes; True when one was pending.
+
+        Order matches ``SkillEngineLoop``: absolute priority taunt, then the
+        taunt, the immediate taunt, skill five and the immediate skill five.
+        The reference skips the ordinary rotation on that pass, so a taunt is
+        never queued behind a damage skill.
+        """
+        if self.absolute_taunt_target:
+            await self._absolute_priority_taunt(target)
+            return True
+        if self.taunt_requested:
+            await self._taunt_monster(self.taunt_target or target)
+            return True
+        if self.immediate_taunt_target:
+            requested, self.immediate_taunt_target = (
+                self.immediate_taunt_target, None)
+            await self._immediate_taunt(requested)
+            return True
+        if self.skill_five_target:
+            requested, self.skill_five_target = self.skill_five_target, None
+            await self._skill_five(requested)
+            return True
+        if self.immediate_skill_five_target:
+            requested, self.immediate_skill_five_target = (
+                self.immediate_skill_five_target, None)
+            await self._immediate_skill_five(requested)
+            return True
+        return False
+
+    async def _absolute_priority_taunt(self, fallback: str) -> None:
+        """``RequestAbsolutePriorityTaunt``: keep pushing until skill 5 lands.
+
+        ``SkillEngineLoop`` attacks the monster until the client's target is
+        the boss, then casts the moment ``CanUseSkill(5)`` allows, and the rest
+        of the engine stays blocked meanwhile.  The loop here is bounded: the
+        reference would block forever if slot 5 could never be used, which
+        would leave the pane standing still with no diagnosis.
+        """
+        requested = self.absolute_taunt_target
+        target = requested or fallback
+        try:
+            deadline = time.time() + self.ABSOLUTE_TAUNT_TIMEOUT_S
+            self.log(f"absolute priority taunt on {target}.")
+            while (self.cmd.is_still_connected()
+                   and not self.sync.aborted()
+                   and time.time() < deadline):
+                if not self.taunter_role or self.bot.player.ISDEAD:
+                    break
+                if not self.cmd.is_monster_alive(target):
+                    break
+                if (self.bot.player.canUseSkill(5)
+                        and await self.cmd.use_skill(5, target_monsters=target)):
+                    self.log(f"absolute priority taunt cast on {target}.")
+                    return
+                await self._attack_target(target)
+                await self.cmd.sleep(self.poll_ms)
+            self.log(f"absolute priority taunt on {target} gave up.")
+        finally:
+            if self.absolute_taunt_target == requested:
+                self.absolute_taunt_target = None
+
+    async def _taunt_monster(self, target: str) -> bool:
+        """``TauntMonster``: the precise enrage taunt, 750 ms retry included.
+
+        The pending request is consumed **before** the cast, exactly like the
+        reference's ``Interlocked.Exchange(ref pendingTauntMapId, 0)``: a fresh
+        request that arrives while this one is casting is served on the next
+        pass instead of being swallowed here.
+        """
+        self.taunt_requested = False
+        self.taunt_target = None
+        if not self.taunter_role or self.bot.player.ISDEAD:
+            return False
+        if not target or not self.cmd.is_monster_alive(target):
+            return False
+        await self._attack_target(target)
+        await self.cmd.sleep(100)
+        if self.bot.player.ISDEAD or not self.cmd.is_monster_alive(target):
+            return False
+        if self.bot.player.canUseSkill(5):
+            if await self.cmd.use_skill(5, target_monsters=target):
+                self.log(f"taunt cast (skill 5) on {target}.")
+                await self.cmd.sleep(150)
+                await self._attack_target(target)
+                return True
+        self.log("waiting 750ms for skill 5.")
+        await self.cmd.sleep(750)
+        if self.bot.player.ISDEAD or not self.cmd.is_monster_alive(target):
+            return False
+        await self._attack_target(target)
+        await self.cmd.sleep(100)
+        if self.bot.player.ISDEAD or not self.cmd.is_monster_alive(target):
+            return False
+        if self.bot.player.canUseSkill(5):
+            if await self.cmd.use_skill(5, target_monsters=target):
+                self.log("taunt cast after 750ms.")
+                await self.cmd.sleep(150)
+                await self._attack_target(target)
+                return True
+        self.log("could not cast skill 5 after 750ms.")
+        await self._attack_target(target)
+        return False
+
+    async def _immediate_taunt(self, target: str) -> bool:
+        """``ImmediateTaunt``: no retry -- it was queued because it is ready."""
+        if (not self.taunter_role or self.bot.player.ISDEAD or not target
+                or not self.cmd.is_monster_alive(target)
+                or not self.bot.player.canUseSkill(5)):
+            return False
+        await self._attack_target(target)
+        await self.cmd.sleep(100)
+        if (self.bot.player.ISDEAD or not self.cmd.is_monster_alive(target)
+                or not self.bot.player.canUseSkill(5)):
+            return False
+        if not await self.cmd.use_skill(5, target_monsters=target):
+            return False
+        self.log(f"used immediate taunt on {target}.")
+        return True
+
+    async def _skill_five(self, target: str) -> bool:
+        """``UseSkillFive``: cast slot 5 (Decay/Mystify), 750 ms retry included."""
+        if self.bot.player.ISDEAD or not target:
+            return False
+        if not self.cmd.is_monster_alive(target):
+            return False
+        await self._attack_target(target)
+        await self.cmd.sleep(100)
+        if self.bot.player.ISDEAD or not self.cmd.is_monster_alive(target):
+            return False
+        if self.bot.player.canUseSkill(5):
+            if await self.cmd.use_skill(5, target_monsters=target):
+                self.log(f"used skill 5 on {target}.")
+                await self.cmd.sleep(150)
+                await self._attack_target(target)
+                return True
+        self.log("waiting 750ms for skill 5.")
+        await self.cmd.sleep(750)
+        if self.bot.player.ISDEAD or not self.cmd.is_monster_alive(target):
+            return False
+        await self._attack_target(target)
+        await self.cmd.sleep(100)
+        if self.bot.player.ISDEAD or not self.cmd.is_monster_alive(target):
+            return False
+        if self.bot.player.canUseSkill(5):
+            if await self.cmd.use_skill(5, target_monsters=target):
+                self.log("used skill 5 after 750ms.")
+                await self.cmd.sleep(150)
+                await self._attack_target(target)
+                return True
+        self.log("could not use skill 5 after 750ms.")
+        await self._attack_target(target)
+        return False
+
+    async def _immediate_skill_five(self, target: str) -> bool:
+        """``ImmediateSkillFive``: slot 5 only when it is already usable."""
+        if (self.bot.player.ISDEAD or not target
+                or not self.cmd.is_monster_alive(target)
+                or not self.bot.player.canUseSkill(5)):
+            return False
+        await self._attack_target(target)
+        await self.cmd.sleep(100)
+        if (self.bot.player.ISDEAD or not self.cmd.is_monster_alive(target)
+                or not self.bot.player.canUseSkill(5)):
+            return False
+        if not await self.cmd.use_skill(5, target_monsters=target):
+            return False
+        self.log(f"used immediate skill 5 on {target}.")
+        return True
 
     async def _skill_loop(self, target: str, *, use_survival: bool,
                           taunter: bool) -> None:
@@ -373,41 +659,25 @@ class V2Core:
             if await self._heal_step():
                 await self.cmd.sleep(self.poll_ms)
                 continue
+            # Slot 5 lanes first, in the reference's order: an absolute taunt,
+            # a taunt, an immediate taunt, then the plain skill-five casts.
+            # A pass that served one of them skips the ordinary rotation for
+            # the same reason ``SkillEngineLoop`` does.
+            if await self._slot_five_lane(target):
+                await self.cmd.sleep(self.poll_ms)
+                continue
             if self.combat_equipped and self.bot.player.canUseSkill(5):
                 # A combat potion lives in slot 5; the rotation never lists it,
                 # so it is pressed here on the server's own cooldown.
                 if await self.cmd.use_skill(5):
                     await self.cmd.sleep(self.poll_ms)
                     continue
-            taunt_cast = False
-            if self.taunt_requested:
-                taunt_on = self.taunt_target or target
-                if taunter and await self.cmd.use_skill(5, target_monsters=taunt_on):
-                    # Only a taunt that actually went out clears the request:
-                    # the reference keeps it pending until skill 5 is cast, so
-                    # a threshold taunt is not lost to one busy poll.
-                    self.taunt_requested = False
-                    self.taunt_target = None
-                    taunt_cast = True
-                    self.log(f"taunt cast (skill 5) on {taunt_on}.")
-                elif not self.cmd.is_monster_alive(taunt_on):
-                    self.taunt_requested = False
-                    self.taunt_target = None
-
-            if taunt_cast:
-                # A taunt that is still waiting for the scroll must **not** hold
-                # the rotation: the request stays pending, but the pane keeps
-                # casting.  Blocking here is what left Verus DoomKnight and the
-                # Lord of Order on auto attacks alone while a taunt was queued.
-                pass
-            elif (self.respect_counter_attack
+            if (self.respect_counter_attack
                   and self.counter_attack_active(target)):
                 # Attacking into the counter attack kills the party, but the
                 # buffs must keep going: v1 holds the rotation and keeps
                 # casting its buff/heal slots (``buff_only``).
                 await self._buff_step(target)
-                await self.cmd.sleep(self.poll_ms)
-            elif self.suppress_rotation:
                 await self.cmd.sleep(self.poll_ms)
             elif self.suppress_rotation:
                 await self.cmd.sleep(self.poll_ms)

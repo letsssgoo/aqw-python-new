@@ -527,9 +527,23 @@ check("scroll plan: a small plan is left alone",
 # their markers in the packet, the choice detector reports the first one.
 class _WatchedBot:
     def __init__(self):
+        self.subscribers = []
+
         async def handler(msg):
             return None
         self.handle_server_response = handler
+
+    def subscribe(self, callback):
+        if callback not in self.subscribers:
+            self.subscribers.append(callback)
+
+    def unsubscribe(self, callback):
+        if callback in self.subscribers:
+            self.subscribers.remove(callback)
+
+    def notify_subscribers(self, message):
+        for callback in list(self.subscribers):
+            callback(message)
 
 
 from bot.ultra.v2.packets import MarkerWatcher  # noqa: E402
@@ -550,6 +564,23 @@ _choice.inspect('{"b":{"o":{"cmd":"ct","t":"listen: truth"}}}')
 check("detector: the choice detector reports the first match",
       _choice.last, "truth")
 _choice.stop()
+
+# The watchers ride ``Bot.subscribe`` -- the same hook ``core_ultra.py`` uses --
+# instead of replacing ``handle_server_response``.  Every inbound packet goes
+# through ``notify_subscribers`` before the bot parses it, so the detector sees
+# the reference's packet text and cannot swallow anything.
+_sub = _WatchedBot()
+_handler_before = _sub.handle_server_response
+_watcher = MarkerWatcher(_sub, "ct", ('"animStr":"Charge"',))
+_watcher.start()
+check("detector: armed through Bot.subscribe", len(_sub.subscribers), 1)
+check("detector: the server handler is left alone",
+      _sub.handle_server_response is _handler_before, True)
+_sub.notify_subscribers('{"b":{"o":{"cmd":"ct","animStr":"Charge"}}}')
+check("detector: a packet delivered to subscribers is counted",
+      _watcher.count, 1)
+_watcher.stop()
+check("detector: stop unsubscribes", len(_sub.subscribers), 0)
 
 # --- warden rules ----------------------------------------------------------
 check("warden: Default taunts from slot 1", warden.taunter_slot("Default"), 1)

@@ -270,9 +270,9 @@ class UltraSpeaker(V2Core):
 
             fresh_owner = expected.fresh and self.slot == expected.owner
             if fresh_owner:
-                self.request_taunt(SPEAKER)
-                # The engine pauses until that taunt goes out (the reference
-                # resumes only when the pane is *not* the fresh owner).
+                # ``RequestAbsolutePriorityTaunt``: the fresh owner holds the
+                # rotation until the taunt is actually cast.
+                self.request_absolute_priority_taunt(SPEAKER)
                 self.suppress_rotation = True
                 self._paused_for_taunt = True
                 self.log(f"requested fresh {self.warning_name(expected.warning)} "
@@ -508,7 +508,9 @@ class UltraSpeaker(V2Core):
                     if not ok:
                         await self.report_chart_failure(attempt, mismatch)
 
-            if self._paused_for_taunt and not self.taunt_requested:
+            if (self._paused_for_taunt
+                    and not self.taunt_requested
+                    and not self.absolute_taunt_target):
                 self._paused_for_taunt = False
                 self.suppress_rotation = False
 

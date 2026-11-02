@@ -285,7 +285,10 @@ class UltraGramiel(V2Core):
                 continue
             crystal = self.assigned_crystal()
             self.target_priority = (crystal,)
-            self.request_taunt(crystal)
+            # ``RequestGramielTaunt`` = ``RequestAbsolutePriorityTaunt``: the
+            # rotation is held until this cast lands, which is what makes the
+            # crystal swap on the packet instead of a poll later.
+            self.request_absolute_priority_taunt(crystal)
             self.taunt_target_until = (datetime.now()
                                        + timedelta(milliseconds=TAUNT_TARGET_HOLD_MS))
             self.log(f"requested crystal taunt cycle {cycle} on {crystal}.")
@@ -468,7 +471,7 @@ class UltraGramiel(V2Core):
                     attack = next_attack
                     next_attack += 1
                     if attack == owned_attack:
-                        self.request_taunt(GRAMIEL)
+                        self.request_absolute_priority_taunt(GRAMIEL)
                         self.log(f"requested Gramiel taunt on nuke cycle "
                                  f"{nuke_cycle}, attack {attack}.")
                     if attack == 7:

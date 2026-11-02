@@ -391,7 +391,9 @@ class UltraDage(V2Core):
                         waiting_for_focus = False
                         self.log("restored alternating Dage taunts.")
                     else:
-                        self.request_taunt(BOSS)
+                        # ``RequestImmediateEnrageTaunt``: only queued when
+                        # skill 5 is usable, so the pane is not left waiting.
+                        self.request_immediate_taunt(BOSS)
                         await self.cmd.sleep(self.poll_ms)
                         continue
 
@@ -405,12 +407,12 @@ class UltraDage(V2Core):
 
             if waiting_for_focus:
                 if focus is None:
-                    self.request_taunt(BOSS)
+                    self.request_immediate_taunt(BOSS)
             elif owns_focus and focus is None:
                 owns_focus = False
                 waiting_for_focus = True
                 focus_baseline = datetime.min
-                self.request_taunt(BOSS)
+                self.request_immediate_taunt(BOSS)
             elif (owns_focus and focus is not None
                   and focus - datetime.now()
                   <= timedelta(milliseconds=FOCUS_REFRESH_MS)):
@@ -454,7 +456,8 @@ class UltraDage(V2Core):
                 await self.handle_safe_heal()
 
             if self.is_mystify_holder() and self.mystify_mode:
-                self.request_taunt(BOSS)      # ``RequestImmediateSkillFive``
+                # ``RequestImmediateSkillFive``: only when slot 5 is ready.
+                self.request_immediate_skill_five(BOSS)
 
             self.handle_decay_detections()
             await self.cmd.sleep(self.poll_ms)
@@ -478,13 +481,24 @@ class UltraDage(V2Core):
                         and not self.mystify_mode and cycle % 2 == 0))
             if not owns:
                 continue
-            self.request_taunt(BOSS)
+            # ``Bot.Inventory.IsEquipped(DecayScroll)``: a cycle spent with
+            # Mystify on the slot would cast the wrong scroll, so the reference
+            # consumes it without a cast and says so.
+            if not self.scroll_equipped(DECAY_SCROLL):
+                self.log(f"consumed Decay cycle {cycle} without a cast because "
+                         f"{DECAY_SCROLL} is not equipped.")
+                continue
+            self.request_skill_five(BOSS)
             self.log(f"requested Decay for cycle {cycle}.")
 
     async def handle_safe_heal(self) -> bool:
         """``HandleSafeHeal``: one heal in the window without ``Noxious Decay``."""
         if self.self_aura(NOXIOUS_DECAY) is not None:
             self.safe_heal_used = False
+            return False
+        # ``HandleSafeHeal`` returns when the pane carries no auras at all: no
+        # aura list means the window has not opened yet, not that it is safe.
+        if not (getattr(self.bot.player, "AURAS", None) or []):
             return False
         if self.safe_heal_used or self.bot.player.ISDEAD:
             return False

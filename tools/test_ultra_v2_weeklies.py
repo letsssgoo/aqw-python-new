@@ -433,17 +433,19 @@ _previous_decay = os.environ.get("AQW_RUN_ID")
 os.environ["AQW_RUN_ID"] = _decay_run
 try:
     holder = _dage(2)
+    holder.scroll_equipped = lambda name: True
     holder.detector.count = 3
     holder.detector.running = True
     holder.handle_decay_detections()
     check("dage: the Decay holder answers its cycles",
-          (holder.next_decay_cycle, holder.taunt_requested), (4, True))
+          (holder.next_decay_cycle, holder.skill_five_target), (4, dage.BOSS))
     even = _dage(4)
+    even.scroll_equipped = lambda name: True
     even.detector.count = 2
     even.detector.running = True
     even.handle_decay_detections()
     check("dage: Default's slot 4 only answers even cycles",
-          (even.next_decay_cycle, even.taunt_requested), (3, True))
+          (even.next_decay_cycle, even.skill_five_target), (3, dage.BOSS))
 finally:
     shutil.rmtree(REPO_ROOT / "capture_logs" / "ultra" / _decay_run,
                   ignore_errors=True)
@@ -590,6 +592,9 @@ class _HealCommand(_StubCommand):
         self.heals = []
         self.bot.player.canUseSkill = lambda slot: True
         self.bot.player.getAura = lambda name: aura
+        # ``HandleSafeHeal`` returns early while the pane carries no auras at
+        # all, so the stub needs at least one for the window to count as open.
+        self.bot.player.AURAS = [object()]
 
     def is_monster_alive(self, target="*"):
         return True
@@ -814,8 +819,8 @@ check("speaker: brute force is read from the options",
 _fresh = _speaker(1)                       # slot 1 owns the opening Truth step
 _fresh._warning_queue = [speaker.TRUTH]
 check("speaker: the opening Truth is the fresh owner's taunt",
-      (_fresh.process_warnings(), _fresh.taunt_requested),
-      ((True, ""), True))
+      (_fresh.process_warnings(), _fresh.absolute_taunt_target),
+      ((True, ""), speaker.SPEAKER))
 _wrong = _speaker(1)
 _wrong._warning_queue = [speaker.LISTEN]
 _ok, _mismatch = _wrong.process_warnings()
