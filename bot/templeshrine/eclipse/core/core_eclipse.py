@@ -71,7 +71,7 @@ class AscendEclipseBot:
         self.cmd.subscribe(self.handle_message)
 
     def print_debug(self, message, color=Fore.YELLOW):
-        self.bot.log(color + f"[{datetime.now().strftime('%H:%M:%S')}] [{self.cmd.get_player().CELL}] {message}" + Fore.RESET)
+        self.cmd.bot.log(color + f"[{datetime.now().strftime('%H:%M:%S')}] [{self.cmd.get_player().CELL}] {message}" + Fore.RESET)
         
     def print_aura(self, message):
         self.print_debug(f"{Fore.RED}You got \"{message}\"{Fore.RESET}")
@@ -330,7 +330,7 @@ class AscendEclipseBot:
                     self.skill_index = 0
                 
             self.is_attacking = False
-        self.bot.log("Disconnected.")
+        self.cmd.bot.log("Disconnected.")
 
 # -------- Subclass untuk tiap variasi --------
 
