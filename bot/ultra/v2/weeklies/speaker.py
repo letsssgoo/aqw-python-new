@@ -521,17 +521,15 @@ class UltraSpeaker(V2Core):
             if self.bot.player.ISDEAD:
                 if not getattr(self, "_player_was_dead", False):
                     self._player_was_dead = True
+                    # ``note_death`` publishes the marker and writes "died."
+                    # once per attempt; a second line here duplicated it.
                     self.note_death()
-                    self.log("died.")
                 await self.cmd.sleep(self.poll_ms)
                 continue
 
             if getattr(self, "_player_was_dead", False):
                 self._player_was_dead = False
-                self.log("respawned.")
-                if not self.in_boss_room():
-                    await self.jump_boss()
-                await self.restore_zone_after_death(state, attempt)
+                await self.on_respawn(state, attempt)
 
             if not await self.process_zone_state(state, attempt):
                 return await self.finish_fight("stopped")
@@ -544,6 +542,21 @@ class UltraSpeaker(V2Core):
             await self.cmd.sleep(self.poll_ms)
 
         return await self.finish_fight("stopped")
+
+    async def on_respawn(self, state, attempt: int) -> None:
+        """Back from a death: restart the skill engine, then re-enter the room.
+
+        A dead player ends ``_skill_loop`` (its while condition checks
+        ``ISDEAD``).  Every other ultra restarts it from ``wait_respawn``;
+        Speaker runs its own death loop, so it has to do the same here -- the
+        missing restart left the respawned pane walking the chart with no
+        attacks at all.
+        """
+        self.log("respawned.")
+        await self.resume_skills()
+        if not self.in_boss_room():
+            await self.jump_boss()
+        await self.restore_zone_after_death(state, attempt)
 
     async def finish_fight(self, result: str) -> str:
         await self.stop_skills()

@@ -808,6 +808,31 @@ check("speaker: the signals follow the attempt and cycle",
        _speaker(1).chart_reset_signal(2)),
       ("SPEAKER_ZONE_2_3_CLEAR", "SPEAKER_CHART_FAILURE_2",
        "SPEAKER_CHART_RESET_2"))
+
+
+async def _speaker_respawn():
+    runner = _speaker(2)
+    calls = []
+
+    async def fake_resume():
+        calls.append("resume")
+
+    async def fake_jump():
+        calls.append("jump")
+
+    async def fake_zone(state, attempt):
+        calls.append("zone")
+
+    runner.resume_skills = fake_resume
+    runner.jump_boss = fake_jump
+    runner.restore_zone_after_death = fake_zone
+    runner.in_boss_room = lambda: False
+    await runner.on_respawn(None, 1)
+    return calls
+
+
+check("speaker: a respawn restarts the skill engine before anything else",
+      run(_speaker_respawn()), ["resume", "jump", "zone"])
 check("speaker: every pane carries the scroll on Default",
       [_speaker(slot).is_taunter for slot in (1, 2, 3, 4)],
       [True, True, True, True])
