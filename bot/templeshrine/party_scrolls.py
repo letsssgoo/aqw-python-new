@@ -1,20 +1,22 @@
 """The Scroll of Enrage gate shared by Temple and Eclipse.
 
 A dungeon iteration needs every pane to carry the taunt scroll: if the taunter
-runs dry mid-run the party wipes and the iteration is wasted.  So before each
-iteration every pane reports its count; when one is under :data:`MIN_ENRAGE`
-the whole party leaves for the safe map, crafts towards :data:`MAX_ENRAGE`,
-and only then goes back in.
+runs dry mid-run the party wipes and the iteration is wasted.  So each pane
+publishes its count; when the master sees one under :data:`MIN_ENRAGE` it
+raises the party flag, every pane leaves for the safe map, crafts towards
+:data:`MAX_ENRAGE`, and then goes back in.
 
-The gate is a small thread-safe rendezvous.  The hub passes one instance to
-all four panes (``Bot.scroll_gate``); a standalone pane has no gate and just
-checks itself.  A pane that never reports (crash, failed login) cannot hang the
-rest: the report falls back to that pane's own count after a timeout.
+The gate is deliberately **non-blocking** while fighting: publishing a count
+is a dict write, and the only state the other panes poll is a flag.  An earlier
+version made every pane wait for a four-way meeting on each loop pass, which
+stalled combat whenever one pane was slower or disconnected.
+
+The hub passes one instance to all four panes (``Bot.scroll_gate``); a
+standalone pane has no gate and just checks itself.
 """
 from __future__ import annotations
 
 import threading
-import time
 
 from bot.ultra.v2 import scrolls as v2_scrolls
 
@@ -24,63 +26,50 @@ MIN_ENRAGE = 50
 MAX_ENRAGE = 1000
 #: Where the party waits while crafting (out of the dungeon).
 SAFE_MAP = "yulgar"
-#: How long a pane waits for the other three to report before deciding alone.
-REPORT_TIMEOUT_S = 20.0
-#: How long the party waits for everyone to be out of the dungeon.
-LEAVE_TIMEOUT_S = 90.0
-#: How long the party waits for everyone to finish crafting (turn-ins are slow).
-CRAFT_TIMEOUT_S = 1800.0
 
 
 class PartyScrollGate:
-    """One scroll-count meeting per dungeon iteration, plus leave/craft barriers."""
+    """Latest scroll count per pane plus the shared "party is crafting" flag."""
 
     def __init__(self, size: int = 4):
         self.size = int(size)
         self._lock = threading.Lock()
-        self._epoch = 0
-        self._reports: dict = {}
-        self._decisions: dict = {}
-        self._marks: dict = {}
+        self.counts: dict = {}
+        self.crafting = False
+        self._left: set = set()
+        self._crafted: set = set()
 
-    def report(self, key: str, qty: int,
-               timeout: float = REPORT_TIMEOUT_S):
-        """Wait for every pane's count; return ``(epoch, any_short)``.
-
-        The last pane to arrive decides for the whole meeting, so all panes
-        read the same answer.  On timeout the pane falls back to its own count
-        instead of blocking the party forever.
-        """
+    def publish(self, key: str, qty: int) -> None:
+        """Record this pane's count; never blocks."""
         with self._lock:
-            epoch = self._epoch
-            self._reports.setdefault(epoch, {})[key] = int(qty)
-            if len(self._reports[epoch]) >= self.size:
-                short = any(value < MIN_ENRAGE
-                            for value in self._reports[epoch].values())
-                self._decisions[epoch] = short
-                self._epoch = epoch + 1
+            self.counts[key] = int(qty)
 
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            with self._lock:
-                if epoch in self._decisions:
-                    return epoch, self._decisions[epoch]
-            time.sleep(0.05)
-        return epoch, int(qty) < MIN_ENRAGE
-
-    def barrier(self, name: str, key: str, epoch: int,
-                timeout: float) -> bool:
-        """Wait until all four panes have reached ``name`` for ``epoch``."""
+    def short(self):
+        """True when any known pane is under the minimum; None while unknown."""
         with self._lock:
-            self._marks.setdefault((name, epoch), set()).add(key)
-            done = len(self._marks[(name, epoch)]) >= self.size
-        deadline = time.time() + timeout
-        while not done and time.time() < deadline:
-            with self._lock:
-                done = len(self._marks.get((name, epoch), set())) >= self.size
-            if not done:
-                time.sleep(0.1)
-        return done
+            if len(self.counts) < self.size:
+                return None
+            return any(value < MIN_ENRAGE for value in self.counts.values())
+
+    def start_craft(self) -> None:
+        with self._lock:
+            self.crafting = True
+            self._left.clear()
+            self._crafted.clear()
+
+    def mark_left(self, key: str) -> None:
+        with self._lock:
+            self._left.add(key)
+
+    def mark_crafted(self, key: str) -> bool:
+        """True once every pane has finished crafting."""
+        with self._lock:
+            self._crafted.add(key)
+            return len(self._crafted) >= self.size
+
+    def craft_done(self) -> None:
+        with self._lock:
+            self.crafting = False
 
 
 async def _leave_dungeon(cmd) -> None:
@@ -103,27 +92,39 @@ async def _craft(cmd) -> None:
         pass
 
 
-async def ensure(cmd) -> None:
-    """Run the gate before one dungeon iteration (see the module docstring)."""
+async def ensure(cmd, *, dungeon_map: str = "", is_master: bool = False) -> None:
+    """Run the gate for one loop pass (see the module docstring)."""
     key = str(getattr(cmd.bot.player, "USER", "") or "")
     qty = cmd.get_quant_item(v2_scrolls.ENRAGE)
+    in_dungeon = bool(dungeon_map) and cmd.is_in_map(dungeon_map)
     gate = getattr(cmd.bot, "scroll_gate", None)
 
     if gate is None:
         # Standalone pane: nobody else to coordinate with.
-        if qty < MIN_ENRAGE:
+        if qty < MIN_ENRAGE and not in_dungeon:
             cmd.bot.log(f"[temple] Scroll of Enrage {qty} < {MIN_ENRAGE}; "
                         f"leaving to craft up to {MAX_ENRAGE}.")
             await _leave_dungeon(cmd)
             await _craft(cmd)
         return
 
-    epoch, short = gate.report(key, qty)
-    if not short:
+    gate.publish(key, qty)
+
+    # Only the master decides, and only outside the dungeon: a run that has
+    # already started is finished with the scrolls it took in.
+    if (is_master and not gate.crafting and not in_dungeon
+            and gate.short() is True):
+        gate.start_craft()
+        cmd.bot.log(f"[temple] a pane holds under {MIN_ENRAGE} Scroll of "
+                    f"Enrage; the party leaves to craft up to {MAX_ENRAGE}.")
+
+    if not gate.crafting:
         return
-    cmd.bot.log(f"[temple] Scroll of Enrage {qty} < {MIN_ENRAGE}; the party "
-                f"leaves the dungeon to craft up to {MAX_ENRAGE}.")
+
     await _leave_dungeon(cmd)
-    gate.barrier("left", key, epoch, timeout=LEAVE_TIMEOUT_S)
+    gate.mark_left(key)
     await _craft(cmd)
-    gate.barrier("crafted", key, epoch, timeout=CRAFT_TIMEOUT_S)
+    done = gate.mark_crafted(key)
+    if is_master and done:
+        gate.craft_done()
+        cmd.bot.log("[temple] every pane finished crafting; going back in.")

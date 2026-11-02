@@ -158,7 +158,8 @@ class CoreTempleBot:
             # Before each dungeon iteration: every pane needs its taunt scroll.
             # One short pane sends the whole party out to craft, so an
             # iteration never starts with a taunter that will run dry.
-            await party_scrolls.ensure(self.cmd)
+            await party_scrolls.ensure(self.cmd, dungeon_map=self.temple,
+                                       is_master=(self.role == "master"))
             if self.role == "master":
                 await self.to_next_cell()
             if self.role == "slave":

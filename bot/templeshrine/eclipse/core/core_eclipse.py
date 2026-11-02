@@ -270,7 +270,8 @@ class AscendEclipseBot:
 
             # Before each dungeon iteration: every pane needs its taunt scroll.
             # One short pane sends the whole party out to craft.
-            await party_scrolls.ensure(self.cmd)
+            await party_scrolls.ensure(self.cmd, dungeon_map="ascendeclipse",
+                                       is_master=(self.role == "master"))
 
             if self.role == "master" and not self.cmd.is_monster_alive():
                 await self.to_next_cell()

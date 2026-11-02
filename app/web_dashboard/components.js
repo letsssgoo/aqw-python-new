@@ -309,6 +309,9 @@ class ItemSlotCard extends HTMLElement {
         const userInput = this.querySelector(`#${slotId}-username`);
         const passInput = this.querySelector(`#${slotId}-password`);
         if (playerSelect && userInput && passInput) {
+            // Mark the input so players_dropdown.js' auto-wire does not inject
+            // a second dropdown above the same username field.
+            userInput.dataset.playerWired = '1';
             const onPick = (user, pass) => {
                 userInput.value = user;
                 passInput.value = pass;

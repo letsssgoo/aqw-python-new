@@ -765,32 +765,30 @@ def main() -> None:
 
     # --- the shared Scroll of Enrage gate ---------------------------------
     from bot.templeshrine.party_scrolls import PartyScrollGate
-    import threading as _threading
 
-    def _gate_meeting(counts):
-        gate = PartyScrollGate(len(counts))
-        answers = {}
+    def _gate_with(counts, size=None):
+        gate = PartyScrollGate(size if size is not None else len(counts))
+        for key, qty in counts.items():
+            gate.publish(key, qty)
+        return gate
 
-        def pane(key, qty):
-            answers[key] = gate.report(key, qty, timeout=5.0)
-
-        threads = [_threading.Thread(target=pane, args=(key, qty))
-                   for key, qty in counts.items()]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join()
-        return answers
-
-    _short = _gate_meeting({"a": 10, "b": 80, "c": 80, "d": 80})
-    check("gate: one pane under 50 makes the whole party craft",
-          sorted(answer[1] for answer in _short.values()),
-          [True, True, True, True])
-    check("gate: all panes share one decision epoch",
-          len({answer[0] for answer in _short.values()}), 1)
-    _fine = _gate_meeting({"a": 50, "b": 80, "c": 60, "d": 100})
+    check("gate: one pane under 50 makes the party craft",
+          _gate_with({"a": 10, "b": 80, "c": 80, "d": 80}).short() is True)
     check("gate: 50 or more everywhere keeps the party in",
-          [answer[1] for answer in _fine.values()], [False] * 4)
+          _gate_with({"a": 50, "b": 60, "c": 80, "d": 100}).short() is False)
+    check("gate: an incomplete party does not decide",
+          _gate_with({"a": 10}, size=4).short() is None)
+
+    _crafting = PartyScrollGate(2)
+    _crafting.start_craft()
+    _crafting.mark_left("a")
+    check("gate: crafting is a party flag", _crafting.crafting is True)
+    check("gate: one pane crafted is not all",
+          _crafting.mark_crafted("a") is False)
+    check("gate: the last pane ends the craft",
+          _crafting.mark_crafted("b") is True)
+    _crafting.craft_done()
+    check("gate: and the flag clears", _crafting.crafting is False)
 
     # --- class enhancement without registry rows --------------------------
     # A stock basic_enhancement.jsonl has no class-slot rows; the class
