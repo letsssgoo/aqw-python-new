@@ -91,6 +91,17 @@ class CoreTempleBot:
             await self.cmd.sleep(200)
 
     async def to_next_cell(self):
+        if self.cmd.is_not_in_map(self.temple):
+            # The scroll gate parks the party in yulgar; the lobby is the only
+            # way back into the instance, so re-enter before touching cells.
+            self.print_debug("Back from crafting; re-entering the dungeon.")
+            if self.cmd.is_not_in_map("templeshrine"):
+                await self.cmd.join_map("templeshrine", roomNumber=999999)
+                while (self.cmd.is_not_in_map("templeshrine")
+                       and self.cmd.is_still_connected()):
+                    await self.cmd.sleep(200)
+            await self.enter_dungeon()
+            return
         self.print_debug("Moving to next cell...")
         await self.cmd.sleep(2000)
 

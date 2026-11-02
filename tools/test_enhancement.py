@@ -793,6 +793,46 @@ def main() -> None:
     _crafting.craft_done()
     check("gate: and the flag clears", _crafting.crafting is False)
 
+    # --- back into the dungeon after crafting -----------------------------
+    # The gate parks the party in yulgar; the cell walk must re-enter first
+    # instead of jumping cells inside the wrong map.
+    def _reentry(bot_class, *args):
+        cmd = _TCmd()
+        calls = []
+
+        def is_not_in_map(name):
+            return True          # we are still in yulgar
+
+        async def join_map(name, **kwargs):
+            calls.append(("join", name))
+
+        async def jump_cell(cell, pad):
+            calls.append(("jump", cell))
+
+        async def sleep(ms):
+            return None
+
+        async def enter():
+            calls.append(("enter",))
+
+        cmd.is_not_in_map = is_not_in_map
+        cmd.is_still_connected = lambda: True
+        cmd.join_map = join_map
+        cmd.jump_cell = jump_cell
+        cmd.sleep = sleep
+        cmd.is_monster_alive = lambda *a, **k: False
+        cmd.get_player = lambda: type("P", (), {"CELL": "Enter"})()
+        bot = bot_class(cmd, *args)
+        bot.enter_dungeon = enter
+        asyncio.run(bot.to_next_cell())
+        return calls
+
+    _temple_calls = _reentry(SolsticeMoonBot, "master")
+    check("temple: after crafting the master re-enters the dungeon",
+          ("enter",) in _temple_calls, _temple_calls)
+    check("temple: ...and does not jump cells in yulgar",
+          [call for call in _temple_calls if call[0] == "jump"], [])
+
     # --- class enhancement without registry rows --------------------------
     # A stock basic_enhancement.jsonl has no class-slot rows; the class
     # enhancement then has to come from the normal enhancement shop, which is

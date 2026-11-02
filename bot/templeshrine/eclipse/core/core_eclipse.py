@@ -383,6 +383,13 @@ class EclipseMasterBot(AscendEclipseBot):
         self.converges_count = 0
         self.light_gather_count = 0
 
+        if self.cmd.is_not_in_map("ascendeclipse"):
+            # After the scroll gate the party waits in yulgar; come back in
+            # before the cell walk starts.
+            self.print_debug("Back from crafting; re-entering the dungeon.")
+            await self.enter_dungeon()
+            return
+
         # reset to "Enter" if dead from "r3"
         if self.last_cell == "r3":
             await self.cmd.jump_cell("Enter", "Spawn")
