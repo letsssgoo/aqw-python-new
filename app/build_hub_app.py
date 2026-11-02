@@ -369,6 +369,52 @@ def _reap_ended_panes(active_threads: dict, tag: str = "") -> dict:
             if thread.is_alive()}
 
 
+def _watch_party(api, tag: str, interval: float = 1.0) -> None:
+    """Stop the whole party the moment one pane ends on its own.
+
+    A disconnect, a logout from the client or a crashed pane thread ends that
+    thread and leaves the other three fighting a party that no longer exists.
+    The reference parties stop together, so this does the same: when a pane
+    ends while another is still running, the rest are stopped (which closes
+    their sessions too).
+
+    ``stop_party`` sets ``_party_stopping`` first, so an intentional stop never
+    re-enters here, and a party that ended on its own leaves nothing to stop.
+    """
+    while not getattr(api, "_party_stopping", False):
+        time.sleep(interval)
+        if getattr(api, "_party_stopping", False):
+            return
+        threads = list(api.active_threads.values())
+        if not threads:
+            return
+        ended = [thread for thread in threads if not thread.is_alive()]
+        if not ended:
+            continue
+        if len(ended) == len(threads):
+            return
+        names = ", ".join(getattr(thread, "username", "?")
+                          for thread in ended)
+        print(f"[{tag}] {names} ended (disconnect/logout); stopping the party.")
+        try:
+            _push_log(tag, "System", ansi_to_html(
+                f"[system] {names} disconnected or logged out; "
+                f"stopping the party."))
+        except Exception:
+            pass
+        api.stop_party()
+        return
+
+
+def _start_party_watch(api, tag: str) -> None:
+    """Arm :func:`_watch_party` for a freshly started party."""
+    api._party_stopping = False
+    api._party_watch = threading.Thread(
+        target=_watch_party, args=(api, tag),
+        name=f"{tag}-party-watch", daemon=True)
+    api._party_watch.start()
+
+
 def _ultra_run_folder():
     """``capture_logs/ultra/<run id>`` for the run the panes are in, or None."""
     run_id = os.environ.get("AQW_RUN_ID", "").strip()
@@ -1751,6 +1797,10 @@ class TempleApi:
         self.start_time = None
         self.cleared_count = 0
         self.taunt_coordinator = TauntCoordinator()
+        #: Set by ``stop_party`` so the party watchdog never re-enters it.
+        self._party_stopping = False
+        #: The watchdog started with the party (one pane ends -> all stop).
+        self._party_watch = None
         
         try:
             import psutil
@@ -1901,10 +1951,17 @@ class TempleApi:
             )
             self.active_threads[s_id] = t
             t.start()
-            
+
+        # One pane dropping (DC, logout, crash) stops the other three: a party
+        # that lost a member cannot finish the shrine, and the reference stops
+        # them together.
+        _start_party_watch(self, "temple")
         return {"success": True}
 
     def stop_party(self):
+        # Set before the early return: an intentional stop must disarm the
+        # watchdog even when the mapping is already empty.
+        self._party_stopping = True
         if not self.active_threads:
             return {"success": True}
 
@@ -2038,6 +2095,10 @@ class EclipseApi:
         self.active_threads = {}
         self.start_time = None
         self.cleared_count = 0
+        #: Set by ``stop_party`` so the party watchdog never re-enters it.
+        self._party_stopping = False
+        #: The watchdog started with the party (one pane ends -> all stop).
+        self._party_watch = None
         
         try:
             import psutil
@@ -2226,9 +2287,14 @@ class EclipseApi:
         self.active_threads["slot4"] = t4
         t4.start()
 
+        # One pane dropping (DC, logout, crash) stops the other three.
+        _start_party_watch(self, "eclipse")
         return {"success": True}
 
     def stop_party(self):
+        # Disarm the watchdog before the early return, so an intentional stop
+        # is never mistaken for a pane that ended on its own.
+        self._party_stopping = True
         if not self.active_threads:
             return {"success": True}
         

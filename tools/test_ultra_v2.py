@@ -278,6 +278,31 @@ _kept = hub._reap_ended_panes({
 }, tag="test")
 check("hub: a dead pane thread is reaped", list(_kept), ["slot1"])
 check("hub: reaping closes the dead pane's bot", _dead_bot.stopped, True)
+
+
+class _WatchApi:
+    def __init__(self, threads):
+        self.active_threads = dict(threads)
+        self._party_stopping = False
+        self.stopped = False
+
+    def stop_party(self):
+        self.stopped = True
+        self._party_stopping = True
+
+
+_watch_api = _WatchApi({
+    "slot1": _FakePaneThread(True, "a"),
+    "slot2": _FakePaneThread(False, "b"),
+})
+hub._watch_party(_watch_api, "temple", interval=0.01)
+check("hub: one ended pane stops the rest of the party",
+      _watch_api.stopped, True)
+
+_ended_api = _WatchApi({"slot1": _FakePaneThread(False, "b")})
+hub._watch_party(_ended_api, "temple", interval=0.01)
+check("hub: a party that already ended is left alone",
+      _ended_api.stopped, False)
 check("ui cooldown: a ready slot reads 0", readout[0]["ready_in"], 0)
 check("ui cooldown: a busy slot reports the wait",
       2000 < readout[1]["ready_in"] <= 2600, True)
