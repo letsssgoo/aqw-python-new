@@ -17,6 +17,7 @@ standalone pane has no gate and just checks itself.
 from __future__ import annotations
 
 import threading
+import time
 
 from bot.ultra.v2 import scrolls as v2_scrolls
 
@@ -26,6 +27,8 @@ MIN_ENRAGE = 50
 MAX_ENRAGE = 1000
 #: Where the party waits while crafting (out of the dungeon).
 SAFE_MAP = "yulgar"
+#: How long a pane waits for the rest of the party to finish crafting.
+CRAFT_TIMEOUT_S = 1800.0
 
 
 class PartyScrollGate:
@@ -61,10 +64,12 @@ class PartyScrollGate:
         with self._lock:
             self._left.add(key)
 
-    def mark_crafted(self, key: str) -> bool:
-        """True once every pane has finished crafting."""
+    def mark_crafted(self, key: str) -> None:
         with self._lock:
             self._crafted.add(key)
+
+    def all_crafted(self) -> bool:
+        with self._lock:
             return len(self._crafted) >= self.size
 
     def craft_done(self) -> None:
@@ -92,16 +97,15 @@ async def _craft(cmd) -> None:
         pass
 
 
-async def ensure(cmd, *, dungeon_map: str = "", is_master: bool = False) -> None:
+async def ensure(cmd, *, is_master: bool = False) -> None:
     """Run the gate for one loop pass (see the module docstring)."""
     key = str(getattr(cmd.bot.player, "USER", "") or "")
     qty = cmd.get_quant_item(v2_scrolls.ENRAGE)
-    in_dungeon = bool(dungeon_map) and cmd.is_in_map(dungeon_map)
     gate = getattr(cmd.bot, "scroll_gate", None)
 
     if gate is None:
         # Standalone pane: nobody else to coordinate with.
-        if qty < MIN_ENRAGE and not in_dungeon:
+        if qty < MIN_ENRAGE:
             cmd.bot.log(f"[temple] Scroll of Enrage {qty} < {MIN_ENRAGE}; "
                         f"leaving to craft up to {MAX_ENRAGE}.")
             await _leave_dungeon(cmd)
@@ -110,10 +114,10 @@ async def ensure(cmd, *, dungeon_map: str = "", is_master: bool = False) -> None
 
     gate.publish(key, qty)
 
-    # Only the master decides, and only outside the dungeon: a run that has
-    # already started is finished with the scrolls it took in.
-    if (is_master and not gate.crafting and not in_dungeon
-            and gate.short() is True):
+    # Only the master decides.  It does not matter whether the party is inside
+    # the dungeon at this instant: the whole point is to catch a short pane
+    # before the next pull, and the loop runs between cells as well.
+    if is_master and not gate.crafting and gate.short() is True:
         gate.start_craft()
         cmd.bot.log(f"[temple] a pane holds under {MIN_ENRAGE} Scroll of "
                     f"Enrage; the party leaves to craft up to {MAX_ENRAGE}.")
@@ -124,7 +128,18 @@ async def ensure(cmd, *, dungeon_map: str = "", is_master: bool = False) -> None
     await _leave_dungeon(cmd)
     gate.mark_left(key)
     await _craft(cmd)
-    done = gate.mark_crafted(key)
-    if is_master and done:
-        gate.craft_done()
-        cmd.bot.log("[temple] every pane finished crafting; going back in.")
+    gate.mark_crafted(key)
+
+    # Nobody re-enters until the whole party is done: the master clears the
+    # flag, everyone else waits for it to clear.
+    deadline = time.time() + CRAFT_TIMEOUT_S
+    while time.time() < deadline:
+        if is_master:
+            if gate.all_crafted():
+                gate.craft_done()
+                cmd.bot.log("[temple] every pane finished crafting; going "
+                            "back in.")
+                return
+        elif not gate.crafting:
+            return
+        await cmd.sleep(1000)

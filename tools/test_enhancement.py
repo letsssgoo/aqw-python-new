@@ -774,6 +774,8 @@ def main() -> None:
 
     check("gate: one pane under 50 makes the party craft",
           _gate_with({"a": 10, "b": 80, "c": 80, "d": 80}).short() is True)
+    check("gate: 38 scrolls is short, not close enough",
+          _gate_with({"a": 38, "b": 80, "c": 80, "d": 80}).short() is True)
     check("gate: 50 or more everywhere keeps the party in",
           _gate_with({"a": 50, "b": 60, "c": 80, "d": 100}).short() is False)
     check("gate: an incomplete party does not decide",
@@ -783,10 +785,11 @@ def main() -> None:
     _crafting.start_craft()
     _crafting.mark_left("a")
     check("gate: crafting is a party flag", _crafting.crafting is True)
+    _crafting.mark_crafted("a")
     check("gate: one pane crafted is not all",
-          _crafting.mark_crafted("a") is False)
-    check("gate: the last pane ends the craft",
-          _crafting.mark_crafted("b") is True)
+          _crafting.all_crafted() is False)
+    _crafting.mark_crafted("b")
+    check("gate: the last pane ends the craft", _crafting.all_crafted() is True)
     _crafting.craft_done()
     check("gate: and the flag clears", _crafting.crafting is False)
 
