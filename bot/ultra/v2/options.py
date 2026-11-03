@@ -128,7 +128,7 @@ COMPOSITIONS: Dict[str, Dict[str, Tuple[SlotPlan, ...]]] = {
         # the monsters are still opened the same way.  Skills are spam (the
         # simple round-robin).  Gear: Legion Revenant keeps its Wizard armor,
         # everyone else Lucky armor, Lucky helm, Valiance weapon, Vainglory cape.
-        "DnL": (SlotPlan(LR, base="Wizard", helm="Lucky Helm Enhancement",
+        "DnL": (SlotPlan(LR, base="Wizard", helm="Wizard Helm Enhancement",
                          weapon="Valiance", cape="Vainglory"),
                 SlotPlan(CA, base="Lucky", helm="Lucky Helm Enhancement",
                          weapon="Valiance", cape="Vainglory"),

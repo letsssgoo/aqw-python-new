@@ -35,7 +35,9 @@ for ultra in ("warden", "ezrajal", "engineer", "tyndarius", "drakath", "drago",
 check("default: slot 1 is Legion Revenant",
       options.compositions("warden")["Default"][0], "Legion Revenant")
 check("tyndarius/DnL: the Legion Revenant keeps Wizard armor",
-      presets.preset_for("tyndarius", "DnL", 1).base, "Wizard")
+      (presets.preset_for("tyndarius", "DnL", 1).base,
+       presets.preset_for("tyndarius", "DnL", 1).helm),
+      ("Wizard", "Wizard Helm Enhancement"))
 check("tyndarius/DnL: the other three wear Lucky armor",
       [presets.preset_for("tyndarius", "DnL", slot).base
        for slot in (2, 3, 4)], ["Lucky", "Lucky", "Lucky"])
