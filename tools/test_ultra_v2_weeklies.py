@@ -596,6 +596,10 @@ class _HealCommand(_StubCommand):
         # ``HandleSafeHeal`` returns early while the pane carries no auras at
         # all, so the stub needs at least one for the window to count as open.
         self.bot.player.AURAS = [object()]
+        # The heal only fires while Dage is the live target, like LW's check of
+        # ``Bot.Player.Target?.MapID``; the stub defaults to the boss.
+        self.bot.player.last_target = type("M", (), {
+            "mon_map_id": "1", "current_hp": 1000})()
 
     def is_monster_alive(self, target="*"):
         return True
@@ -611,6 +615,14 @@ check("dage: the only heal is the safe-window one",
       (_clean.spam_heal, _clean.heal_below, _clean.heal_skill),
       (False, None, None))
 check("dage: the safe heal fires once", run(_clean.handle_safe_heal()), True)
+_add_cmd = _HealCommand()
+_add_cmd.bot.player.last_target = type("M", (), {
+    "mon_map_id": "2", "current_hp": 1000})()
+_add = dage.UltraDage(_add_cmd, options.UltraOptions(
+    players=("a", "b", "c", "d")), 3)
+check("dage: no safe heal while an add is the target",
+      run(_add.handle_safe_heal()), False)
+check("dage: ...and nothing was cast", _add_cmd.heals, [])
 check("dage: and not twice in the same window",
       run(_clean.handle_safe_heal()), False)
 _debuffed = dage.UltraDage(_HealCommand(aura=object()), options.UltraOptions(

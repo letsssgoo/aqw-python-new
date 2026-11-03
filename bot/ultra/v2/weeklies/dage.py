@@ -540,8 +540,16 @@ class UltraDage(V2Core):
         if self.safe_heal_used or self.bot.player.ISDEAD:
             return False
         # ``HandleSafeHeal`` only fires with **Dage as the target**: the heal
-        # belongs to the boss window, not to a random monster or none at all.
-        if not self.boss_alive() or self.pick_target(BOSS) != BOSS:
+        # belongs to the boss window, not to a random add or no target at all.
+        # ``Bot.Player.Target`` is the client's live target; our equivalent is
+        # the last monster the engine cast on.  ``pick_target`` only says which
+        # monster *would* be preferred, so it must not stand in for this.
+        target = getattr(self.bot.player, "last_target", None)
+        if target is None:
+            return False
+        if str(getattr(target, "mon_map_id", "")) != str(self.spec.monster_id):
+            return False
+        if int(getattr(target, "current_hp", 0) or 0) <= 0:
             return False
         if not self.bot.player.canUseSkill(2):
             return False
