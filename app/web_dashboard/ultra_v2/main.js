@@ -7,8 +7,14 @@
 
     function api() { return window.pywebview && window.pywebview.api; }
 
-    function esc(s) {
-        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    function fmtHp(n) {
+    n = Number(n || 0);
+    if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+    return String(Math.round(n));
+}
+
+function esc(s) {        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
             return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
         });
     }
@@ -70,6 +76,10 @@
             '    <div class="form-group"><label>Password</label><div class="password-wrapper"><input type="password" class="slot-pass" placeholder="Password" autocomplete="off"></div></div>' +
             '    <div class="slot-status" data-status><span class="pill">idle</span></div>' +
             '    <div class="monster-row" data-monsters style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px"><span class="pill">no monsters yet</span></div>' +
+            '    <div class="monsters-panel hidden" data-monster-panel>' +
+            '      <div class="monsters-panel-title">Monsters HP</div>' +
+            '      <div class="monsters-list" data-monster-list></div>' +
+            '    </div>' +
             '    <div class="skill-row" data-skills style="display:flex;gap:4px;flex-wrap:nowrap;overflow-x:auto;margin-top:6px"><span class="pill">no skills yet</span></div>' +
             '  </div>' +
             '</div>';
@@ -209,8 +219,35 @@
                 monRow.innerHTML = targetPill + monsters;
                 monRow.style.display = (targetPill || monsters) ? 'flex' : 'none';
             }
-            var cdRow = card.querySelector('[data-skills]');
-            if (cdRow) {
+            // Same Monsters HP panel as the Temple/Eclipse menus.  The compact
+            // pill row above keeps the "attacking this one" marker; this panel
+            // is the full HP readout with its bar.
+            var monPanel = card.querySelector('[data-monster-panel]');
+            var monList = card.querySelector('[data-monster-list]');
+            if (monPanel && monList) {
+                var aliveMons = (s.monsters || []).filter(function (m) {
+                    return m.alive;
+                });
+                if (aliveMons.length) {
+                    monPanel.classList.remove('hidden');
+                    monList.innerHTML = aliveMons.map(function (m) {
+                        var mpct = m.max_hp ? Math.round(m.hp / m.max_hp * 100) : 0;
+                        return '<div class="monster-hp-card">' +
+                            '<div class="monster-info-row">' +
+                            '<span class="monster-name">' + esc(m.name) + '</span>' +
+                            '<span class="monster-hp-text">' + fmtHp(m.hp) + ' / ' +
+                            fmtHp(m.max_hp) + ' (' + mpct + '%)</span>' +
+                            '</div>' +
+                            '<div class="monster-hp-bar-bg">' +
+                            '<div class="monster-hp-bar-fill" style="width:' +
+                            mpct + '%"></div></div></div>';
+                    }).join('');
+                } else {
+                    monPanel.classList.add('hidden');
+                    monList.innerHTML = '';
+                }
+            }
+            var cdRow = card.querySelector('[data-skills]');            if (cdRow) {
                 // Slot 5 is the potion/scroll slot: name it, so it is obvious
                 // what fires there -- and its own countdown proves the cast.
                 if (s.cdr) {
