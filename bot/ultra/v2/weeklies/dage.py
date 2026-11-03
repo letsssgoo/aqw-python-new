@@ -244,7 +244,7 @@ class UltraDage(V2Core):
         if not await self.prepare(scroll=getattr(self, "scroll", None),
                                   drop_combat_potion=not self.uses_full_potions()):
             return False
-        self.warn_if_weapon_enhancement_missing()
+        self.warn_if_no_health_vamp()
         if not await self.require_step("SETUP_DONE"):
             return False
 
