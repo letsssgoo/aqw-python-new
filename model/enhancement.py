@@ -102,7 +102,12 @@ SLOT_LABELS = {
 #: which file an entry came from so messages can say where a name lives.
 FORGE_JSONL = Path(__file__).resolve().parent.parent / "forge_enhancement.jsonl"
 BASIC_JSONL = Path(__file__).resolve().parent.parent / "basic_enhancement.jsonl"
-DEFAULT_PATHS = (FORGE_JSONL, BASIC_JSONL)
+#: The Awe shop captures, one per armour family (``*_awe.jsonl``).  They sell
+#: the same names (Health Vamp, Awe Blast, ...) with a different ``PatternID``
+#: per family, which is how "the Health Vamp that matches Lucky armour" is
+#: told apart from the Wizard/Fighter one.
+AWE_JSONLS = tuple(sorted(BASIC_JSONL.parent.glob("*_awe.jsonl")))
+DEFAULT_PATHS = (FORGE_JSONL, BASIC_JSONL) + AWE_JSONLS
 
 # Kept for callers that still reference the old single-file name.
 _DEFAULT_PATH = FORGE_JSONL
@@ -285,14 +290,22 @@ def _read_shop_file(target: Path) -> List[ForgeEnhancement]:
     Source is derived from the file name so a caller can point ``load`` at a
     differently-named capture and still get a sensible tag.
     """
-    source = "basic" if target.name == BASIC_JSONL.name else "forge"
+    source = "basic" if (target.name == BASIC_JSONL.name
+                         or target.name.endswith("_awe.jsonl")) else "forge"
     entries: List[ForgeEnhancement] = []
     for line_no, line in enumerate(
             target.read_text(encoding="utf-8").splitlines(), 1):
-        if not line.strip():
+        text = line.strip()
+        if not text or text.lower().startswith("from client:"):
+            continue
+        # A capture pasted from a chat log arrives as ``From server: {...}``;
+        # strip that prefix instead of refusing the file.
+        if text.lower().startswith("from server:"):
+            text = text.split(":", 1)[1].strip()
+        if not text:
             continue
         try:
-            payload = json.loads(line)
+            payload = json.loads(text)
         except ValueError as exc:
             raise ValueError(f"{target.name}:{line_no}: not valid JSON") from exc
         shop = (payload.get("b") or {}).get("o") or {}

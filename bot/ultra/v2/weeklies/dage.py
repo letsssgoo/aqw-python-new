@@ -93,6 +93,18 @@ class UltraDage(V2Core):
         self.spam_heal = False
         self.heal_below = None
         self.heal_skill = None
+        # The reference forces Health Vamp.  Its armour family still decides
+        # *which* Health Vamp: the Awe shops sell one per family (Lucky/Wizard/
+        # Fighter) with a different item id and PatternID.  Pin the exact
+        # variant so the weapon matches the armour the class wears.
+        from dataclasses import replace as _replace
+
+        from bot.ultra.v2 import enhancements as _enhancements
+        _vamp = _enhancements.awe_variant("Health Vamp", self.preset.base)
+        if _vamp is not None:
+            self.preset = _replace(self.preset,
+                                   weapon=int(_vamp.item_id),
+                                   weapon_fallbacks=())
         # Reliable's Verus DoomKnight must not touch skill 2 while the boss's
         # Unleashed Doom aura is up (the reference's ``blockedStrictSkill``).
         if self.options.composition == "Reliable" and self.slot == 1:
@@ -185,17 +197,34 @@ class UltraDage(V2Core):
         """``WarnIfHealthVampWeaponIsMissing``: say it before the pull.
 
         The reference puts this in a message box; the engine has no per-pane
-        box, so it is a loud log line on the pane that will fail.
+        box, so it is a loud log line on the pane that will fail.  The preset's
+        weapon may be the exact Awe EnhID (the family-matched Health Vamp), so
+        that id is resolved first; the pattern is the fallback comparison
+        because an item can report its family without the id.
         """
         from bot.ultra.v2 import enhancements
-        record = enhancements.best_entry("Health Vamp", "weapon")
+        from model import enhancement as registry
+
+        weapon = self.preset.weapon
+        if isinstance(weapon, int):
+            record = registry.get(weapon)
+        else:
+            record = enhancements.best_entry(weapon, "weapon")
+        if record is None:
+            return
+        wanted_id = int(getattr(record, "item_id", 0) or 0)
         pattern = int(getattr(record, "pattern_id", 0) or 0)
         for item in getattr(self.bot.player, "INVENTORY", []) or []:
             if not getattr(item, "is_equipped", False):
                 continue
             if str(getattr(item, "s_es", "")).lower() != "weapon":
                 continue
-            if pattern and int(getattr(item, "enh_pattern_id", 0) or 0) != pattern:
+            enh_id = int(getattr(item, "enh_id", 0) or 0)
+            if wanted_id and enh_id:
+                if enh_id != wanted_id:
+                    self.log("Health Vamp is not enhanced on the weapon. Ultra "
+                             "Dage will fail.")
+            elif pattern and int(getattr(item, "enh_pattern_id", 0) or 0) != pattern:
                 self.log("Health Vamp is not enhanced on the weapon. Ultra "
                          "Dage will fail.")
             return

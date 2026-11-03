@@ -1117,6 +1117,20 @@ check("weapons: Dage keeps Health Vamp on both healers",
       [presets.preset_for("dage", "Default", slot).weapon
        for slot in (3, 4)], ["Health Vamp", "Health Vamp"])
 
+# The Awe shops sell one Health Vamp per armour family; the pane wears the one
+# that matches its class's armour (Lucky/Wizard/Fighter).
+from bot.ultra.v2 import enhancements  # noqa: E402
+
+check("awe: each armour family has its own Health Vamp",
+      [(enhancements.awe_variant("Health Vamp", base).shop_id,
+        enhancements.awe_variant("Health Vamp", base).pattern_id)
+       for base in ("Lucky", "Wizard", "Fighter")],
+      [(639, 9), (636, 6), (635, 2)])
+check("dage: the weapon is the Health Vamp of the pane's armour",
+      [_dage(slot).preset.weapon for slot in (1, 2, 3, 4)],
+      [enhancements.awe_variant("Health Vamp", base).item_id
+       for base in ("Wizard", "Fighter", "Lucky", "Lucky")])
+
 check("heal policy: every weekly's ArchPaladin heals under 65",
       [(_heal_policy(module, cls, 3).heal_below)
        for module, cls in ((drakath, "UltraDrakath"),

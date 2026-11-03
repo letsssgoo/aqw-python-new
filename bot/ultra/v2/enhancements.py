@@ -313,6 +313,30 @@ def best_entry(name: str, slot: str, is_member: Optional[bool] = None):
     return max(records, key=lambda record: (record.level, record.rarity))
 
 
+#: Awe shops sell the same weapon specials per armour family.  The captured
+#: shops carry the family in ``PatternID``: Lucky = 639/pattern 9, Wizard =
+#: 636/pattern 6, Fighter = 635/pattern 2.  That is what makes "the Health Vamp
+#: that matches Lucky armour" different from the Wizard/Fighter one.
+AWE_SHOP_BY_BASE = {"Lucky": 639, "Wizard": 636, "Fighter": 635}
+AWE_PATTERN_BY_BASE = {"Lucky": 9, "Wizard": 6, "Fighter": 2}
+
+
+def awe_variant(name: str, base: str, level: int = 0):
+    """The ``name`` weapon special sold for ``base``'s armour family."""
+    from model import enhancement as registry
+    try:
+        rows: List = registry.find(name, "weapon")
+    except (KeyError, ValueError):
+        return None
+    pattern = AWE_PATTERN_BY_BASE.get(base)
+    if pattern:
+        rows = [row for row in rows if row.pattern_id == pattern] or rows
+    if not rows:
+        return None
+    fit = [row for row in rows if not level or row.level <= level]
+    return max(fit or rows, key=lambda row: (row.level, row.rarity))
+
+
 async def _buy(cmd, entry) -> bool:
     """Buy one enhancement entry and wait for it to arrive.
 
@@ -357,7 +381,12 @@ def describe(preset: Preset) -> str:
     if preset.helm:
         bits.append(f"helm {preset.helm}")
     if preset.weapon:
+        weapon = preset.weapon
+        if isinstance(weapon, int):
+            from model import enhancement as registry
+            record = registry.get(weapon)
+            weapon = record.name if record else weapon
         fallbacks = f" (then {', '.join(preset.weapon_fallbacks)})" \
             if preset.weapon_fallbacks else ""
-        bits.append(f"weapon {preset.weapon}{fallbacks}")
+        bits.append(f"weapon {weapon}{fallbacks}")
     return " / ".join(bits)
