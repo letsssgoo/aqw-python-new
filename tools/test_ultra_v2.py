@@ -15,12 +15,14 @@ for ultra in ("warden", "ezrajal", "engineer", "tyndarius", "drakath", "drago",
     extra = {"drakath": ["Optimized"],
              "nulgath": ["Optimized"],
              "gramiel": ["Optimized", "Crystal Taunt"],
+             "tyndarius": ["DnL"],
              "speaker": ["3 Man Taunt"]}.get(ultra, [])
     check(f"{ultra}: ported compositions", sorted(table), sorted(base + extra))
     # Slot 2 and slot 4 are not always the same class in the extra columns.
     exceptions = {("nulgath", "Optimized"): "Dragon of Time",
                   ("speaker", "3 Man Taunt"): "ArchPaladin",
-                  ("gramiel", "Crystal Taunt"): "Obsidian Paladin Chronomancer"}
+                  ("gramiel", "Crystal Taunt"): "Obsidian Paladin Chronomancer",
+                  ("tyndarius", "DnL"): "Chaos Avenger"}
     last_slots = {("speaker", "3 Man Taunt"): "Verus DoomKnight",
                   ("gramiel", "Crystal Taunt"): "StoneCrusher"}
     for name, slots in table.items():
@@ -32,6 +34,13 @@ for ultra in ("warden", "ezrajal", "engineer", "tyndarius", "drakath", "drago",
 
 check("default: slot 1 is Legion Revenant",
       options.compositions("warden")["Default"][0], "Legion Revenant")
+check("tyndarius/DnL: the Legion Revenant keeps Wizard armor",
+      (presets.preset_for("tyndarius", "DnL", 1).base,
+       presets.preset_for("tyndarius", "DnL", 1).helm),
+      ("Wizard", "Wizard Helm Enhancement"))
+check("tyndarius/DnL: the other three wear Lucky armor",
+      [presets.preset_for("tyndarius", "DnL", slot).base
+       for slot in (2, 3, 4)], ["Lucky", "Lucky", "Lucky"])
 check("stable: slot 1 is King's Echo",
       options.compositions("warden")["Stable"][0], "King's Echo")
 check("reliable: slot 1 is Verus DoomKnight",

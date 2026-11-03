@@ -203,6 +203,17 @@ PRESETS: Dict[str, Preset] = {
         elixir="Divine Elixir",
         combat_potion="Potent Honor Potion",
     ),
+    # The user's "DnL" Tyndarius party.  Skills are spam (a simple round-robin,
+    # the preset's default mode); the gear is the set the request named --
+    # Lucky armor/helm, Valiance weapon, Vainglory cape.
+    "chaos avenger": Preset(
+        cls="Chaos Avenger",
+        skills=(1, 2, 3, 4),
+        base="Lucky",
+        cape="Vainglory",
+        helm="Lucky Helm Enhancement",
+        weapon="Valiance",
+    ),
 }
 
 

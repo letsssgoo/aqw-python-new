@@ -596,6 +596,10 @@ class _HealCommand(_StubCommand):
         # ``HandleSafeHeal`` returns early while the pane carries no auras at
         # all, so the stub needs at least one for the window to count as open.
         self.bot.player.AURAS = [object()]
+        # The heal only fires while Dage is the live target, like LW's check of
+        # ``Bot.Player.Target?.MapID``; the stub defaults to the boss.
+        self.bot.player.last_target = type("M", (), {
+            "mon_map_id": "1", "current_hp": 1000})()
 
     def is_monster_alive(self, target="*"):
         return True
@@ -611,6 +615,14 @@ check("dage: the only heal is the safe-window one",
       (_clean.spam_heal, _clean.heal_below, _clean.heal_skill),
       (False, None, None))
 check("dage: the safe heal fires once", run(_clean.handle_safe_heal()), True)
+_add_cmd = _HealCommand()
+_add_cmd.bot.player.last_target = type("M", (), {
+    "mon_map_id": "2", "current_hp": 1000})()
+_add = dage.UltraDage(_add_cmd, options.UltraOptions(
+    players=("a", "b", "c", "d")), 3)
+check("dage: no safe heal while an add is the target",
+      run(_add.handle_safe_heal()), False)
+check("dage: ...and nothing was cast", _add_cmd.heals, [])
 check("dage: and not twice in the same window",
       run(_clean.handle_safe_heal()), False)
 _debuffed = dage.UltraDage(_HealCommand(aura=object()), options.UltraOptions(
@@ -1116,6 +1128,20 @@ check("weapons: Darkon's ArchPaladin keeps Valiance",
 check("weapons: Dage keeps Health Vamp on both healers",
       [presets.preset_for("dage", "Default", slot).weapon
        for slot in (3, 4)], ["Health Vamp", "Health Vamp"])
+
+# The Awe shops sell one Health Vamp per armour family; the pane wears the one
+# that matches its class's armour (Lucky/Wizard/Fighter).
+from bot.ultra.v2 import enhancements  # noqa: E402
+
+check("awe: each armour family has its own Health Vamp",
+      [(enhancements.awe_variant("Health Vamp", base).shop_id,
+        enhancements.awe_variant("Health Vamp", base).pattern_id)
+       for base in ("Lucky", "Wizard", "Fighter")],
+      [(639, 9), (636, 6), (635, 2)])
+check("dage: the weapon is the Health Vamp of the pane's armour",
+      [_dage(slot).preset.weapon for slot in (1, 2, 3, 4)],
+      [enhancements.awe_variant("Health Vamp", base).item_id
+       for base in ("Wizard", "Fighter", "Lucky", "Lucky")])
 
 check("heal policy: every weekly's ArchPaladin heals under 65",
       [(_heal_policy(module, cls, 3).heal_below)

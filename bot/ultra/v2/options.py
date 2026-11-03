@@ -37,6 +37,7 @@ SHORT_NAMES = {
     "LightCaster": "LC",
     "Obsidian Paladin Chronomancer": "OPC",
     "Paladin Chronomancer": "PC",
+    "Chaos Avenger": "CA",
 }
 
 LR, SC, AP, LOO, KE, VDK = ("Legion Revenant", "StoneCrusher", "ArchPaladin",
@@ -46,6 +47,7 @@ DOT = "Dragon of Time"
 CS = "Chaos Slayer Berserker"
 LC = "LightCaster"
 OPC = "Obsidian Paladin Chronomancer"
+CA = "Chaos Avenger"
 
 
 @dataclass(frozen=True)
@@ -122,6 +124,18 @@ COMPOSITIONS: Dict[str, Dict[str, Tuple[SlotPlan, ...]]] = {
                    SlotPlan(LOO, weapon="Valiance")),
         "Reliable": (SlotPlan(VDK), SlotPlan(SC), SlotPlan(AP),
                      SlotPlan(LOO, weapon="Valiance")),
+        # The user's "DnL" party: Chaos Avenger takes the StoneCrusher slot and
+        # the monsters are still opened the same way.  Skills are spam (the
+        # simple round-robin).  Gear: Legion Revenant keeps its Wizard armor,
+        # everyone else Lucky armor, Lucky helm, Valiance weapon, Vainglory cape.
+        "DnL": (SlotPlan(LR, base="Wizard", helm="Wizard Helm Enhancement",
+                         weapon="Valiance", cape="Vainglory"),
+                SlotPlan(CA, base="Lucky", helm="Lucky Helm Enhancement",
+                         weapon="Valiance", cape="Vainglory"),
+                SlotPlan(AP, base="Lucky", helm="Lucky Helm Enhancement",
+                         weapon="Valiance", cape="Vainglory"),
+                SlotPlan(LOO, base="Lucky", helm="Lucky Helm Enhancement",
+                         weapon="Valiance", cape="Vainglory")),
     },
     # --- weeklies -------------------------------------------------------
     # Drakath's capes are the script's own: the ArchPaladin always wears

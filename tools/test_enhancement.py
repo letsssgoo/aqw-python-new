@@ -68,6 +68,28 @@ def find_item(items, name_fragment):
     return None
 
 
+def shop_item_ids(path):
+    """The distinct ItemIDs one capture declares."""
+    seen = set()
+    for line in path.read_text(encoding="utf-8").splitlines():
+        text = line.strip()
+        if not text or text.lower().startswith("from client:"):
+            continue
+        if text.lower().startswith("from server:"):
+            text = text.split(":", 1)[1].strip()
+        try:
+            rec = json.loads(text)
+        except ValueError:
+            continue
+        info = ((rec.get("b") or {}).get("o") or {}).get("shopinfo")
+        if not isinstance(info, dict):
+            continue
+        for it in info.get("items") or []:
+            if isinstance(it, dict) and it.get("ItemID") is not None:
+                seen.add(int(it["ItemID"]))
+    return seen
+
+
 def count_shop_items(path):
     """How many distinct ItemIDs a shop capture declares.
 
@@ -76,21 +98,7 @@ def count_shop_items(path):
     failing three assertions.  This is the number ``load()`` should register
     for that source -- shop ``ItemID`` *is* the inventory ``EnhID``.
     """
-    seen = set()
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        try:
-            rec = json.loads(line)
-        except ValueError:
-            continue
-        info = ((rec.get("b") or {}).get("o") or {}).get("shopinfo")
-        if not isinstance(info, dict):
-            continue
-        for it in info.get("items") or []:
-            if isinstance(it, dict) and it.get("ItemID") is not None:
-                seen.add(it["ItemID"])
-    return len(seen)
+    return len(shop_item_ids(path))
 
 
 def main() -> None:
@@ -110,10 +118,17 @@ def main() -> None:
           f"({len(forge)} forge, {len(basic)} basic)")
     print("=" * 74)
     forge_expected = count_shop_items(REPO / "forge_enhancement.jsonl")
-    basic_expected = count_shop_items(REPO / "basic_enhancement.jsonl")
-    check(f"registry loaded {forge_expected + basic_expected} entries "
-          f"({forge_expected} forge + {basic_expected} basic)",
-          n == forge_expected + basic_expected, f"got {n}")
+    basic_ids = shop_item_ids(REPO / "basic_enhancement.jsonl")
+    awe_paths = sorted(REPO.glob("*_awe.jsonl"))
+    awe_expected = sum(count_shop_items(path) for path in awe_paths)
+    for path in awe_paths:
+        basic_ids |= shop_item_ids(path)
+    basic_expected = len(basic_ids)
+    check(f"registry loaded {forge_expected + awe_expected + count_shop_items(REPO / 'basic_enhancement.jsonl')} entries "
+          f"({forge_expected} forge + {basic_expected} basic incl. Awe)",
+          n == (forge_expected
+                + count_shop_items(REPO / "basic_enhancement.jsonl")
+                + awe_expected), f"got {n}")
     check(f"forge file contributed {forge_expected}",
           len(forge) == forge_expected, f"got {len(forge)}")
     check(f"basic file contributed {basic_expected}",
@@ -157,8 +172,10 @@ def main() -> None:
           len(forge) == forge_expected and len(f_ids) == forge_expected,
           f"{len(forge)} entries / {len(f_ids)} ids")
     all_ids = {r.item_id for r in enh.all_enhancements()}
-    check(f"all {n} EnhIDs across both files are distinct",
-          len(all_ids) == n, f"got {len(all_ids)}")
+    expected_unique = len(shop_item_ids(REPO / "forge_enhancement.jsonl")
+                         | basic_ids)
+    check(f"all {expected_unique} EnhIDs across every capture are distinct",
+          len(all_ids) == expected_unique, f"got {len(all_ids)}")
 
     print("\n-- basic enhancements (basic_enhancement.jsonl) --")
     check("52369 -> Awe Blast (basic weapon)",
@@ -801,7 +818,9 @@ def main() -> None:
         calls = []
 
         def is_not_in_map(name):
-            return True          # we are still in yulgar
+            # Still in yulgar, but the lobby join succeeds immediately so the
+            # wait loop runs once instead of spinning.
+            return name != "templeshrine"
 
         async def join_map(name, **kwargs):
             calls.append(("join", name))
@@ -831,7 +850,8 @@ def main() -> None:
     check("temple: after crafting the master re-enters the dungeon",
           ("enter",) in _temple_calls, _temple_calls)
     check("temple: ...and does not jump cells in yulgar",
-          [call for call in _temple_calls if call[0] == "jump"], [])
+          [call for call in _temple_calls if call[0] == "jump"] == [],
+          _temple_calls)
 
     # --- class enhancement without registry rows --------------------------
     # A stock basic_enhancement.jsonl has no class-slot rows; the class

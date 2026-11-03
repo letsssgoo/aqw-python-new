@@ -7,8 +7,14 @@
 
     function api() { return window.pywebview && window.pywebview.api; }
 
-    function esc(s) {
-        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    function fmtHp(n) {
+    n = Number(n || 0);
+    if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+    return String(Math.round(n));
+}
+
+function esc(s) {        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
             return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
         });
     }
@@ -237,6 +243,45 @@
                 if (cls) cls.textContent = s.role;
             }
         });
+
+        // One Monsters HP panel for the whole party, at the top of the page
+        // like the Temple menu.  Every pane stands in the same cell, so the
+        // same monster id repeats; keep one card per id (the fullest HP).
+        var seen = {};
+        SLOT_IDS.forEach(function (sId) {
+            var st = slots[sId];
+            if (!st || !st.running) return;
+            (st.monsters || []).forEach(function (m) {
+                if (!m || !m.alive) return;
+                var key = String(m.id != null ? m.id : m.name);
+                if (!seen[key] || (seen[key].hp || 0) < (m.hp || 0)) {
+                    seen[key] = m;
+                }
+            });
+        });
+        var monPanel = document.getElementById('monsters-panel');
+        var monList = document.getElementById('monsters-list');
+        if (monPanel && monList) {
+            var aliveMons = Object.keys(seen).map(function (k) { return seen[k]; });
+            if (aliveMons.length) {
+                monPanel.classList.remove('hidden');
+                monList.innerHTML = aliveMons.map(function (m) {
+                    var mpct = m.max_hp ? Math.round(m.hp / m.max_hp * 100) : 0;
+                    return '<div class="monster-hp-card">' +
+                        '<div class="monster-info-row">' +
+                        '<span class="monster-name">' + esc(m.name) + '</span>' +
+                        '<span class="monster-hp-text">' + fmtHp(m.hp) + ' / ' +
+                        fmtHp(m.max_hp) + ' (' + mpct + '%)</span>' +
+                        '</div>' +
+                        '<div class="monster-hp-bar-bg">' +
+                        '<div class="monster-hp-bar-fill" style="width:' +
+                        mpct + '%"></div></div></div>';
+                }).join('');
+            } else {
+                monPanel.classList.add('hidden');
+                monList.innerHTML = '';
+            }
+        }
     }
 
     // --- per-player logs ---------------------------------------------------
