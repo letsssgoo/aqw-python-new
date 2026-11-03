@@ -623,12 +623,14 @@ check("dage: no heal while Noxious Decay is up",
 _vdk = _dage(1, "Reliable")
 check("dage: the VDK blocks skill 2 under Unleashed Doom",
       (_vdk.blocked_skill, _vdk.blocked_aura), (2, "Unleashed Doom"))
-check("dage: every pane wears Health Vamp and Vainglory",
+check("dage: every weapon matches its armor type, all Vainglory",
       {(presets.preset_for("dage", composition, slot).weapon,
         presets.preset_for("dage", composition, slot).cape)
        for composition in ("Default", "Stable", "Reliable")
        for slot in (1, 2, 3, 4)},
-      {("Health Vamp", "Vainglory")})
+      {("Wizard Weapon Enhancement", "Vainglory"),
+       ("Fighter Weapon Enhancement", "Vainglory"),
+       ("Lucky Weapon Enhancement", "Vainglory")})
 
 # --- Ultra Gramiel (weekly) ------------------------------------------------
 # Phase 1 balances the Grace Crystals (20 start / 2 stop) and answers crystal
@@ -1111,11 +1113,12 @@ check("weapons: every other weekly's ArchPaladin wears Lacerate",
       ["Lacerate"] * 7)
 check("weapons: Darkon's ArchPaladin keeps Valiance",
       presets.preset_for("darkon", "Default", 3).weapon, "Valiance")
-# Dage keeps Health Vamp on every pane: its own script overrides the weapon
-# and says the fight fails without it.
-check("weapons: Dage keeps Health Vamp on both healers",
+# Dage's weapon follows the armor type now (Wizard/Fighter/Lucky); the two
+# healers are both Lucky classes.
+check("weapons: Dage's healers wear the Lucky weapon",
       [presets.preset_for("dage", "Default", slot).weapon
-       for slot in (3, 4)], ["Health Vamp", "Health Vamp"])
+       for slot in (3, 4)],
+      ["Lucky Weapon Enhancement", "Lucky Weapon Enhancement"])
 
 check("heal policy: every weekly's ArchPaladin heals under 65",
       [(_heal_policy(module, cls, 3).heal_below)

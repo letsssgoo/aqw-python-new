@@ -37,6 +37,7 @@ SHORT_NAMES = {
     "LightCaster": "LC",
     "Obsidian Paladin Chronomancer": "OPC",
     "Paladin Chronomancer": "PC",
+    "Chaos Avenger": "CA",
 }
 
 LR, SC, AP, LOO, KE, VDK = ("Legion Revenant", "StoneCrusher", "ArchPaladin",
@@ -46,6 +47,7 @@ DOT = "Dragon of Time"
 CS = "Chaos Slayer Berserker"
 LC = "LightCaster"
 OPC = "Obsidian Paladin Chronomancer"
+CA = "Chaos Avenger"
 
 
 @dataclass(frozen=True)
@@ -122,6 +124,18 @@ COMPOSITIONS: Dict[str, Dict[str, Tuple[SlotPlan, ...]]] = {
                    SlotPlan(LOO, weapon="Valiance")),
         "Reliable": (SlotPlan(VDK), SlotPlan(SC), SlotPlan(AP),
                      SlotPlan(LOO, weapon="Valiance")),
+        # The user's "DnL" party: Chaos Avenger takes the StoneCrusher slot and
+        # the monsters are still opened the same way.  Skills are spam (the
+        # simple round-robin), and the gear is the set the request named:
+        # Lucky armor/helm, Valiance weapon, Vainglory cape.
+        "DnL": (SlotPlan(LR, base="Lucky", helm="Lucky Helm Enhancement",
+                         weapon="Valiance", cape="Vainglory"),
+                SlotPlan(CA, base="Lucky", helm="Lucky Helm Enhancement",
+                         weapon="Valiance", cape="Vainglory"),
+                SlotPlan(AP, base="Lucky", helm="Lucky Helm Enhancement",
+                         weapon="Valiance", cape="Vainglory"),
+                SlotPlan(LOO, base="Lucky", helm="Lucky Helm Enhancement",
+                         weapon="Valiance", cape="Vainglory")),
     },
     # --- weeklies -------------------------------------------------------
     # Drakath's capes are the script's own: the ArchPaladin always wears
@@ -151,30 +165,42 @@ COMPOSITIONS: Dict[str, Dict[str, Tuple[SlotPlan, ...]]] = {
                       SlotPlan(LOO)),
     },
     # Dage overrides the rotations of slots 2-4 (and slot 1 restates LR's own).
+    # The weapon enhancement follows each class's armor type by request
+    # (Wizard/Fighter/Lucky), instead of the reference's blanket Health Vamp.
     "dage": {
-        # Every pane wears Health Vamp with Vainglory: the script overrides the
-        # class presets, and Dage is won on that weapon's healing.
-        "Default": (SlotPlan(LR, skills=(3, 4, 2, 1), weapon="Health Vamp",
+        "Default": (SlotPlan(LR, skills=(3, 4, 2, 1),
+                             weapon="Wizard Weapon Enhancement",
                              cape="Vainglory"),
-                    SlotPlan(SC, skills=(2, 4, 1), weapon="Health Vamp",
+                    SlotPlan(SC, skills=(2, 4, 1),
+                             weapon="Fighter Weapon Enhancement",
                              cape="Vainglory"),
-                    SlotPlan(AP, skills=(3, 1, 4), weapon="Health Vamp",
+                    SlotPlan(AP, skills=(3, 1, 4),
+                             weapon="Lucky Weapon Enhancement",
                              cape="Vainglory"),
-                    SlotPlan(LOO, skills=(3, 1, 4), weapon="Health Vamp",
+                    SlotPlan(LOO, skills=(3, 1, 4),
+                             weapon="Lucky Weapon Enhancement",
                              cape="Vainglory")),
-        "Stable": (SlotPlan(KE, weapon="Health Vamp", cape="Vainglory"),
-                   SlotPlan(SC, skills=(2, 4, 1), weapon="Health Vamp",
+        "Stable": (SlotPlan(KE, weapon="Lucky Weapon Enhancement",
                             cape="Vainglory"),
-                   SlotPlan(AP, skills=(3, 1, 4), weapon="Health Vamp",
+                   SlotPlan(SC, skills=(2, 4, 1),
+                            weapon="Fighter Weapon Enhancement",
                             cape="Vainglory"),
-                   SlotPlan(LOO, skills=(3, 1, 4), weapon="Health Vamp",
+                   SlotPlan(AP, skills=(3, 1, 4),
+                            weapon="Lucky Weapon Enhancement",
+                            cape="Vainglory"),
+                   SlotPlan(LOO, skills=(3, 1, 4),
+                            weapon="Lucky Weapon Enhancement",
                             cape="Vainglory")),
-        "Reliable": (SlotPlan(VDK, weapon="Health Vamp", cape="Vainglory"),
-                     SlotPlan(SC, skills=(2, 4, 1), weapon="Health Vamp",
+        "Reliable": (SlotPlan(VDK, weapon="Lucky Weapon Enhancement",
                               cape="Vainglory"),
-                     SlotPlan(AP, skills=(3, 1, 4), weapon="Health Vamp",
+                     SlotPlan(SC, skills=(2, 4, 1),
+                              weapon="Fighter Weapon Enhancement",
                               cape="Vainglory"),
-                     SlotPlan(LOO, skills=(3, 1, 4), weapon="Health Vamp",
+                     SlotPlan(AP, skills=(3, 1, 4),
+                              weapon="Lucky Weapon Enhancement",
+                              cape="Vainglory"),
+                     SlotPlan(LOO, skills=(3, 1, 4),
+                              weapon="Lucky Weapon Enhancement",
                               cape="Vainglory")),
     },
     # Darkon: Lament is substituted by Penitence, Absolution on the two

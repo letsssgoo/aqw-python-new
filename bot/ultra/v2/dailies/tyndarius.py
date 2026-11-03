@@ -89,7 +89,7 @@ class UltraTyndarius(V2Core):
         # ArchPaladin and its partner.
         if self.options.composition in FAST_COMPOSITIONS:
             self.is_taunter = self.slot in (2, 3, 4)
-        elif self.options.composition in ("Default", "Reliable"):
+        elif self.options.composition in ("Default", "Reliable", "DnL"):
             self.is_taunter = True
         else:
             self.is_taunter = self.slot in (ARCH_PALADIN_SLOT,
