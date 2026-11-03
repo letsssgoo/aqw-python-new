@@ -181,16 +181,14 @@ class UltraDage(V2Core):
                 self.sync.read(f"MYSTIFY_{attempt}").get(4))
         return True
 
-    def warn_if_weapon_enhancement_missing(self) -> None:
-        """Say it before the pull when the weapon does not carry the preset's
-        enhancement.  The reference warns about Health Vamp; this port lets
-        the weapon follow the armor type, so the check uses the preset's own
-        weapon instead.
+    def warn_if_no_health_vamp(self) -> None:
+        """``WarnIfHealthVampWeaponIsMissing``: say it before the pull.
+
+        The reference puts this in a message box; the engine has no per-pane
+        box, so it is a loud log line on the pane that will fail.
         """
         from bot.ultra.v2 import enhancements
-        record = enhancements.best_entry(self.preset.weapon, "weapon")
-        if record is None:
-            return
+        record = enhancements.best_entry("Health Vamp", "weapon")
         pattern = int(getattr(record, "pattern_id", 0) or 0)
         for item in getattr(self.bot.player, "INVENTORY", []) or []:
             if not getattr(item, "is_equipped", False):
@@ -198,8 +196,8 @@ class UltraDage(V2Core):
             if str(getattr(item, "s_es", "")).lower() != "weapon":
                 continue
             if pattern and int(getattr(item, "enh_pattern_id", 0) or 0) != pattern:
-                self.log(f"{self.preset.weapon} is not enhanced on the weapon. "
-                         f"Ultra Dage may fail.")
+                self.log("Health Vamp is not enhanced on the weapon. Ultra "
+                         "Dage will fail.")
             return
 
     # ------------------------------------------------------------- the fight
