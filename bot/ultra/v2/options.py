@@ -126,9 +126,9 @@ COMPOSITIONS: Dict[str, Dict[str, Tuple[SlotPlan, ...]]] = {
                      SlotPlan(LOO, weapon="Valiance")),
         # The user's "DnL" party: Chaos Avenger takes the StoneCrusher slot and
         # the monsters are still opened the same way.  Skills are spam (the
-        # simple round-robin), and the gear is the set the request named:
-        # Lucky armor/helm, Valiance weapon, Vainglory cape.
-        "DnL": (SlotPlan(LR, base="Lucky", helm="Lucky Helm Enhancement",
+        # simple round-robin).  Gear: Legion Revenant keeps its Wizard armor,
+        # everyone else Lucky armor, Lucky helm, Valiance weapon, Vainglory cape.
+        "DnL": (SlotPlan(LR, base="Wizard", helm="Lucky Helm Enhancement",
                          weapon="Valiance", cape="Vainglory"),
                 SlotPlan(CA, base="Lucky", helm="Lucky Helm Enhancement",
                          weapon="Valiance", cape="Vainglory"),
